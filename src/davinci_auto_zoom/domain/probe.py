@@ -114,6 +114,95 @@ def preflight_failures(
     return tuple(failures)
 
 
+@dataclass(frozen=True, slots=True)
+class VoiceRenderTarget:
+    """What the Phase 3 speech probe expects before it may create a temporary render.
+
+    Like `WriteProbeTarget` these are explicit arguments, not ambient config: the probe
+    duplicates a timeline, toggles tracks on the duplicate and queues a render job, and none
+    of that may happen because a config file happened to be lying around.
+    """
+
+    project: str
+    source_timeline: str
+    voice_audio_track: int
+    #: Built-in Resolve render preset used to get an audio-only export. Verified present
+    #: during preflight rather than assumed, because presets are installation state.
+    render_preset: str = "Audio Only"
+
+
+def voice_render_preflight_failures(
+    snapshot: ProjectSnapshot,
+    target: VoiceRenderTarget,
+    *,
+    render_presets: tuple[str, ...],
+    rendering_in_progress: bool,
+    media_storage_volumes: tuple[str, ...] = ("",),
+) -> tuple[str, ...]:
+    """Every reason the speech probe must refuse to touch Resolve. Empty means cleared.
+
+    Fail-closed, exactly like `preflight_failures` (D015): the caller raises before the first
+    mutating call rather than warning and continuing.
+    """
+
+    failures: list[str] = []
+
+    if snapshot.project_name != target.project:
+        failures.append(
+            f"open project is {snapshot.project_name!r}, expected {target.project!r}"
+        )
+
+    source = snapshot.timeline(target.source_timeline)
+    if source is None:
+        failures.append(f"source timeline {target.source_timeline!r} not found")
+    else:
+        if source.end_frame <= source.start_frame:
+            failures.append(
+                f"{target.source_timeline!r} has an empty frame range "
+                f"[{source.start_frame}, {source.end_frame})"
+            )
+        audio_tracks = source.tracks_of("audio")
+        if target.voice_audio_track < 1:
+            failures.append(
+                f"voice_audio_track must be a 1-based index, got {target.voice_audio_track}"
+            )
+        elif target.voice_audio_track > len(audio_tracks):
+            failures.append(
+                f"voice_audio_track {target.voice_audio_track} does not exist: "
+                f"{target.source_timeline!r} has {len(audio_tracks)} audio track(s). "
+                "Configure [resolve].voice_audio_track (A1 is 1)."
+            )
+        else:
+            voice = source.track("audio", target.voice_audio_track)
+            if voice is not None and not voice.items:
+                failures.append(
+                    f"audio track A{target.voice_audio_track} of "
+                    f"{target.source_timeline!r} is empty; it cannot be the voice track"
+                )
+
+    if rendering_in_progress:
+        failures.append(
+            "Resolve is already rendering. The probe would queue a job into a busy queue "
+            "and could not tell its own render apart from yours."
+        )
+
+    if target.render_preset not in render_presets:
+        failures.append(
+            f"render preset {target.render_preset!r} is not available in this "
+            f"installation; found {len(render_presets)} preset(s)"
+        )
+
+    if not any(volume for volume in media_storage_volumes):
+        # Resolve refuses to render anywhere outside its Media Storage ("Render Path
+        # Inaccessible"), so with no volumes there is nowhere legal to put the audio.
+        failures.append(
+            "Resolve reports no mounted Media Storage volume, so there is no directory it "
+            "will accept as a render target. Add one in Preferences > System > Media Storage."
+        )
+
+    return tuple(failures)
+
+
 def structural_signature(timeline: TimelineSnapshot) -> dict[str, Any]:
     """A comparable structural signature of a timeline.
 
@@ -204,9 +293,11 @@ def signature_differences(
 
 
 __all__ = [
+    "VoiceRenderTarget",
     "WriteProbeTarget",
     "asset_signature",
     "preflight_failures",
     "signature_differences",
     "structural_signature",
+    "voice_render_preflight_failures",
 ]

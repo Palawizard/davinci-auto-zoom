@@ -15,6 +15,7 @@ plausible stand-in, not evidence; only the live probe establishes what Resolve r
 from __future__ import annotations
 
 import copy
+import wave
 from pathlib import Path
 from typing import Any
 
@@ -171,6 +172,10 @@ class FakeTimeline:
         self._unique_id = unique_id or f"uid-{name}"
         self.project: FakeProject | None = None
         self.is_current = False
+        self.sample_rate = 48000
+        #: Per-track enable state. Real Resolve only reports this truthfully for the current
+        #: timeline (D009), which `GetIsTrackEnabled` below reproduces.
+        self.track_enabled: dict[tuple[str, int], bool] = dict.fromkeys(tracks, True)
 
     def GetName(self) -> str:
         return self._name
@@ -179,7 +184,11 @@ class FakeTimeline:
         return self._unique_id
 
     def GetSetting(self, key: str) -> Any:
-        return self._frame_rate if key == "timelineFrameRate" else ""
+        if key == "timelineFrameRate":
+            return self._frame_rate
+        if key == "timelineSampleRate":
+            return self.sample_rate
+        return ""
 
     def GetStartFrame(self) -> int:
         return self._start_frame
@@ -203,12 +212,47 @@ class FakeTimeline:
         return self._tracks[(track_type, index)][2]
 
     def GetIsTrackEnabled(self, track_type: str, index: int) -> bool:
-        return self.is_current  # matches the real API quirk
+        # Matches the real API quirk: False for any non-current timeline.
+        return self.is_current and self.track_enabled.get((track_type, index), True)
 
     def GetIsTrackLocked(self, track_type: str, index: int) -> bool:
         return False
 
+    def enabled_audio_tracks(self) -> list[int]:
+        return sorted(
+            index
+            for (kind, index), state in self.track_enabled.items()
+            if kind == "audio" and state
+        )
+
     # --- write-capable ---------------------------------------------------------------
+
+    def SetTrackEnable(self, track_type: str, index: int, enabled: bool) -> bool:
+        """Reproduces the 21.0.4.5 behaviour measured in D017: reports success, changes
+        nothing observable. Present so a regression back to this API is caught by a test."""
+
+        self._log.record(
+            f"SetTrackEnable({track_type!r}, {index}, {enabled}) on {self._name!r}"
+        )
+        return True
+
+    def DeleteTrack(self, track_type: str, index: int) -> bool:
+        if (track_type, index) not in self._tracks:
+            return False
+        self._log.record(f"DeleteTrack({track_type!r}, {index}) on {self._name!r}")
+        remaining = [
+            (kind, i) for (kind, i) in sorted(self._tracks) if kind == track_type and i != index
+        ]
+        kept = [self._tracks[key] for key in remaining]
+        for key in list(self._tracks):
+            if key[0] == track_type:
+                del self._tracks[key]
+                self.track_enabled.pop(key, None)
+        # Resolve renumbers the surviving tracks; the names travel with them.
+        for new_index, value in enumerate(kept, start=1):
+            self._tracks[(track_type, new_index)] = value
+            self.track_enabled[(track_type, new_index)] = True
+        return True
 
     def DuplicateTimeline(self, name: str) -> FakeTimeline:
         self._log.record(f"DuplicateTimeline({name!r}) from {self._name!r}")
@@ -221,6 +265,8 @@ class FakeTimeline:
             self._log,
             unique_id=f"uid-copy-{name}",
         )
+        duplicate.sample_rate = self.sample_rate
+        duplicate.track_enabled = dict(self.track_enabled)
         if self.project is not None:
             self.project.add_timeline(duplicate)  # Resolve registers it in the project
         return duplicate
@@ -230,6 +276,7 @@ class FakeTimeline:
         index = self.GetTrackCount(track_type) + 1
         label = {"video": "Video", "audio": "Audio", "subtitle": "Subtitle"}[track_type]
         self._tracks[(track_type, index)] = (f"{label} {index}", "", [])
+        self.track_enabled[(track_type, index)] = True
         return True
 
     def add_item(self, track_type: str, index: int, item: FakeTimelineItem) -> None:
@@ -348,6 +395,27 @@ class FakeProject:
         self._current = current_timeline
         media_pool.project = self
 
+        # Deliver page state, mirroring what the live API exposes.
+        self.render_format = "mov"
+        self.render_codec = "ProRes422HQ"
+        self.render_mode = 1
+        self.render_settings: dict[str, Any] = {}
+        self.rendering_in_progress = False
+        self._render_presets: list[str] = ["H.264 Master", "Audio Only"]
+        self._saved_presets: dict[str, tuple[str, str, int]] = {
+            "Audio Only": ("unknown", "", 1)
+        }
+        self._render_jobs: list[dict[str, Any]] = []
+        self._job_status: dict[str, str] = {}
+        self._job_counter = 0
+
+        # Failure switches for the unhappy paths.
+        self.can_save_render_preset = True
+        self.accept_render_settings = True
+        self.render_outcome = "Complete"
+        #: Override the rendered WAV length to simulate a truncated/padded render.
+        self.rendered_wav_seconds: float | None = None
+
     def GetName(self) -> str:
         return self._name
 
@@ -383,10 +451,160 @@ class FakeProject:
         if timeline in self._timelines:
             self._timelines.remove(timeline)
 
+    # --- Deliver page / render queue --------------------------------------------------
+    #
+    # Shaped after the live API on Studio 21.0.4.5: SetRenderSettings is write-only, the
+    # only readable Deliver state is format/codec/mode, and a render preset round-trip is
+    # the documented way to snapshot the rest. `rendered_wav_seconds` makes the fake write
+    # a real (silent) WAV so the whole render -> ffmpeg -> VAD chain can be tested.
+
+    def GetRenderPresetList(self) -> list[str]:
+        return list(self._render_presets)
+
+    def SaveAsNewRenderPreset(self, name: str) -> bool:
+        if name in self._render_presets or not self.can_save_render_preset:
+            return False
+        self._log.record(f"SaveAsNewRenderPreset({name!r})")
+        self._render_presets.append(name)
+        self._saved_presets[name] = (self.render_format, self.render_codec, self.render_mode)
+        return True
+
+    def LoadRenderPreset(self, name: str) -> bool:
+        if name not in self._render_presets:
+            return False
+        self._log.record(f"LoadRenderPreset({name!r})")
+        self.render_format, self.render_codec, self.render_mode = self._saved_presets.get(
+            name, ("unknown", "", 1)
+        )
+        return True
+
+    def DeleteRenderPreset(self, name: str) -> bool:
+        if name not in self._render_presets:
+            return False
+        self._log.record(f"DeleteRenderPreset({name!r})")
+        self._render_presets.remove(name)
+        self._saved_presets.pop(name, None)
+        return True
+
+    def GetCurrentRenderFormatAndCodec(self) -> dict[str, str]:
+        return {"format": self.render_format, "codec": self.render_codec}
+
+    def SetCurrentRenderFormatAndCodec(self, render_format: str, codec: str) -> bool:
+        self._log.record(f"SetCurrentRenderFormatAndCodec({render_format!r}, {codec!r})")
+        self.render_format, self.render_codec = render_format, codec
+        return True
+
+    def GetCurrentRenderMode(self) -> int:
+        return self.render_mode
+
+    def SetCurrentRenderMode(self, mode: int) -> bool:
+        self._log.record(f"SetCurrentRenderMode({mode})")
+        self.render_mode = int(mode)
+        return True
+
+    def SetRenderSettings(self, settings: dict[str, Any]) -> bool:
+        if not self.accept_render_settings:
+            return False
+        self._log.record("SetRenderSettings(...)")
+        self.render_settings = dict(settings)
+        return True
+
+    def IsRenderingInProgress(self) -> bool:
+        return self.rendering_in_progress
+
+    def GetRenderJobList(self) -> list[dict[str, Any]]:
+        return [dict(job) for job in self._render_jobs]
+
+    def AddRenderJob(self) -> str:
+        self._job_counter += 1
+        job_id = f"job-{self._job_counter:04d}"
+        self._log.record(f"AddRenderJob() -> {job_id!r}")
+        timeline = self.GetCurrentTimeline()
+        self._render_jobs.append(
+            {
+                "JobId": job_id,
+                "TimelineName": timeline.GetName() if timeline else None,
+                "settings": dict(self.render_settings),
+                # Recorded so tests can assert isolation happened *before* the job existed.
+                "enabled_audio_tracks": timeline.enabled_audio_tracks() if timeline else [],
+            }
+        )
+        self._job_status[job_id] = "Ready"
+        return job_id
+
+    def DeleteRenderJob(self, job_id: str) -> bool:
+        for job in list(self._render_jobs):
+            if job["JobId"] == job_id:
+                self._log.record(f"DeleteRenderJob({job_id!r})")
+                self._render_jobs.remove(job)
+                self._job_status.pop(job_id, None)
+                return True
+        return False
+
+    def DeleteAllRenderJobs(self) -> bool:  # pragma: no cover - must never be called
+        raise AssertionError("DeleteAllRenderJobs would destroy the user's render queue")
+
+    def StartRendering(self, *job_ids: str) -> bool:
+        """Varargs only, on purpose: the keyword overload hung on 21.0.4.5 (D018)."""
+        self._log.record(f"StartRendering({job_ids!r})")
+        for job_id in job_ids:
+            job = next((j for j in self._render_jobs if j["JobId"] == job_id), None)
+            if job is None:
+                return False
+            if self.render_outcome != "Complete":
+                self._job_status[job_id] = self.render_outcome
+                continue
+            self._write_fake_render(job)
+            self._job_status[job_id] = "Complete"
+        return True
+
+    def GetRenderJobStatus(self, job_id: str) -> dict[str, Any]:
+        return {"JobStatus": self._job_status.get(job_id, "Unknown"), "CompletionPercentage": 100}
+
+    def _write_fake_render(self, job: dict[str, Any]) -> None:
+        """Write a silent 48 kHz stereo WAV the length of the rendered timeline."""
+
+        settings = job["settings"]
+        directory = Path(settings.get("TargetDir", ""))
+        directory.mkdir(parents=True, exist_ok=True)
+        path = directory / f"{settings.get('CustomName', 'render')}.wav"
+        timeline = next(
+            (t for t in self._timelines if t.GetName() == job["TimelineName"]), None
+        )
+        seconds = self.rendered_wav_seconds
+        if seconds is None and timeline is not None:
+            frames = timeline.GetEndFrame() - timeline.GetStartFrame()
+            seconds = frames / float(timeline.GetSetting("timelineFrameRate"))
+        rate = 48000
+        count = int(round((seconds or 0.0) * rate))
+        with wave.open(str(path), "wb") as handle:
+            handle.setnchannels(2)
+            handle.setsampwidth(2)
+            handle.setframerate(rate)
+            handle.writeframes(b"\x00\x00\x00\x00" * count)
+        job["output"] = str(path)
+
+
+class FakeMediaStorage:
+    """Resolve only renders into these locations; anything else is refused (D024)."""
+
+    def __init__(self, volumes: list[str] | None = None) -> None:
+        self.volumes = volumes if volumes is not None else []
+
+    def GetMountedVolumeList(self) -> list[str]:
+        return list(self.volumes)
+
 
 class FakeResolve:
     def __init__(self, project: FakeProject) -> None:
         self._project = project
+        self.media_storage = FakeMediaStorage()
+
+    def GetMediaStorage(self) -> FakeMediaStorage:
+        return self.media_storage
+
+    def GetCurrentPage(self) -> str:
+        return "edit"
 
     def GetVersionString(self) -> str:
         return "21.0.4.5"
@@ -401,10 +619,12 @@ class FakeResolve:
         return self._project
 
 
-def build_test_project() -> tuple[FakeResolve, FakeProject]:
+def build_test_project(audio_tracks: int = 1) -> tuple[FakeResolve, FakeProject]:
     """Two timelines shaped like DAZ_INPUT / DAZ_OUTPUT_MVP.
 
     `project.mutations` is the shared write log; it must stay empty for read-only paths.
+    Pass `audio_tracks=3` for the A1/A2/A3 shape the real test project has, which is what
+    voice-track isolation needs in order to have something to isolate *from*.
     """
 
     log = MutationLog()
@@ -436,8 +656,10 @@ def build_test_project() -> tuple[FakeResolve, FakeProject]:
     base_tracks: dict[tuple[str, int], tuple[str, str, list[FakeTimelineItem]]] = {
         ("video", 1): ("Video 1", "", v1),
         ("video", 2): ("Video 2", "", []),
-        ("audio", 1): ("Audio 1", "stereo", a1),
     }
+    for index in range(1, audio_tracks + 1):
+        # Distinct item counts per track so a test can tell which one survived isolation.
+        base_tracks[("audio", index)] = (f"Audio {index}", "stereo", list(a1) * index)
     reference_tracks = dict(base_tracks)
     reference_tracks[("video", 3)] = (
         "Video 3",
