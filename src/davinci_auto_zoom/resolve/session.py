@@ -58,6 +58,22 @@ def current_project(resolve: Any) -> Any:
     return project
 
 
+def _first_media_pool_item(folder: Any) -> Any:
+    """First clip found anywhere under `folder`, depth-first. Read-only.
+
+    The sample must not depend on a clip sitting in the Media Pool root: a project whose
+    clips all live in bins would otherwise report MediaPoolItem as absent at runtime.
+    """
+
+    for clip in folder.GetClipList() or []:
+        return clip
+    for child in folder.GetSubFolderList() or []:
+        found = _first_media_pool_item(child)
+        if found is not None:
+            return found
+    return None
+
+
 def runtime_method_names(resolve: Any, project: Any) -> dict[str, frozenset[str]]:
     """Attribute names present on one live object per API class.
 
@@ -66,7 +82,7 @@ def runtime_method_names(resolve: Any, project: Any) -> dict[str, frozenset[str]
 
     media_pool = project.GetMediaPool()
     root = media_pool.GetRootFolder() if media_pool else None
-    clips = (root.GetClipList() if root else None) or []
+    clip = _first_media_pool_item(root) if root else None
     timeline = project.GetCurrentTimeline() or (
         project.GetTimelineByIndex(1) if project.GetTimelineCount() else None
     )
@@ -84,7 +100,7 @@ def runtime_method_names(resolve: Any, project: Any) -> dict[str, frozenset[str]
         "Project": project,
         "MediaPool": media_pool,
         "Folder": root,
-        "MediaPoolItem": clips[0] if clips else None,
+        "MediaPoolItem": clip,
         "Timeline": timeline,
         "TimelineItem": item,
     }

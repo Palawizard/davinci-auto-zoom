@@ -8,8 +8,8 @@ from davinci_auto_zoom.domain.snapshot import (
     TimelineItemSnapshot,
     ms_to_frames,
 )
-from davinci_auto_zoom.resolve.session import snapshot_project
-from tests.fake_resolve import build_test_project
+from davinci_auto_zoom.resolve.session import runtime_method_names, snapshot_project
+from tests.fake_resolve import FakeFolder, FakeMediaPool, build_test_project
 
 
 def _snapshot():  # type: ignore[no-untyped-def]
@@ -98,3 +98,16 @@ def test_compare_measures_distance_to_cuts() -> None:
 def test_ms_to_frames_rounds_to_integer_frames() -> None:
     assert ms_to_frames(1000, 60.0) == 60
     assert ms_to_frames(350, 59.94) == 21
+
+
+def test_runtime_sample_finds_a_media_pool_item_nested_in_a_bin() -> None:
+    """The capability sample must not depend on a clip sitting in the Media Pool root."""
+
+    resolve, project = build_test_project()
+    root = project.GetMediaPool().GetRootFolder()
+    # A realistic project keeps its clips in bins, leaving the root folder empty.
+    empty_root = FakeFolder("Master", [], root.GetSubFolderList())
+    project._media_pool = FakeMediaPool(empty_root)  # noqa: SLF001
+
+    runtime = runtime_method_names(resolve, project)
+    assert "GetClipProperty" in runtime["MediaPoolItem"]
