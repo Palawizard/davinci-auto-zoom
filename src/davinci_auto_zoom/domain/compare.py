@@ -4,11 +4,7 @@ from dataclasses import asdict, dataclass
 from typing import Any
 
 from davinci_auto_zoom.domain.models import Frame
-from davinci_auto_zoom.domain.snapshot import (
-    ITEM_KIND_GENERATOR,
-    TimelineItemSnapshot,
-    TimelineSnapshot,
-)
+from davinci_auto_zoom.domain.snapshot import TimelineItemSnapshot, TimelineSnapshot
 
 
 @dataclass(frozen=True, slots=True)
@@ -130,7 +126,6 @@ def alternation(items: tuple[AddedItem, ...]) -> tuple[str, ...]:
 
 
 __all__ = [
-    "ITEM_KIND_GENERATOR",
     "AddedItem",
     "TimelineComparison",
     "added_generator_items",

@@ -3,7 +3,7 @@ import json
 from davinci_auto_zoom.config import Config
 from davinci_auto_zoom.domain.compare import added_generator_items, alternation, compare_timelines
 from davinci_auto_zoom.domain.snapshot import (
-    ITEM_KIND_GENERATOR,
+    ITEM_KIND_LIKELY_GENERATOR,
     ITEM_KIND_MEDIA,
     TimelineItemSnapshot,
     TimelineSnapshot,
@@ -37,8 +37,8 @@ def test_generator_items_are_distinguished_from_media_items() -> None:
     media = TimelineItemSnapshot(
         "clip.mov", 100, 200, media_pool_item_name="clip.mov", source_start_frame=5
     )
-    assert generator.kind == ITEM_KIND_GENERATOR
-    assert media.kind == ITEM_KIND_MEDIA
+    assert generator.probable_kind == ITEM_KIND_LIKELY_GENERATOR
+    assert media.probable_kind == ITEM_KIND_MEDIA
     assert generator.duration == 100
 
 

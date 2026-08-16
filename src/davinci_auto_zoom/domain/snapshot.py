@@ -5,10 +5,10 @@ from typing import Any
 
 from davinci_auto_zoom.domain.models import Frame
 
-# Roles a timeline item can play for davinci-auto-zoom. Only structural facts live here;
-# what the clip visually does is opaque to us (it lives inside the user's Fusion comp).
+# Heuristic classification labels, not authoritative Resolve types. Only structural facts
+# live here; what the clip visually does is opaque to us (it lives in the user's Fusion comp).
 ITEM_KIND_MEDIA = "media"
-ITEM_KIND_GENERATOR = "generator"
+ITEM_KIND_LIKELY_GENERATOR = "likely-generator"
 
 
 @dataclass(frozen=True, slots=True)
@@ -26,10 +26,17 @@ class TimelineItemSnapshot:
         return self.end - self.start
 
     @property
-    def kind(self) -> str:
-        """Generators (adjustment/zoom assets) expose no media pool item nor source frames."""
+    def probable_kind(self) -> str:
+        """**Heuristic** classification, for reporting only — never for edit decisions.
+
+        Observed zoom generators expose neither a media pool item nor source frames, but
+        Resolve gives no documented guarantee that the converse holds: other item types
+        (titles, transitions, compound/Fusion clips, future item kinds) could present the
+        same shape. Identifying DAZ's own zoom assets relies on the dedicated zoom video
+        track plus the configured role names, not on this property.
+        """
         if self.media_pool_item_name is None and self.source_start_frame is None:
-            return ITEM_KIND_GENERATOR
+            return ITEM_KIND_LIKELY_GENERATOR
         return ITEM_KIND_MEDIA
 
 
