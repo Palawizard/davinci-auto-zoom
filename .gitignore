@@ -26,6 +26,11 @@ config.toml
 .DS_Store
 Thumbs.db
 
-# Local coding-agent configuration — intentionally never committed
+# Local coding-agent configuration and documentation — intentionally never committed.
+# These are synchronised separately, outside this repository. Keep them on disk, keep them
+# out of the index.
 /.claude/
 /.codex/
+/.agent/
+/AGENTS.md
+/CLAUDE.md
