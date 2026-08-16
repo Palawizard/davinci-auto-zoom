@@ -26,9 +26,6 @@ config.toml
 .DS_Store
 Thumbs.db
 
-# Local coding-agent memory and configuration — intentionally never committed
-/AGENTS.md
-/CLAUDE.md
-/.agent/
+# Local coding-agent configuration — intentionally never committed
 /.claude/
 /.codex/
