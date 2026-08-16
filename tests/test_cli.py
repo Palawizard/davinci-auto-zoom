@@ -1,4 +1,5 @@
 import json
+import shutil
 
 import pytest
 
@@ -77,3 +78,71 @@ def test_probe_write_refuses_without_the_confirmation_flag(
     )
     assert exit_code == 3
     assert "--confirm-resolve-write-test" in capsys.readouterr().out
+
+
+def test_speech_probe_refuses_without_the_confirmation_flag(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    exit_code = cli.main(
+        [
+            "speech-probe",
+            "--project",
+            "davinci-auto-zoom-test",
+            "--source-timeline",
+            "DAZ_INPUT",
+        ]
+    )
+    assert exit_code == 3
+    assert "--confirm-resolve-render-test" in capsys.readouterr().out
+
+
+def test_the_two_confirmation_flags_are_not_interchangeable() -> None:
+    """Neither probe may be triggered by muscle memory for the other."""
+
+    with pytest.raises(SystemExit):
+        cli.main(
+            [
+                "speech-probe",
+                "--confirm-resolve-write-test",
+                "--project",
+                "davinci-auto-zoom-test",
+                "--source-timeline",
+                "DAZ_INPUT",
+            ]
+        )
+
+
+def test_speech_file_reports_a_missing_audio_file(
+    tmp_path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    assert cli.main(["speech-file", str(tmp_path / "nope.wav")]) == 3
+    assert "not found" in capsys.readouterr().out
+
+
+@pytest.mark.skipif(shutil.which("ffmpeg") is None, reason="ffmpeg is not installed")
+def test_speech_file_analyses_silence_without_resolve(
+    tmp_path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The engine must be usable with no Resolve session anywhere."""
+
+    import wave
+
+    def refuse() -> None:
+        raise AssertionError("speech-file must not connect to Resolve")
+
+    monkeypatch.setattr(cli, "connect", lambda: refuse())
+
+    path = tmp_path / "silence.wav"
+    with wave.open(str(path), "wb") as handle:
+        handle.setnchannels(1)
+        handle.setsampwidth(2)
+        handle.setframerate(16000)
+        handle.writeframes(b"\x00\x00" * 16000 * 2)
+
+    assert cli.main(["speech-file", str(path), "--fps", "60", "--start-frame", "216000",
+                     "--json"]) == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["segments"] == []
+    assert payload["timebase"]["start_frame"] == 216000
+    assert payload["audio"]["sample_rate"] == 16000
+    assert payload["vad"]["settings"]["threshold"] == 0.5

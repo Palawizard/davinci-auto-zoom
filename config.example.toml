@@ -23,19 +23,59 @@ reset_x0 = "FACE_X0_SMOOTH"
 
 [speech]
 # Resolve exposes no API to read transcription data back (see .agent/HANDOFF.md), so the
-# MVP uses an external voice-activity provider. Planned: "audio_activity", "srt", "whisper".
-provider = "audio_activity"
+# MVP uses an external voice-activity provider. Only "silero_vad" exists today; an SRT
+# provider and a Whisper provider (for semantic rules) remain possible later.
+provider = "silero_vad"
 
-# Initial values only; tune against real voice recordings.
-silence_threshold_db = -38.0
-min_silence_ms = 650
-pre_roll_ms = 80
-post_roll_ms = 120
-min_speech_ms = 180
+# ---------------------------------------------------------------------------------------
+# TECHNICAL voice-activity detection parameters.
+#
+# These answer "did the creator actually make speech sounds here?" and nothing else. They
+# are Silero VAD's own knobs and its official defaults; change them only when the detector
+# is visibly wrong about the audio, never to make the resulting zooms look nicer. Editing
+# taste lives in [planner] below.
+# ---------------------------------------------------------------------------------------
+[speech.vad]
+# Speech probability above which a 32 ms window counts as speech.
+threshold = 0.5
+
+# Detected speech shorter than this is discarded as a blip (a click, a breath, a keystroke).
+min_speech_ms = 250
+
+# How long the model must stay quiet before an utterance is considered finished. This is
+# phonetics, not editing: it stops a natural pause inside a sentence from splitting it in
+# two. It is NOT "how long to wait before zooming out" — see reset_after_silence_ms.
+min_silence_ms = 100
+
+# Small technical padding so a segment does not clip the first/last phoneme. It is NOT the
+# zoom's lead-in; a zoom that starts slightly before speech is an editorial choice.
+speech_pad_ms = 30
+
+# Exit threshold: while already in speech, windows below this end it. Leave unset for
+# Silero's default of threshold - 0.15.
+# neg_threshold = 0.35
 
 [planner]
+# ---------------------------------------------------------------------------------------
+# EDITORIAL timing. Phase 4 territory — these keys are documented here so the boundary is
+# unambiguous, but nothing reads them yet.
+# ---------------------------------------------------------------------------------------
+
+# How long the creator must be silent before the tool decides to reset to x0. This is the
+# knob that used to be called [speech].min_silence_ms, which wrongly made an editing
+# preference look like a property of the detector.
+reset_after_silence_ms = 650
+
+# Optional zoom lead-in/lead-out around a speech region (formerly pre_roll_ms/post_roll_ms,
+# which sat in [speech] and were indistinguishable from Silero's technical speech_pad_ms).
+zoom_lead_in_ms = 80
+zoom_lead_out_ms = 120
+
 # If an eligible video edit is this close to a reset decision, planner may snap to it.
 cut_snap_window_ms = 350
+
+# Must respect the zoom asset's own animation length: an instance shorter than the asset's
+# keyframed move is truncated mid-move (see .agent/DECISIONS.md D014).
 min_zoom_ms = 450
 
 [safety]
