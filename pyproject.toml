@@ -9,7 +9,12 @@ description = "Speech-driven zoom automation for DaVinci Resolve gaming edits"
 readme = "README.md"
 requires-python = ">=3.11"
 authors = [{ name = "davinci-auto-zoom contributors" }]
-dependencies = []
+# Speech detection needs a tensor runtime and an array type; nothing else. `ffmpeg` is a
+# system dependency (see README), not a Python one.
+dependencies = [
+  "numpy>=1.26",
+  "onnxruntime>=1.17,<2",
+]
 
 [project.optional-dependencies]
 dev = [
@@ -24,6 +29,11 @@ davinci-auto-zoom = "davinci_auto_zoom.cli:main"
 [tool.setuptools.packages.find]
 where = ["src"]
 
+[tool.setuptools.package-data]
+# The Silero VAD model ships inside the package: pinned, checksummed, and never downloaded
+# at runtime. See src/davinci_auto_zoom/speech/models/PROVENANCE.md.
+"davinci_auto_zoom.speech" = ["models/*.onnx", "models/*.txt", "models/*.md"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["src", "."]
@@ -37,6 +47,13 @@ target-version = "py311"
 select = ["E", "F", "I", "UP", "B", "SIM"]
 
 [tool.mypy]
-python_version = "3.11"
+# The runtime floor stays 3.11 (see requires-python). This is 3.12 only because numpy's
+# bundled stubs use `type` statements, which mypy cannot parse at an earlier target.
+python_version = "3.12"
 strict = true
 packages = ["davinci_auto_zoom"]
+
+[[tool.mypy.overrides]]
+# onnxruntime ships no type information.
+module = ["onnxruntime.*"]
+ignore_missing_imports = true
