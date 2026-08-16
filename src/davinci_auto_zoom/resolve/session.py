@@ -167,20 +167,25 @@ def _walk_bins(folder: Any, path: str = "") -> list[tuple[str, Any]]:
     return found
 
 
-def snapshot_assets(project: Any, config: Config) -> tuple[bool, tuple[AssetSnapshot, ...]]:
-    """Find the configured asset bin recursively and describe every clip inside it."""
+def snapshot_assets(
+    project: Any, config: Config
+) -> tuple[tuple[str, ...], tuple[AssetSnapshot, ...]]:
+    """Find the configured asset bin recursively and describe every clip inside it.
+
+    Returns every matching bin path, so callers can tell "found once" from "ambiguous".
+    """
 
     media_pool = project.GetMediaPool()
     if media_pool is None:
-        return False, ()
+        return (), ()
 
     roles = {name: role for role, name in config.assets.items()}
-    found = False
+    bin_paths: list[str] = []
     assets: list[AssetSnapshot] = []
     for bin_path, folder in _walk_bins(media_pool.GetRootFolder()):
         if folder.GetName() != config.asset_bin:
             continue
-        found = True
+        bin_paths.append(bin_path)
         for clip in folder.GetClipList() or []:
             properties = clip.GetClipProperty() or {}
             frames = str(properties.get("Frames", ""))
@@ -196,7 +201,7 @@ def snapshot_assets(project: Any, config: Config) -> tuple[bool, tuple[AssetSnap
                     role=roles.get(name),
                 )
             )
-    return found, tuple(assets)
+    return tuple(bin_paths), tuple(assets)
 
 
 def snapshot_project(resolve: Any, project: Any, config: Config) -> ProjectSnapshot:
@@ -211,10 +216,10 @@ def snapshot_project(resolve: Any, project: Any, config: Config) -> ProjectSnaps
         for index in range(1, int(project.GetTimelineCount() or 0) + 1)
     )
 
-    bin_found, assets = snapshot_assets(project, config)
+    bin_paths, assets = snapshot_assets(project, config)
 
     warnings: list[str] = []
-    if not bin_found:
+    if not bin_paths:
         warnings.append(
             f"Media Pool bin {config.asset_bin!r} was not found; configure [resolve].asset_bin."
         )
@@ -241,7 +246,7 @@ def snapshot_project(resolve: Any, project: Any, config: Config) -> ProjectSnaps
         current_timeline=current_name,
         timelines=timelines,
         asset_bin=config.asset_bin,
-        asset_bin_found=bin_found,
+        asset_bin_paths=bin_paths,
         assets=assets,
         warnings=tuple(warnings),
     )

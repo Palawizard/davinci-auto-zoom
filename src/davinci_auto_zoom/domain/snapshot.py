@@ -108,9 +108,15 @@ class ProjectSnapshot:
     current_timeline: str | None
     timelines: tuple[TimelineSnapshot, ...] = ()
     asset_bin: str = ""
-    asset_bin_found: bool = False
+    # Every bin path whose name matches the configured asset bin. More than one means the
+    # name is ambiguous, which write-capable commands must refuse.
+    asset_bin_paths: tuple[str, ...] = ()
     assets: tuple[AssetSnapshot, ...] = ()
     warnings: tuple[str, ...] = field(default_factory=tuple)
+
+    @property
+    def asset_bin_found(self) -> bool:
+        return bool(self.asset_bin_paths)
 
     def timeline(self, name: str) -> TimelineSnapshot | None:
         for candidate in self.timelines:
