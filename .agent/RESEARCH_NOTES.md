@@ -268,3 +268,60 @@ Minimum 35 frames (583 ms), median ~190. The MVP `cut_snap_window_ms = 350` is 2
 60 fps, so **not one reset snapped**. Two readings are possible — the window is too small for
 this edit, or this edit simply does not cut right after speech — and distinguishing them needs
 more than one timeline. Deliberately not tuned: the human reference is taste, not a target.
+
+---
+
+## Phase 5 — why a fingerprint, and what it can honestly prove
+
+The Phase 4 `PlanSource` recorded the project name, the timeline name, its unique id, the
+frame range, the frame rate, three track indices, the asset mapping and the planner settings.
+Every one of those can stay identical while the plan silently rots:
+
+| The user does | name | unique id | range | duration | plan still correct? |
+| --- | --- | --- | --- | --- | --- |
+| re-cuts V1 (same total length) | same | same | same | same | **no** — snap targets moved |
+| slips a clip on A1 | same | same | same | same | **no** — speech moved |
+| trims a sentence and closes the gap | same | same | same | same | **no** |
+| adds an overlay on V2 | same | same | same | same | yes |
+| toggles a track's enable state | same | same | same | same | yes |
+
+The first three must fail; the last two must not. That is exactly the line the fingerprint
+draws: hash the two tracks the planner actually reads (voice audio, cut reference) plus the
+range and rate, and nothing else (D030).
+
+What it cannot see, stated plainly rather than buried: anything that changes the *sound* or
+the *look* without moving a clip. A Fairlight level or EQ change on A1 alters what the VAD
+would hear and leaves the fingerprint identical; the same is true of an OFX change on a V1
+clip. The scripting API offers no handle on either, so a fingerprint that claimed to cover
+them would be a lie. The honest statement is "the observable structure is unchanged".
+
+Sorting the items before hashing matters more than it looks: `GetItemListInTrack` gives no
+documented ordering guarantee, so hashing the raw sequence would produce spurious mismatches
+that teach a user to skip the check — the worst possible outcome for a safety mechanism.
+
+## Phase 5 — why the MVP refuses a populated target track instead of learning to overlap
+
+It was tempting to spend the phase characterising Resolve's collision behaviour, the way
+Phase 2 characterised `endFrame`. It would have been the wrong spend:
+
+- to find out, one has to *cause* a collision on a real timeline, and the only honest way to
+  read the result is to look at what happened to the clip that was already there;
+- the MVP does not need the answer. It writes to a dedicated zoom track, and a dedicated
+  zoom track that already has clips on it is either not dedicated or holds a previous run's
+  output — and replacing a previous run's output requires ownership, which does not exist
+  yet;
+- an answer obtained now would have to be re-established anyway once ownership decides
+  *which* clips may be replaced.
+
+So the rule is: empty track or refuse (D032). The unknown is recorded, not papered over.
+
+## Phase 5 — why a successful preview is kept
+
+Every earlier write-capable path deleted everything it made, and that was right: they were
+probes, and a probe that leaves debris in a user's project is a bad probe. `apply-preview` is
+the first path whose *output is the point*. Deleting a correct preview in the `finally` block
+would make the command unable to deliver the only thing it exists to produce.
+
+The asymmetry is therefore deliberate and narrow: kept **only** when every insertion and the
+whole-track comparison passed; deleted in every other case; and in both cases the timeline
+the user had open is restored, so success does not hijack their session (D031).

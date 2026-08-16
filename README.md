@@ -3,11 +3,13 @@
 Experimental automation tool for **DaVinci Resolve** that turns speech activity on a dedicated voice track into deterministic zoom-edit decisions, then applies prebuilt Resolve assets from a specially named Media Pool bin.
 
 > Status: capability discovery complete, asset reuse **proven**, speech detection **proven**,
-> and the deterministic planner **working end to end** on the verified build — a configured
-> voice track now yields a complete, inspectable zoom plan in absolute timeline frames.
-> **Nothing places zooms yet**: no command inserts, moves or deletes a zoom clip. The
-> day-to-day commands are strictly read-only; the development probes make temporary,
-> explicitly opt-in changes and each refuses to run without its own confirmation flag.
+> the deterministic planner **working end to end**, and — new — a plan can now be **applied
+> for real**, on a preview timeline the tool creates itself.
+> **No command modifies an existing timeline of yours.** The day-to-day commands are strictly
+> read-only; the development probes make temporary, opt-in changes and clean up after
+> themselves; and `apply-preview` places the planned zooms on a **new** `DAZ_AUTO_PREVIEW_*`
+> duplicate, which it keeps on success so you can watch it, and deletes again if anything
+> goes wrong. Applying to a timeline you already work in is not implemented yet.
 
 ## MVP target
 
@@ -194,9 +196,17 @@ Available read-only commands (all accept `--json` and `--config`):
 | `compare A B` | Structural diff of two timelines: which items exist only in B, their durations, and how their boundaries relate to existing cuts. |
 | `speech-file AUDIO` | Speech detection on a local audio file, with **no Resolve session at all**. Takes `--fps` and `--start-frame` so the segments come out in your timeline's coordinates. |
 
-Plus three development probes that do make temporary, opt-in changes and clean up after
-themselves: `probe-write`, `speech-probe` and `plan-probe` (below). None of them ever inserts
-a zoom clip.
+Then, in increasing order of what they touch:
+
+| Command | What it changes |
+| --- | --- |
+| `probe-write`, `speech-probe` | **Temporary, opt-in** development probes. Each works on a scratch timeline it creates and deletes, restores everything it touched, and needs its own confirmation flag. Neither leaves anything behind. |
+| `plan-probe` | The full dry run. Uses the same temporary render as `speech-probe`; **never inserts a zoom**. |
+| `apply-preview` | **Write-capable, and deliberately persistent.** Places the planned zooms on a **new** `DAZ_AUTO_PREVIEW_*` timeline duplicated from your source, and keeps it on success so you can inspect it. Your own timelines are never modified. |
+
+There is still **no production command that edits a timeline you already work in.** Applying
+in place, recognising and replacing DAZ's own earlier zooms, `clean` and `rebuild` are not
+implemented.
 
 Every command fails gracefully with an actionable message when Resolve is closed or the
 scripting module cannot be found, and exits non-zero rather than raising.
@@ -208,8 +218,8 @@ conflated.
 
 ### `probe-write` — development only
 
-There is one write-capable command. It is an integration spike used to prove asset reuse,
-not the future executor, and it is built to be impossible to trigger by accident:
+An integration spike used to prove asset reuse, not the executor, and built to be impossible
+to trigger by accident:
 
 ```bash
 python -m davinci_auto_zoom probe-write \
@@ -229,9 +239,8 @@ delete its own scratch timeline it says so by name and leaves everything else al
 
 ### `speech-probe` — development only
 
-The second write-capable command, and like `probe-write` it is impossible to trigger by
-accident. It needs its own distinct flag, so neither probe can be started by muscle memory
-for the other:
+Like `probe-write`, impossible to trigger by accident. It needs its own distinct flag, so
+neither probe can be started by muscle memory for the other:
 
 ```bash
 python -m davinci_auto_zoom speech-probe \
@@ -300,6 +309,61 @@ timeline: how many planned zooms match a manual one, how many do not, and the st
 offsets. That is a diagnostic, never a score — the planner is deliberately **not** tuned to
 reproduce a human edit, and a human correction pass is part of how the tool is meant to work.
 
+### `apply-preview` — the zooms, for real, on a timeline of its own
+
+The first command that actually places zooms. It runs the whole `plan-probe` chain and then
+applies the plan — to a **new** timeline, never to yours:
+
+```bash
+python -m davinci_auto_zoom apply-preview \
+  --confirm-create-preview-timeline \
+  --confirm-resolve-render-test \
+  --project MY_PROJECT \
+  --source-timeline MY_INPUT_TIMELINE \
+  --reference-timeline MY_REFERENCE_TIMELINE \   # optional, diagnostics only
+  --config config.toml
+```
+
+```
+plan -> re-validate the plan against Resolve -> duplicate the source
+  -> empty dedicated zoom track -> place every planned asset -> verify -> keep the preview
+```
+
+Two flags are required, not one: the usual render flag for the temporary voice render, and
+`--confirm-create-preview-timeline` for the write itself. Without the second one the command
+refuses before Resolve is even contacted.
+
+What it guarantees:
+
+- **Your timelines are never modified.** Everything happens on a duplicate named
+  `DAZ_AUTO_PREVIEW_<timestamp>_<id>`, created by this run.
+- **The plan is re-checked against reality first.** Immediately before writing, the tool
+  re-reads the project and compares it with what the plan was built from: project, timeline,
+  its unique id, the frame range, the frame rate, the three configured tracks, the asset
+  names, the Media Pool items those names resolve to, the animation lengths, every planner
+  setting — plus a **structural fingerprint** of the voice track and the cut-reference track.
+  Re-cut your V1 or move a clip on your voice track after planning and the run refuses, even
+  though every name and duration still matches. Nothing is created when it refuses.
+- **It writes only to an empty, dedicated zoom track.** Missing video tracks are added until
+  the configured index exists (V3 by default). A track that already holds *anything* — your
+  clips, or a previous run's zooms — is a refusal. Nothing is ever overwritten, shifted or
+  deleted, and no other track is touched.
+- **Every insertion is verified as it is made**, then the finished track is compared with the
+  whole plan: same count, same order, same frames, no extras, no overlaps, and the user's
+  Fusion composition present on each created instance.
+- **The preview is the transaction.** If anything at all fails, the timeline you had open is
+  restored and *that* preview is deleted and confirmed gone. A preview from an earlier run is
+  never reused, overwritten or deleted.
+- **On success the preview is kept**, on purpose — it is the thing you open and watch. The
+  timeline you had open is still restored, and the report ends with the preview's exact name
+  and unique id.
+- An empty plan creates no timeline at all and reports "nothing to apply".
+- `SaveProject()` is never called.
+
+What it proves, and what it does not: the result is **structurally and rhythmically exactly
+the plan**, placed with the assets you built. Whether the edit *looks* good is a human
+judgement the API cannot make — open the preview and watch it.
+
 ## Configuration
 
 Copy the example file before later milestones:
@@ -347,8 +411,11 @@ Two `[planner]` keys from the early scaffold are gone rather than re-tuned:
 - Dry-run first.
 - Read-only commands may warn about a project/timeline mismatch; write-capable ones must
   refuse to start and require an explicit opt-in flag.
-- Timeline writes only ever target a throwaway timeline created by the run itself, and are
-  cleaned up in a `finally` block.
+- Timeline writes only ever target a timeline created by the run itself. The probes delete
+  theirs unconditionally; `apply-preview` deletes its preview on failure and keeps it on
+  success, and either way the `finally` block restores the timeline you had open.
+- A plan is re-validated against a fresh snapshot, in full, before the first write.
+- Zooms go on a dedicated track that has been verified empty. Nothing is overwritten.
 - Never depend on undocumented API behavior without recording the evidence/version in the local agent notes.
 - Keep frame math in integer timeline frames; convert milliseconds only at configuration boundaries.
 - Keep raw Resolve proxy objects inside the `resolve` package.
@@ -356,4 +423,7 @@ Two `[planner]` keys from the early scaffold are gone rather than re-tuned:
 
 ## Agent-local documentation
 
-This repo ships with local agent guidance (`AGENTS.md`, `CLAUDE.md`, `.agent/`). Those files are intentionally ignored by Git so they can be maintained by coding agents without being published to the public repository.
+This repo ships with local agent guidance (`AGENTS.md`, `CLAUDE.md`, `.agent/`). Those files
+are **tracked in Git and must be committed** alongside the code they describe: the roadmap,
+the decision log and the handoff notes are only useful if their history matches the history
+of the source. Only local tool configuration directories stay ignored.

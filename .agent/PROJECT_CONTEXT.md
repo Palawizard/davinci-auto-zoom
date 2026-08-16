@@ -165,15 +165,41 @@ Do not add a GUI until the real workflow has been validated from CLI/dry-run.
 ## Repository boundaries
 
 - `domain/`: immutable models, sample↔frame timebase, VAD post-processing, reporting
-  statistics, the zoom planner (bursts, placements, cut snapping, decision trace); zero
-  Resolve imports, and no numpy, onnxruntime or ffmpeg either
+  statistics, the zoom planner (bursts, placements, cut snapping, decision trace), the
+  source fingerprint, plan-source validation and the pure executor decisions (target-track
+  policy, expected-vs-actual comparison); zero Resolve imports, and no numpy, onnxruntime or
+  ffmpeg either
 - `resolve/`: Blackmagic module loading, capability discovery, snapshots, asset resolution,
-  voice-track render, later executor
+  voice-track render, and the executor (`resolve/executor.py`) that applies a validated plan
+  to a preview timeline
 - `speech/`: provider interfaces plus the ONNX engine, ffmpeg normalization and the
   analysis pipeline. Usable with no Resolve session at all — that is a requirement, tested,
   not an accident
 - `cli.py`: orchestration only; no business logic
 - `tests/`: primarily pure tests; Resolve integration tests should be opt-in and clearly separated
+
+## Known uncertainty after Phase 5
+
+Phase 5 closed one of the Phase 4 unknowns and deliberately refused to explore another:
+
+- **applying a plan** — resolved and positive: a validated plan becomes real `FACE_X1` /
+  `FACE_X0_SMOOTH` instances on a dedicated track of a `DAZ_AUTO_PREVIEW_*` duplicate, 1:1
+  with the plan and frame-exact (D029-D032);
+- **collision behaviour on a non-empty track** — still unknown, *on purpose*. The MVP writes
+  only to a track it has verified is empty and refuses otherwise (D032), so Resolve's
+  overwrite/shift/refuse semantics never come into play. Discovering them is only worth doing
+  when ownership and `clean`/`rebuild` need it.
+
+New after Phase 5:
+
+- the fingerprint proves API-observable structure only; Fairlight and OFX changes that move
+  no clip are invisible to it (D030);
+- an item that legitimately has no stable id hashes as "no id", so two different clips with
+  identical name and frames would hash alike. Not observed on this project;
+- multi-`clipInfo` `AppendToTimeline` is still untested: the executor inserts sequentially
+  by choice, and has no reason to batch yet;
+- the preview is proof of *structure and timing*, never of how the edit looks. Human visual
+  review remains the only way to certify that.
 
 ## Known uncertainty after Phase 4
 

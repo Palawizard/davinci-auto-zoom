@@ -21,7 +21,10 @@ For the current assignment, also read the prompt file named by the user.
 - Update `.agent/HANDOFF.md` after meaningful work: exact state, commands run, results, blockers, next step.
 - Record durable technical decisions in `.agent/DECISIONS.md`.
 - Update `.agent/IMPLEMENTATION_PLAN.md` only when evidence changes the plan; preserve history rather than silently rewriting intent.
-- Never commit agent-local docs/config. They are intentionally gitignored.
+- **Always commit the agent documentation.** `AGENTS.md`, `CLAUDE.md` and `.agent/` are
+  tracked on purpose: a decision log or handoff whose history does not match the code's is
+  worthless, and the work happens on several machines and in cloud sessions. Include them in
+  the same commit as the change they describe. Only local tool configuration stays ignored.
 
 ## Completion discipline
 

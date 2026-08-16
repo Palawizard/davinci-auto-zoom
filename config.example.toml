@@ -9,7 +9,9 @@ timeline = "DAZ_INPUT"
 # channel mapping. This index is therefore required configuration.
 voice_audio_track = 1
 
-# 1-based video track that receives the zoom adjustment clips.
+# 1-based video track that receives the zoom adjustment clips. `apply-preview` creates it on
+# its preview timeline if it does not exist, and refuses to run if it exists and holds any
+# clip at all: DAZ writes only to a dedicated, empty track and never overwrites anything.
 zoom_video_track = 3
 
 # 1-based video track whose cuts the planner may snap a reset to. This is the edited footage

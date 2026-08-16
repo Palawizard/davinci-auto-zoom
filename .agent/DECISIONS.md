@@ -501,3 +501,123 @@ states (x2/x3, gameplay) become further roles and placements.
 frame range, the exact frame rate, the three track indices, the asset role→name mapping, the
 asset transition frames and every planner setting — so a future executor can verify a plan
 still applies. Phase 4 records it; validating it is Phase 5's job.
+
+---
+
+Decisions below were made during Phase 5 (safe MVP executor + persistent auto-preview
+timeline). They are backed by the pure test suite and by the fake-Resolve executor tests; the
+live confirmation run is recorded in `.agent/HANDOFF.md`.
+
+## D029 — A plan is re-validated against a fresh snapshot, totally, before any write
+
+**Status:** accepted
+
+Phase 4 recorded a `PlanSource` and validated nothing (its own note said so). Phase 5 adds
+the missing half in `domain/plan_validation.py`:
+
+1. the executor re-snapshots the source **immediately before writing**;
+2. it rebuilds a `PlanSource` from that fresh snapshot through
+   `build_plan_source` — the *same* constructor the planning run used, so a difference can
+   only come from Resolve, never from two call sites filling a field differently;
+3. it compares the two field by field: project, timeline name, timeline unique id,
+   start/end frame, frame rate, voice audio track, cut-reference video track, zoom video
+   track, role→asset-name mapping, per-role transition frames, every planner setting, the
+   resolved asset identities, and the structural fingerprint (D030).
+
+Any single difference is a **refusal**: zero insertions, zero preview, and it happens before
+the source timeline is even duplicated, so a stale plan costs the user nothing to discover.
+There is deliberately no "close enough" tier — the executor's whole safety argument is that
+it applies what the planner decided to the material the planner read.
+
+A plan carrying no `PlanSource` at all is refused for the same reason.
+
+Frame rates are compared as canonical strings (`timeline_frame_rate`), so Resolve reporting
+`60.0` in one run and `60` in another can never look like a rate change, and `59.94` is
+always the exact `60000/1001`.
+
+## D030 — The plan carries a structural fingerprint of the source, not just its name
+
+**Status:** accepted
+
+Names, unique ids and durations are not enough. A user can re-cut V1, slip a clip on the
+voice track or trim a sentence and keep the timeline's name, its unique id **and** its total
+length; the plan then describes an edit that no longer exists.
+
+`domain/fingerprint.py` therefore hashes the observable structure the planner actually read,
+and nothing else:
+
+* the analysed frame range and the exact frame rate;
+* every item on the configured **voice audio track** — stable id when Resolve provides one,
+  name, start, end, duration;
+* every item on the configured **cut-reference video track**, the same way.
+
+Serialization is canonical (JSON, sorted keys, no insignificant whitespace, UTF-8) and the
+digest is SHA-256, printed as `sha256:<hex>`. Items are sorted before hashing, so the order
+Resolve happens to return them in is not part of the identity.
+
+Deliberately excluded, with reasons:
+
+* **`GetIsTrackEnabled`** — Resolve reports it falsely for any timeline that is not the
+  current one (D009). Hashing it would make the fingerprint depend on which timeline the
+  user has open;
+* **tracks the planner never reads** (V2, A2/A3, subtitles) — a change there cannot change
+  the plan, and a check that fails for irrelevant reasons teaches people to bypass it.
+
+**Honest limit, stated once and not softened:** this proves the *structure the scripting API
+exposes*. A Fairlight change (level, EQ, a fade, a plugin) that alters what the voice sounds
+like without moving a clip is invisible to it, and so is an OFX/Fusion change on a video
+clip. Two equal fingerprints mean "the structure the planner looked at is unchanged", not
+"the project is unchanged".
+
+## D031 — The preview timeline is the transaction boundary, and success keeps it
+
+**Status:** accepted
+
+`apply-preview` never touches an existing timeline. It duplicates the configured source into
+`DAZ_AUTO_PREVIEW_<timestamp>_<short id>` and does everything there, which makes the whole
+run a single transaction with an obvious undo: delete the timeline this run created.
+
+* **On failure** — any refused guard, any insertion that does not match, any exception —
+  `try/finally` restores the timeline the user had open, deletes *that* preview, verifies it
+  is gone, and audits the protected timelines. Rollback is whole-preview rather than
+  item-by-item: removing a timeline this run created is a smaller and far more verifiable
+  action than un-editing one.
+* **On success the preview is kept.** This is the deliberate difference from the Phase 2/3
+  probes, which delete everything: the preview *is* the deliverable, the thing a human opens
+  and watches. The previously active timeline is still restored, so the user's session is
+  where they left it, and the report prints the preview's exact name and unique id.
+
+An older `DAZ_AUTO_PREVIEW_*` is never reused, overwritten or deleted — cleanup only ever
+touches the object this run created, and only after checking its name carries the prefix.
+
+`SaveProject()` is never called. Creating the timeline through the API is enough; forcing a
+save of the user's project is not this tool's decision.
+
+## D032 — MVP collision policy: a dedicated, verified-empty target track, or nothing
+
+**Status:** accepted
+
+Phase 2 only ever inserted onto empty space, so Resolve's behaviour when a clip collides with
+an existing one is still unknown. Phase 5 does **not** find out. It does not need to:
+
+* if the configured `zoom_video_track` does not exist, video tracks are appended (and the
+  count re-checked after each `AddTrack`) until the index exists;
+* if it exists and is **empty**, it is used;
+* if it holds **any** `TimelineItem` — someone's titles, or a previous DAZ run's zooms — the
+  run is refused before a single insertion.
+
+No overlapping `Append` is ever issued "to see what happens", nothing is overwritten, shifted
+or deleted, and no attempt is made to recognise DAZ's own earlier output. Ownership markers,
+idempotence, `clean` and `rebuild` are Phase 6; until they exist, refusing is the only answer
+that cannot damage an edit.
+
+Nothing else on the preview is modified either: V1/V2 keep their clips, names and order, no
+track is enabled, disabled or deleted, no gap is created, and the audio is left exactly as
+duplicated.
+
+Insertions are sequential (one `clipInfo` per `AppendToTimeline`), not batched: a failure
+then names the placement that caused it instead of leaving 28 of them to be attributed. Each
+one is verified immediately (exactly one returned item, expected name, start, end, duration,
+track, non-zero Fusion comp count), and the finished track is compared with the whole plan
+afterwards — same count, same order, no extras, no gaps in the mapping, no overlaps, not one
+frame of drift. Only then is the run declared successful.

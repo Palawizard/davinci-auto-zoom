@@ -244,38 +244,82 @@ The note about verifying "reset after the last cut if present and close, otherwi
 against concrete examples was followed: those examples are the parametrised cases in
 `tests/test_planner.py`.
 
-## Phase 5 — Safe Resolve executor for x1 -> x0 [NEXT]
+## Phase 5 — Safe MVP executor + persistent auto-preview timeline [DONE (code); live run pending]
 
-Goal: apply a reviewed plan on a test timeline. The plan is now a real artefact: an ordered
-list of `AssetPlacement`s plus a `PlanSource` signature, so the executor inserts what the
-planner decided and never recomputes timing.
+Goal: apply a reviewed plan for the first time, on a timeline the run creates itself.
 
-Requirements:
+Outcome: the chain now runs to real clips —
 
-- dedicated output video track
-- dry-run remains default
-- preflight detects collisions (**untested by Phase 2**: every probe insertion landed on
-  empty space, so collision behaviour must be established before the first real apply)
-- tool owns every inserted item and can identify it later
-- asset insertion is exactly the Phase 2 proven call (D013); do not invent alternatives
-- write guards are fail-closed like the probe's (D015), not warnings
-- placements are inserted as planned; the executor validates `PlanSource` against the live
-  project rather than re-deriving any timing (D028). There is no `min_zoom_ms` any more, and
-  the asset's native Media Pool length is not a constraint (D025)
-- no destructive overwrite of unrelated clips
-- failure midway leaves recoverable state or performs cleanup
+```
+DAZ_INPUT -> voice render -> Silero VAD -> plan -> fresh source validation
+  -> DAZ_AUTO_PREVIEW_<timestamp>_<id> (duplicate) -> empty V3
+  -> one AppendToTimeline per placement -> verified 1:1 against the plan -> preview KEPT
+```
 
-First test on a duplicate/throwaway timeline.
+Delivered:
+
+- `domain/fingerprint.py` — canonical, order-independent SHA-256 of the voice track, the
+  cut-reference track, the range and the frame rate (D030)
+- `domain/plan_validation.py` — one shared `build_plan_source`, plus a total field-by-field
+  comparison against a fresh snapshot; any difference refuses (D029)
+- `domain/apply.py` — target-track policy (create missing tracks, accept an empty one,
+  refuse a populated one), the exact `{clipInfo}` for a placement, per-insertion checks and
+  the whole-track expected-vs-actual comparison
+- `domain/probe.py` — `ApplyPreviewTarget` and its fail-closed preflight
+- `resolve/executor.py` — the executor: duplicate, prepare, insert sequentially, verify,
+  restore the user's active timeline, delete the preview on failure, keep it on success
+  (D031/D032)
+- `apply-preview` CLI command behind **two** flags: `--confirm-create-preview-timeline` for
+  the write, and the existing render flag for the temporary voice render
+- `PlanSource.asset_identities` and `PlanSource.structural_fingerprint`
+- ~85 new tests: fingerprinting, plan-source validation, target-track policy, insertion
+  arguments, verification, rollback, "old preview never touched", "empty plan creates
+  nothing"
+
+Deliberately **not** done, and still out of scope: apply in place on a user timeline,
+ownership markers, idempotence, `clean`, `rebuild`, updating an old plan, x2/x3, gameplay
+zooms, UI, packaging. Nor was any editorial parameter tuned — VAD, reset gate, cut snap
+window and the 15/15 transition frames are untouched.
+
+Original requirements, and what shipped:
+
+- dedicated output video track — **shipped**, and it must be empty (D032)
+- dry-run remains default — **shipped**: `plan-probe` is unchanged and `apply-preview` needs
+  its own second flag
+- preflight detects collisions — **replaced by refusing them**. Resolve's collision
+  behaviour is still unknown and Phase 5 deliberately does not explore it: an occupied
+  target track aborts before any insertion (D032)
+- tool owns every inserted item and can identify it later — **deferred to Phase 6**. Nothing
+  in this phase recognises, replaces or deletes a DAZ clip
+- asset insertion is exactly the Phase 2 proven call (D013) — **shipped**, one `clipInfo`
+  per call, `endFrame` exclusive
+- write guards are fail-closed like the probe's (D015) — **shipped**, plus the new
+  `PlanSource` validation (D029)
+- placements are inserted as planned, `PlanSource` validated rather than timing re-derived —
+  **shipped**. The executor makes no editorial decision at all
+- no destructive overwrite of unrelated clips — **shipped**, by construction: it only ever
+  writes to a duplicate, and only onto an empty track
+- failure midway leaves recoverable state or performs cleanup — **shipped**: the preview is
+  the transaction, and it is deleted whole (D031)
+
+First test on a duplicate timeline: that is now the only mode there is.
 
 Exit criteria:
 
-- one short representative edit works end-to-end
-- rerunning does not blindly duplicate tool-owned edits
-- generated items can be removed/rebuilt without touching human edits
+- one short representative edit works end-to-end ✔ (pending the live confirmation run
+  recorded in `HANDOFF.md`)
+- rerunning does not blindly duplicate tool-owned edits — **Phase 6**: today each run makes
+  its own preview and never touches an earlier one
+- generated items can be removed/rebuilt without touching human edits — **Phase 6**
 
-## Phase 6 — Idempotency + workflow polish
+## Phase 6 — Idempotency + workflow polish [NEXT]
 
 Goal: make repeated editing practical.
+
+Starting point after Phase 5: `apply-preview` proves the executor is correct but always
+builds a fresh timeline and refuses a populated target track. The next questions, in order,
+are how a DAZ-created clip is *identified* later, what a second run should do with an
+existing preview, and only then whether applying in place on a user timeline is safe.
 
 Tasks:
 
