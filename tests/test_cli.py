@@ -59,3 +59,21 @@ def test_compare_text_survives_a_timeline_without_cuts(
 
     assert cli.main(["compare", "DAZ_INPUT", "DAZ_OUTPUT_MVP"]) == 0
     assert "startΔcut=    ?" in capsys.readouterr().out
+
+
+def test_probe_write_refuses_without_the_confirmation_flag(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    exit_code = cli.main(
+        [
+            "probe-write",
+            "--project",
+            "davinci-auto-zoom-test",
+            "--source-timeline",
+            "DAZ_INPUT",
+            "--reference-timeline",
+            "DAZ_OUTPUT_MVP",
+        ]
+    )
+    assert exit_code == 3
+    assert "--confirm-resolve-write-test" in capsys.readouterr().out

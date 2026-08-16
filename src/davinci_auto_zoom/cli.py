@@ -9,6 +9,7 @@ from typing import Any
 
 from davinci_auto_zoom.config import Config
 from davinci_auto_zoom.domain.compare import added_generator_items, compare_timelines
+from davinci_auto_zoom.domain.probe import WriteProbeTarget
 from davinci_auto_zoom.domain.snapshot import ProjectSnapshot
 from davinci_auto_zoom.resolve.capability_probe import probe_resolve
 from davinci_auto_zoom.resolve.session import (
@@ -17,10 +18,16 @@ from davinci_auto_zoom.resolve.session import (
     current_project,
     snapshot_project,
 )
+from davinci_auto_zoom.resolve.write_probe import (
+    CONFIRM_FLAG,
+    WriteProbeRefused,
+    run_write_probe,
+)
 
 EXIT_OK = 0
 EXIT_RESOLVE_UNAVAILABLE = 2
 EXIT_BAD_REQUEST = 3
+EXIT_PROBE_FAILED = 4
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -44,6 +51,29 @@ def _build_parser() -> argparse.ArgumentParser:
     compare = add("compare", "Read-only structural diff between two timelines.")
     compare.add_argument("input_timeline", help="Timeline without the automated zooms.")
     compare.add_argument("reference_timeline", help="Human reference timeline.")
+
+    probe = add(
+        "probe-write",
+        "DEVELOPMENT ONLY. Phase 2 spike: WRITES to a scratch timeline it creates and "
+        "deletes. Requires an explicit confirmation flag and exact expected names.",
+    )
+    probe.add_argument(
+        CONFIRM_FLAG,
+        action="store_true",
+        dest="confirmed",
+        help="Required. Without it the probe refuses to run and nothing is modified.",
+    )
+    # Required and explicit on purpose: a write-capable command must never inherit a
+    # partially-filled config and guess what it is allowed to touch.
+    probe.add_argument("--project", required=True, help="Exact expected project name.")
+    probe.add_argument(
+        "--source-timeline", required=True, help="Timeline to duplicate. Never modified."
+    )
+    probe.add_argument(
+        "--reference-timeline",
+        required=True,
+        help="Timeline holding correct manual instances. Read-only reference.",
+    )
     return parser
 
 
@@ -102,6 +132,30 @@ def main(argv: Sequence[str] | None = None) -> int:
     except (FileNotFoundError, ValueError) as exc:
         print(f"error: {exc}")
         return EXIT_BAD_REQUEST
+
+    if args.command == "probe-write":
+        try:
+            resolve = connect()
+            project = current_project(resolve)
+        except ResolveUnavailableError as exc:
+            print(f"error: {exc}")
+            return EXIT_RESOLVE_UNAVAILABLE
+        target = WriteProbeTarget(
+            project=args.project,
+            source_timeline=args.source_timeline,
+            reference_timeline=args.reference_timeline,
+            asset_bin=config.asset_bin,
+            assets=tuple(sorted(config.assets.items())),
+        )
+        try:
+            probe = run_write_probe(
+                resolve, project, config, target, confirmed=args.confirmed
+            )
+        except WriteProbeRefused as exc:
+            print(f"refused: {exc}")
+            return EXIT_BAD_REQUEST
+        _emit(probe.to_dict(), probe.to_text(), args.as_json)
+        return EXIT_OK if probe.succeeded else EXIT_PROBE_FAILED
 
     if args.command == "doctor":
         report = probe_resolve()
