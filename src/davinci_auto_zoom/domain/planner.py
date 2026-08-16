@@ -171,10 +171,34 @@ class AssetPlacement:
 
 
 @dataclass(frozen=True, slots=True)
-class PlanSource:
-    """Everything a future executor needs to check that this plan still fits reality.
+class AssetIdentity:
+    """Which Media Pool item a role actually resolved to, by every stable id available.
 
-    Recorded, not validated: deciding whether a plan may still be applied is Phase 5's job.
+    The configured name alone is a weak identity: two runs can find a *different* clip under
+    the same name after a re-import or a bin edit. Phase 5 compares these before writing.
+    """
+
+    role: str
+    name: str
+    media_id: str | None = None
+    unique_id: str | None = None
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "role": self.role,
+            "name": self.name,
+            "media_id": self.media_id,
+            "unique_id": self.unique_id,
+        }
+
+
+@dataclass(frozen=True, slots=True)
+class PlanSource:
+    """Everything an executor needs to check that this plan still fits reality.
+
+    Recorded by the planner, validated by the executor before it is allowed to write
+    (`domain/plan_validation.py`). The scalar fields identify *which* material was planned
+    against; `structural_fingerprint` proves that material has not been re-cut since.
     """
 
     project: str
@@ -190,6 +214,10 @@ class PlanSource:
     assets: tuple[tuple[str, str], ...] = ()
     asset_transition_frames: tuple[tuple[str, int], ...] = ()
     planner_settings: PlannerSettings = field(default_factory=PlannerSettings)
+    #: The Media Pool items the roles resolved to, with their stable ids.
+    asset_identities: tuple[AssetIdentity, ...] = ()
+    #: `domain.fingerprint.source_fingerprint` of the voice/cut structure that was read.
+    structural_fingerprint: str = ""
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -205,6 +233,8 @@ class PlanSource:
             "assets": dict(self.assets),
             "asset_transition_frames": dict(self.asset_transition_frames),
             "planner_settings": self.planner_settings.to_dict(),
+            "asset_identities": [identity.to_dict() for identity in self.asset_identities],
+            "structural_fingerprint": self.structural_fingerprint,
         }
 
 
@@ -605,6 +635,7 @@ __all__ = [
     "REASON_X1_UNTIL_DIRECT_RESET",
     "ROLE_FACECAM_X1",
     "ROLE_RESET_X0",
+    "AssetIdentity",
     "AssetPlacement",
     "AssetTiming",
     "PlanSource",
