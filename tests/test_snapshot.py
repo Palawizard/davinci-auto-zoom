@@ -146,3 +146,15 @@ def test_compare_handles_a_reference_track_with_no_cuts_to_measure_against() -> 
     added = added_generator_items(compare_timelines(empty, reference))
     assert added[0].start_offset_to_nearest_cut is None
     assert added[0].end_offset_to_nearest_cut is None
+
+
+def test_hard_cuts_need_a_clip_on_both_sides() -> None:
+    """Entering from black or running out into a gap is not a cut (Phase 4)."""
+
+    timeline = _snapshot().timeline("DAZ_INPUT")
+    assert timeline is not None
+    # V1 holds three contiguous clips spanning [216000, 216500).
+    assert timeline.hard_cuts() == (216132, 216300)
+    # The head of the first clip and the tail of the last one are boundaries, not cuts.
+    assert timeline.edit_boundaries() == (216000, 216132, 216300, 216500)
+    assert timeline.hard_cuts(video_track_index=9) == ()

@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 from dataclasses import dataclass
-from enum import StrEnum
 
 Frame = int
 
@@ -90,30 +89,8 @@ def normalize_speech_segments(
     return tuple(merged)
 
 
-class ZoomState(StrEnum):
-    NORMAL = "normal"
-    FACECAM_X1 = "facecam_x1"
-    # Future states belong here rather than in Resolve-specific code:
-    # FACECAM_X2, FACECAM_X3, GAMEPLAY_*, etc.
-
-
-class ZoomActionKind(StrEnum):
-    ENTER = "enter"
-    RESET = "reset"
-
-
-@dataclass(frozen=True, slots=True)
-class ZoomAction:
-    frame: Frame
-    kind: ZoomActionKind
-    target: ZoomState
-    asset_role: str
-    reason: str
-
-    def __post_init__(self) -> None:
-        if self.frame < 0:
-            raise ValueError("frame must be >= 0")
-        if not self.asset_role.strip():
-            raise ValueError("asset_role cannot be empty")
-        if not self.reason.strip():
-            raise ValueError("reason cannot be empty")
+# The Phase 0 scaffold also carried `ZoomState` / `ZoomActionKind` / `ZoomAction`: a state
+# machine emitting ENTER/RESET events at single frames. Phase 4 replaced it with
+# `domain.planner.AssetPlacement`, which carries the full half-open range of each asset
+# instance, because an event pair forces the executor to re-derive the durations the planner
+# already computed. Future states (x2/x3, gameplay) become further roles and placements.

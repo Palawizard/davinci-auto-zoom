@@ -72,7 +72,11 @@ class TimelineSnapshot:
         return tuple(t for t in self.tracks if t.track_type == track_type)
 
     def edit_boundaries(self, video_track_index: int = 1) -> tuple[Frame, ...]:
-        """Frames where a cut exists on the given video track (clip starts and ends)."""
+        """Every clip start and end on the given video track.
+
+        A superset of `hard_cuts`: it includes the first clip's head, the last clip's tail and
+        both edges of any gap. Useful for reporting; too loose for the planner.
+        """
         track = self.track("video", video_track_index)
         if track is None:
             return ()
@@ -81,6 +85,22 @@ class TimelineSnapshot:
             frames.add(item.start)
             frames.add(item.end)
         return tuple(sorted(frames))
+
+    def hard_cuts(self, video_track_index: int = 1) -> tuple[Frame, ...]:
+        """Frames where one clip ends and another begins **on the same track**.
+
+        This is what an editor means by a cut, and it is stricter than `edit_boundaries` on
+        purpose: entering from black or running out into a gap is not a cut, so a reset must
+        not be snapped onto one. The distinction matters because a zoom that returns to normal
+        framing on a real cut looks deliberate, while one that returns in the middle of a
+        held shot just looks late.
+        """
+        track = self.track("video", video_track_index)
+        if track is None:
+            return ()
+        starts = {item.start for item in track.items}
+        ends = {item.end for item in track.items}
+        return tuple(sorted(starts & ends))
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
