@@ -203,6 +203,96 @@ def voice_render_preflight_failures(
     return tuple(failures)
 
 
+@dataclass(frozen=True, slots=True)
+class ApplyPreviewTarget:
+    """What the Phase 5 executor expects before it may create a preview timeline.
+
+    Same rule as the two probes (D015): the expectations are explicit arguments, never
+    ambient config, because this is the first command that leaves something behind.
+    """
+
+    project: str
+    source_timeline: str
+    #: Optional, diagnostics only. Never written to, never used to decide anything.
+    reference_timeline: str | None
+    voice_audio_track: int
+    cut_reference_video_track: int
+    zoom_video_track: int
+    asset_bin: str
+    assets: tuple[tuple[str, str], ...]  # (role, media pool clip name)
+
+    @property
+    def asset_names(self) -> tuple[str, ...]:
+        return tuple(name for _, name in self.assets)
+
+    @property
+    def protected_timelines(self) -> tuple[str, ...]:
+        """Timelines that must be byte-for-structure identical before and after the run."""
+
+        names = [self.source_timeline]
+        if self.reference_timeline:
+            names.append(self.reference_timeline)
+        return tuple(dict.fromkeys(names))
+
+
+def apply_preview_preflight_failures(
+    snapshot: ProjectSnapshot, target: ApplyPreviewTarget
+) -> tuple[str, ...]:
+    """Every reason the executor must refuse. Empty means "cleared to create a preview".
+
+    Fail-closed, and evaluated *before* the source timeline is duplicated, so a refusal costs
+    the user nothing at all — not even a leftover preview to delete.
+    """
+
+    failures: list[str] = []
+
+    if snapshot.project_name != target.project:
+        failures.append(
+            f"open project is {snapshot.project_name!r}, expected {target.project!r}"
+        )
+
+    source = snapshot.timeline(target.source_timeline)
+    if source is None:
+        failures.append(f"source timeline {target.source_timeline!r} not found")
+    if target.reference_timeline and snapshot.timeline(target.reference_timeline) is None:
+        failures.append(
+            f"reference timeline {target.reference_timeline!r} not found"
+        )
+    if target.reference_timeline == target.source_timeline:
+        failures.append("source and reference timelines are the same timeline")
+
+    if len(snapshot.asset_bin_paths) != 1:
+        failures.append(
+            f"asset bin {target.asset_bin!r} must resolve to exactly one bin, "
+            f"found {len(snapshot.asset_bin_paths)}: {list(snapshot.asset_bin_paths)}"
+        )
+
+    for role, name in target.assets:
+        matches = [asset for asset in snapshot.assets if asset.name == name]
+        if len(matches) != 1:
+            failures.append(
+                f"asset {name!r} (role {role!r}) must be found exactly once, "
+                f"found {len(matches)}"
+            )
+
+    if source is not None:
+        if target.zoom_video_track < 1:
+            failures.append(
+                f"zoom_video_track must be a 1-based index, got {target.zoom_video_track}"
+            )
+        for label, index, kind in (
+            ("voice_audio_track", target.voice_audio_track, "audio"),
+            ("cut_reference_video_track", target.cut_reference_video_track, "video"),
+        ):
+            if source.track(kind, index) is None:
+                failures.append(
+                    f"{label} {index} does not exist on {target.source_timeline!r} "
+                    f"({len(source.tracks_of(kind))} {kind} track(s))"
+                )
+
+    return tuple(failures)
+
+
 def structural_signature(timeline: TimelineSnapshot) -> dict[str, Any]:
     """A comparable structural signature of a timeline.
 
@@ -293,8 +383,10 @@ def signature_differences(
 
 
 __all__ = [
+    "ApplyPreviewTarget",
     "VoiceRenderTarget",
     "WriteProbeTarget",
+    "apply_preview_preflight_failures",
     "asset_signature",
     "preflight_failures",
     "signature_differences",
