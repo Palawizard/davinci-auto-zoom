@@ -392,7 +392,11 @@ class FakeProject:
         for timeline in timelines:
             timeline.is_current = timeline.GetName() == current_timeline
             timeline.project = self
-        self._current = current_timeline
+        # Held by object, not by name: Resolve has no trouble with two timelines sharing a
+        # name, so identity checks must be expressible against this fake.
+        self._current: FakeTimeline | None = next(
+            (t for t in timelines if t.GetName() == current_timeline), None
+        )
         media_pool.project = self
 
         # Deliver page state, mirroring what the live API exposes.
@@ -432,15 +436,15 @@ class FakeProject:
         return self._timelines[index - 1]
 
     def GetCurrentTimeline(self) -> FakeTimeline | None:
-        return next((t for t in self._timelines if t.GetName() == self._current), None)
+        return self._current
 
     def SetCurrentTimeline(self, timeline: FakeTimeline) -> bool:
         # Switching the current timeline changes no content, but it is restored anyway.
         if timeline not in self._timelines:
             self._timelines.append(timeline)
-        self._current = timeline.GetName()
+        self._current = timeline
         for candidate in self._timelines:
-            candidate.is_current = candidate.GetName() == self._current
+            candidate.is_current = candidate is timeline
         return True
 
     def add_timeline(self, timeline: FakeTimeline) -> None:

@@ -378,6 +378,15 @@ def test_the_originals_are_untouched_and_the_active_timeline_is_restored() -> No
 
     assert report.previous_current_timeline == "DAZ_OUTPUT_MVP"
     assert report.restored_current_timeline == "DAZ_OUTPUT_MVP"
+    # Restoration is proven by identity, not merely attempted.
+    assert report.current_timeline_restored is True
+    assert report.previous_current_timeline_unique_id is not None
+    assert (
+        report.restored_current_timeline_unique_id
+        == report.previous_current_timeline_unique_id
+    )
+    assert report.cleanup_failures == ()
+    assert project.GetCurrentTimeline().GetName() == "DAZ_OUTPUT_MVP"
     assert report.audit_checked == ("DAZ_INPUT", "DAZ_OUTPUT_MVP", "assets")
     assert project.GetTimelineByIndex(1).GetTrackCount("video") == 2  # no V3 on DAZ_INPUT
     assert len(project.GetTimelineByIndex(2).GetItemListInTrack("video", 3)) == 3
@@ -490,6 +499,242 @@ def test_an_exception_at_placement_n_rolls_the_earlier_ones_back_too() -> None:
     assert calls["n"] == 3
     assert [record.ok for record in report.insertions] == [True, True, False]
     _assert_rolled_back(report, project)
+
+
+# --- restoring the user's timeline is part of the transaction ---------------------------
+#
+# The preview is made current so AppendToTimeline can reach it, so failing to put the user's
+# timeline back means the preview may still be the active one. These tests pin both halves of
+# that: the run must fail, and the preview must survive rather than be deleted blind.
+
+
+def _break_restore(project: Any, behaviour: Any) -> None:
+    """Let the executor make the preview current, then break restoring the user's timeline."""
+
+    original = project.SetCurrentTimeline
+
+    def patched(timeline: Any) -> Any:
+        if timeline.GetName().startswith(PREVIEW_PREFIX):
+            return original(timeline)
+        return behaviour(timeline, original)
+
+    project.SetCurrentTimeline = patched
+
+
+def _run_with_broken_restore(behaviour: Any) -> tuple[Any, Any]:
+    resolve, project, source = _live()
+    _old_preview(project)
+    _break_restore(project, behaviour)
+    report = apply_preview(resolve, project, CONFIG, TARGET, _plan(source), confirmed=True)
+    return report, project
+
+
+def _assert_unsafe_to_delete(report: Any, project: Any) -> None:
+    """A failed restore must fail the run *and* leave the preview alone."""
+
+    assert report.current_timeline_restored is False
+    assert report.succeeded is False
+    assert report.cleanup_failures  # the reason is visible, not swallowed
+    assert report.error is not None
+    assert report.preview_kept is False
+    # Not deleted: it may still be the active timeline.
+    assert report.preview_deleted is False
+    assert report.preview_name in _previews(project)
+    assert any("NOT DELETED" in note for note in report.notes)
+    assert "CLEANUP FAILURES" in report.to_text()
+    assert "RESULT: FAIL" in report.to_text()
+    # The older preview and both protected timelines are untouched.
+    assert f"{PREVIEW_PREFIX}20260101_010101_deadbeef" in _previews(project)
+    assert report.audit_differences == ()
+    assert "DAZ_INPUT" in _timeline_names(project)
+    assert "DAZ_OUTPUT_MVP" in _timeline_names(project)
+
+
+def test_a_restore_that_reports_failure_fails_the_run_and_keeps_the_preview() -> None:
+    report, project = _run_with_broken_restore(lambda timeline, original: False)
+    _assert_unsafe_to_delete(report, project)
+    assert report.restored_current_timeline != "DAZ_OUTPUT_MVP"
+
+
+def test_a_restore_that_raises_fails_the_run_and_keeps_the_preview() -> None:
+    def explode(timeline: Any, original: Any) -> Any:
+        raise RuntimeError("Resolve went away")
+
+    report, project = _run_with_broken_restore(explode)
+    _assert_unsafe_to_delete(report, project)
+    assert any("raised" in failure for failure in report.cleanup_failures)
+
+
+def test_a_restore_that_claims_success_but_does_not_switch_fails_the_run() -> None:
+    """The dangerous one: only re-reading GetCurrentTimeline() catches it."""
+
+    report, project = _run_with_broken_restore(lambda timeline, original: True)
+    _assert_unsafe_to_delete(report, project)
+    assert report.restored_current_timeline == report.preview_name
+    assert any("the active timeline is" in f for f in report.cleanup_failures)
+
+
+def test_a_restore_onto_a_different_timeline_of_the_same_name_fails_the_run() -> None:
+    """Name equality is not identity; the unique id is checked too."""
+
+    resolve, project, source = _live()
+    imposter = FakeTimeline(
+        "DAZ_OUTPUT_MVP", {("video", 1): ("Video 1", "", [])}, unique_id="uid-imposter"
+    )
+
+    def swap(timeline: Any, original: Any) -> Any:
+        return original(imposter)
+
+    _break_restore(project, swap)
+    report = apply_preview(resolve, project, CONFIG, TARGET, _plan(source), confirmed=True)
+
+    assert report.restored_current_timeline == "DAZ_OUTPUT_MVP"
+    assert report.restored_current_timeline_unique_id == "uid-imposter"
+    assert report.current_timeline_restored is False
+    assert report.succeeded is False
+    assert any("unique id" in failure for failure in report.cleanup_failures)
+
+
+# --- the protected audit is inside the transaction --------------------------------------
+
+
+def test_a_protected_timeline_changing_mid_run_fails_and_deletes_the_preview() -> None:
+    """Every insertion is correct and the track matches the plan — and the run still fails.
+
+    Keeping the preview must be the *last* decision, taken after the protected audit, or a
+    run could hand the user a "successful" preview while `DAZ_OUTPUT_MVP` had moved.
+    """
+
+    resolve, project, source = _live()
+    _old_preview(project)
+    reference = project.GetTimelineByIndex(2)
+    assert reference.GetName() == "DAZ_OUTPUT_MVP"
+    media_pool = project.GetMediaPool()
+    original = media_pool.AppendToTimeline
+    calls = {"n": 0}
+
+    def append_then_disturb(clip_infos: list[dict[str, Any]]) -> list[FakeTimelineItem]:
+        items = original(clip_infos)
+        calls["n"] += 1
+        if calls["n"] == len(PLACEMENTS):
+            # Something outside DAZ edits a protected timeline while the run is in flight.
+            reference.add_item(
+                "video",
+                3,
+                FakeTimelineItem("intruder", 216900, 216950, track=("video", 3)),
+            )
+        return items
+
+    media_pool.AppendToTimeline = append_then_disturb  # type: ignore[method-assign]
+    report = apply_preview(resolve, project, CONFIG, TARGET, _plan(source), confirmed=True)
+
+    # The insertions themselves were flawless.
+    assert all(record.ok for record in report.insertions)
+    assert report.verified is True
+    assert report.verification_differences == ()
+    # The audit still vetoes the run, and the preview is not kept.
+    assert report.audit_differences
+    assert any("DAZ_OUTPUT_MVP" in difference for difference in report.audit_differences)
+    assert report.succeeded is False
+    assert report.error is not None
+    assert report.preview_kept is False
+    # Restoration succeeded, so deleting this run's preview was safe — and it happened.
+    assert report.current_timeline_restored is True
+    assert report.preview_deleted is True
+    assert report.preview_absent_after_rollback is True
+    assert _previews(project) == [f"{PREVIEW_PREFIX}20260101_010101_deadbeef"]
+    # DAZ never tries to "repair" a protected timeline.
+    assert len(reference.GetItemListInTrack("video", 3)) == 4
+
+
+def test_an_audit_that_cannot_be_read_fails_the_run() -> None:
+    """An unreadable post-run audit is a failure, not a silently skipped step."""
+
+    resolve, project, source = _live()
+    media_pool = project.GetMediaPool()
+    original = media_pool.AppendToTimeline
+
+    def explode(index: int) -> Any:
+        raise RuntimeError("Resolve went away")
+
+    def append_then_break(clip_infos: list[dict[str, Any]]) -> list[FakeTimelineItem]:
+        items = original(clip_infos)
+        # Resolve stops answering after the last insertion, so the post-run audit — and only
+        # it — cannot be read.
+        project.GetTimelineByIndex = explode  # type: ignore[method-assign]
+        return items
+
+    media_pool.AppendToTimeline = append_then_break  # type: ignore[method-assign]
+    report = apply_preview(resolve, project, CONFIG, TARGET, _plan(source), confirmed=True)
+
+    assert all(record.ok for record in report.insertions)
+    assert report.succeeded is False
+    assert report.error is not None
+    assert any("audit" in failure for failure in report.cleanup_failures)
+    assert report.preview_kept is False
+
+
+# --- what `succeeded` actually means ----------------------------------------------------
+
+
+def _passing_report() -> Any:
+    resolve, project, source = _live()
+    report = apply_preview(resolve, project, CONFIG, TARGET, _plan(source), confirmed=True)
+    assert report.succeeded is True
+    return report
+
+
+@pytest.mark.parametrize(
+    "break_it",
+    [
+        pytest.param(lambda r: setattr(r, "error", "boom"), id="error"),
+        pytest.param(
+            lambda r: setattr(r, "preflight_failures", ("nope",)), id="preflight"
+        ),
+        pytest.param(
+            lambda r: setattr(r, "source_mismatches", ("stale",)), id="source-mismatch"
+        ),
+        pytest.param(lambda r: setattr(r, "wrote", False), id="never-wrote"),
+        pytest.param(
+            lambda r: setattr(r, "preview_matched_source", False), id="unfaithful-copy"
+        ),
+        pytest.param(
+            lambda r: r.track.update(blockers=["occupied"], usable=False), id="track-unusable"
+        ),
+        pytest.param(lambda r: r.insertions.clear(), id="no-insertions"),
+        pytest.param(
+            lambda r: setattr(r.insertions[0], "ok", False), id="one-bad-insertion"
+        ),
+        pytest.param(lambda r: setattr(r, "verified", False), id="unverified"),
+        pytest.param(
+            lambda r: setattr(r, "verification_differences", ("drift",)),
+            id="verification-difference",
+        ),
+        pytest.param(
+            lambda r: setattr(r, "current_timeline_restored", False), id="not-restored"
+        ),
+        pytest.param(
+            lambda r: setattr(r, "current_timeline_restored", None), id="restore-unknown"
+        ),
+        pytest.param(
+            lambda r: setattr(r, "audit_differences", ("DAZ_INPUT moved",)), id="audit"
+        ),
+        pytest.param(
+            lambda r: setattr(r, "cleanup_failures", ("could not restore",)), id="cleanup"
+        ),
+        pytest.param(lambda r: setattr(r, "preview_kept", False), id="preview-not-kept"),
+        pytest.param(
+            lambda r: setattr(r, "preview_absent_after_rollback", False), id="leaked-preview"
+        ),
+    ],
+)
+def test_every_promised_property_can_veto_success(break_it: Any) -> None:
+    """The truth table for `succeeded`: each property alone is enough to fail the run."""
+
+    report = _passing_report()
+    break_it(report)
+    assert report.succeeded is False
+    assert "RESULT: FAIL" in report.to_text()
 
 
 def test_a_track_that_cannot_be_created_rolls_back_before_any_insertion() -> None:

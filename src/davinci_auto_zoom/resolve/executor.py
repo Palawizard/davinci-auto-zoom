@@ -26,9 +26,18 @@ Safety model, in order:
 6. the preview timeline is the transaction boundary. On failure `try/finally` restores the
    timeline the user had open and deletes the preview this run created — only that one, never
    an older `DAZ_AUTO_PREVIEW_*` (D031);
-7. **on success the preview is kept**, on purpose: it is the artefact a human inspects. The
-   previously active timeline is still restored;
-8. a post-run audit re-reads the protected timelines and fails on any difference.
+7. restoring the user's active timeline is **part of the transaction**, not a courtesy after
+   it. `SetCurrentTimeline` is called, its return value is checked, and `GetCurrentTimeline()`
+   is re-read and matched on unique id (name as fallback). Anything short of that proof fails
+   the run — and, because the preview may then still *be* the active timeline, the preview is
+   deliberately kept rather than deleted. Safety beats tidy cleanup (D033);
+8. the post-run audit of the protected timelines and assets is the **last** thing that can
+   veto the run. Keeping the preview is therefore the final decision of the transaction, taken
+   only once the insertions, the whole-track verification, the restoration *and* the audit have
+   all passed. An audit difference deletes the preview this run created, like any other
+   failure.
+
+**on success the preview is kept**, on purpose: it is the artefact a human inspects.
 
 `SaveProject()` is never called. Creating the timeline through the API is enough, and forcing
 a save of the user's project is not this tool's decision to make.
@@ -150,7 +159,12 @@ class ApplyReport:
     preview_absent_after_rollback: bool | None = None
 
     previous_current_timeline: str | None = None
+    previous_current_timeline_unique_id: str | None = None
     restored_current_timeline: str | None = None
+    restored_current_timeline_unique_id: str | None = None
+    #: Tri-state on purpose: None means "the transaction never got as far as restoring".
+    #: Only True is a proof, and only True can contribute to `succeeded`.
+    current_timeline_restored: bool | None = None
 
     insertions: list[InsertionRecord] = field(default_factory=list)
     verification_differences: tuple[str, ...] = ()
@@ -158,6 +172,9 @@ class ApplyReport:
 
     audit_checked: tuple[str, ...] = ()
     audit_differences: tuple[str, ...] = ()
+    #: Cleanup problems that are failures in their own right — a timeline that could not be
+    #: restored, an audit that could not be read. Never silently swallowed.
+    cleanup_failures: tuple[str, ...] = ()
     notes: list[str] = field(default_factory=list)
     error: str | None = None
 
@@ -169,17 +186,41 @@ class ApplyReport:
 
     @property
     def succeeded(self) -> bool:
+        """Every property Phase 5 promises, and nothing weaker.
+
+        Written as one flat conjunction on purpose: a reader must be able to see the whole
+        definition of "this run is safe to trust" without following it through helpers. If a
+        property matters, it belongs here — not in `notes`.
+        """
+
         if self.nothing_to_apply:
             # A plan with no placements is a legitimate, successful outcome: there was
-            # nothing to apply, so no preview was created and nothing was touched.
-            return self.clean and self.error is None
+            # nothing to apply, so no preview was created and nothing was touched. The
+            # active timeline was never changed, so there is nothing to have restored.
+            return (
+                self.error is None
+                and not self.preflight_failures
+                and not self.source_mismatches
+                and not self.audit_differences
+                and not self.cleanup_failures
+            )
         return (
-            self.clean
-            and self.error is None
-            and self.verified is True
-            and self.preview_kept
+            self.error is None
+            and not self.preflight_failures
+            and not self.source_mismatches
+            and self.wrote
+            and self.preview_matched_source is True
+            and self.track is not None
+            and bool(self.track["usable"])
             and bool(self.insertions)
             and all(record.ok for record in self.insertions)
+            and self.verified is True
+            and not self.verification_differences
+            and self.current_timeline_restored is True
+            and not self.audit_differences
+            and not self.cleanup_failures
+            and self.preview_kept
+            and self.clean
         )
 
     def to_dict(self) -> dict[str, Any]:
@@ -238,12 +279,17 @@ class ApplyReport:
             lines.extend(f"    - {item}" for item in self.verification_differences)
         lines.extend(
             [
-                f"  cleanup   : restored={self.restored_current_timeline} "
-                f"preview_kept={self.preview_kept} preview_deleted={self.preview_deleted} "
+                f"  restored  : {self.restored_current_timeline} "
+                f"(was {self.previous_current_timeline}) proven={self.current_timeline_restored}",
+                f"  cleanup   : preview_kept={self.preview_kept} "
+                f"preview_deleted={self.preview_deleted} "
                 f"absent={self.preview_absent_after_rollback}",
                 f"  audit     : {', '.join(self.audit_checked) or '-'}",
             ]
         )
+        if self.cleanup_failures:
+            lines.append("  CLEANUP FAILURES:")
+            lines.extend(f"    - {failure}" for failure in self.cleanup_failures)
         if self.audit_differences:
             lines.append("  AUDIT DIFFERENCES:")
             lines.extend(f"    - {difference}" for difference in self.audit_differences)
@@ -404,33 +450,112 @@ def _verify_target_track(
     report.verified = not report.verification_differences
 
 
-def _rollback_or_keep(
+def _timeline_identity(timeline: Any) -> tuple[str | None, str | None]:
+    """`(name, unique_id)` for a live timeline. The id is optional, the name is not."""
+
+    if timeline is None:
+        return None, None
+    unique_id: Any = None
+    with suppress(Exception):  # GetUniqueId is documented, but identity must not hinge on it
+        unique_id = timeline.GetUniqueId()
+    return str(timeline.GetName()), str(unique_id) if unique_id is not None else None
+
+
+def _restore_previous_timeline(
+    project: Any, previous_timeline: Any, report: ApplyReport
+) -> bool:
+    """Put the user's timeline back, and *prove* it. Returns False unless proven.
+
+    Fail-closed by design: restoring what the user had open is part of the transaction's
+    success, not a best-effort courtesy (D033). Three things must hold — the call must not
+    raise, it must not report failure, and the re-read must land on the same timeline —
+    because each of them has a plausible failure mode that the others would not catch.
+    """
+
+    if previous_timeline is None:
+        # No timeline was open before the run, so there is nothing to restore. Whatever is
+        # current now is recorded, not asserted.
+        name, unique_id = _timeline_identity(project.GetCurrentTimeline())
+        report.restored_current_timeline = name
+        report.restored_current_timeline_unique_id = unique_id
+        report.current_timeline_restored = True
+        return True
+
+    failures: list[str] = []
+    try:
+        returned = project.SetCurrentTimeline(previous_timeline)
+    except Exception as exc:
+        failures.append(
+            f"SetCurrentTimeline({report.previous_current_timeline!r}) raised {exc!r}"
+        )
+    else:
+        if not returned:
+            failures.append(
+                f"SetCurrentTimeline({report.previous_current_timeline!r}) returned "
+                f"{returned!r}"
+            )
+
+    try:
+        name, unique_id = _timeline_identity(project.GetCurrentTimeline())
+    except Exception as exc:
+        # Runs inside a `finally`; an unreadable Resolve must fail the run, not crash it.
+        failures.append(f"GetCurrentTimeline() could not be re-read: {exc!r}")
+        name, unique_id = None, None
+    report.restored_current_timeline = name
+    report.restored_current_timeline_unique_id = unique_id
+
+    want_id = report.previous_current_timeline_unique_id
+    if name != report.previous_current_timeline:
+        failures.append(
+            f"the active timeline is {name!r}, expected {report.previous_current_timeline!r}"
+        )
+    elif want_id is not None and unique_id is not None and unique_id != want_id:
+        failures.append(
+            f"the active timeline is named {name!r} but its unique id is {unique_id!r}, "
+            f"expected {want_id!r}"
+        )
+
+    report.current_timeline_restored = not failures
+    if failures:
+        report.cleanup_failures += tuple(
+            f"could not restore the previously active timeline: {failure}"
+            for failure in failures
+        )
+    return not failures
+
+
+def _dispose_preview(
     project: Any,
     media_pool: Any,
-    previous_timeline: Any,
     preview: Any,
     report: ApplyReport,
     *,
     keep: bool,
+    restored: bool,
 ) -> None:
-    """Restore the user's active timeline, then keep or delete the preview this run made.
+    """Keep or delete the preview this run made — never anything else.
 
     Deletion is whole-transaction: the preview is dropped entirely rather than picking
     individual clips back out of it, because removing a timeline this run created is a
     smaller and far more verifiable action than un-editing one.
     """
 
-    if previous_timeline is not None:
-        with suppress(Exception):
-            project.SetCurrentTimeline(previous_timeline)
-    current = project.GetCurrentTimeline()
-    report.restored_current_timeline = str(current.GetName()) if current else None
-
     if preview is None:
         return
     name = report.preview_name or ""
     if keep:
         report.preview_kept = True
+        return
+    if not restored:
+        # The preview may still *be* the active timeline. Deleting the timeline Resolve has
+        # open is exactly the kind of blind cleanup this tool must not do.
+        report.preview_deleted = False
+        report.notes.append(
+            f"PREVIEW TIMELINE DELIBERATELY NOT DELETED: {name!r}. This run failed, but the "
+            "previously active timeline could not be provably restored, so this preview may "
+            "still be the active timeline and deleting it was not safe. No other timeline "
+            "was touched. Inspect Resolve, then delete it manually."
+        )
         return
     if not name.startswith(PREVIEW_PREFIX):
         # Belt and braces: never hand a timeline this run did not create to DeleteTimelines.
@@ -442,12 +567,70 @@ def _rollback_or_keep(
     except Exception as exc:
         report.preview_deleted = False
         report.notes.append(f"DeleteTimelines raised {exc!r}")
-    report.preview_absent_after_rollback = find_timeline(project, name) is None
+    try:
+        report.preview_absent_after_rollback = find_timeline(project, name) is None
+    except Exception as exc:
+        # This runs inside the caller's `finally`. An exception here would replace the real
+        # failure with a cleanup traceback, which is the one thing the report must never do.
+        report.preview_absent_after_rollback = False
+        report.cleanup_failures += (
+            f"could not confirm whether the preview {name!r} was deleted: {exc!r}",
+        )
     if not report.preview_absent_after_rollback:
         report.notes.append(
             f"FAILED PREVIEW TIMELINE LEFT BEHIND: {name!r}. It was not deleted; no other "
             "timeline was touched. Delete it manually after inspection."
         )
+
+
+def _finish_transaction(
+    project: Any,
+    media_pool: Any,
+    config: Config,
+    target: ApplyPreviewTarget,
+    previous_timeline: Any,
+    preview: Any,
+    report: ApplyReport,
+    before: dict[str, Any],
+    *,
+    verified: bool,
+) -> None:
+    """Close the transaction: restore, audit, and only then decide the preview's fate.
+
+    Order matters and is the whole point. Keeping the preview is the *last* decision, taken
+    once every other obligation has been discharged, so a run can never announce a keepable
+    preview while the user's timeline is still missing or a protected timeline has moved.
+    """
+
+    restored = _restore_previous_timeline(project, previous_timeline, report)
+
+    report.audit_checked = tuple(sorted(before))
+    try:
+        after = _protected_signatures(project, config, target.protected_timelines)
+    except Exception as exc:
+        report.cleanup_failures += (
+            f"the post-run audit of the protected timelines could not be read: {exc!r}",
+        )
+    else:
+        differences: list[str] = []
+        for key in sorted(set(before) | set(after)):
+            differences.extend(signature_differences(key, before.get(key), after.get(key)))
+        report.audit_differences = tuple(differences)
+
+    keep = (
+        verified
+        and restored
+        and not report.audit_differences
+        and not report.cleanup_failures
+    )
+    _dispose_preview(
+        project, media_pool, preview, report, keep=keep, restored=restored
+    )
+
+    if report.error is None and (report.cleanup_failures or report.audit_differences):
+        # The insertions were fine, so nothing above set an error. The run still failed, and
+        # it must say so rather than reporting a clean cleanup.
+        report.error = "; ".join(report.cleanup_failures + report.audit_differences)
 
 
 def apply_preview(
@@ -550,17 +733,22 @@ def apply_preview(
     expected = expected_items(plan, dict(target.assets), config.zoom_video_track)
 
     media_pool = project.GetMediaPool()
+    # Captured before any mutation, and by identity rather than by name alone: the cleanup
+    # has to be able to *prove* it put this exact timeline back.
     previous_timeline = project.GetCurrentTimeline()
-    report.previous_current_timeline = (
-        str(previous_timeline.GetName()) if previous_timeline else None
-    )
+    (
+        report.previous_current_timeline,
+        report.previous_current_timeline_unique_id,
+    ) = _timeline_identity(previous_timeline)
     before = _protected_signatures(project, config, target.protected_timelines)
 
     source = find_timeline(project, target.source_timeline)
     assert source is not None  # guaranteed by preflight
     preview: Any = None
     preview_name = preview_timeline_name(now)
-    keep = False
+    #: "the insertions and the whole-track verification passed". Not "the run succeeded":
+    #: restoration and the protected audit still get a veto, in `_finish_transaction`.
+    verified = False
 
     try:
         preview = source.DuplicateTimeline(preview_name)
@@ -616,21 +804,23 @@ def apply_preview(
                 "the finished track does not match the plan: "
                 + "; ".join(report.verification_differences)
             )
-        keep = True
+        verified = True
     except Exception as exc:
         report.error = f"{type(exc).__name__}: {exc}"
-        keep = False
+        verified = False
     finally:
-        _rollback_or_keep(
-            project, media_pool, previous_timeline, preview, report, keep=keep
+        _finish_transaction(
+            project,
+            media_pool,
+            config,
+            target,
+            previous_timeline,
+            preview,
+            report,
+            before,
+            verified=verified,
         )
 
-    after = _protected_signatures(project, config, target.protected_timelines)
-    report.audit_checked = tuple(sorted(before))
-    differences: list[str] = []
-    for key in sorted(set(before) | set(after)):
-        differences.extend(signature_differences(key, before.get(key), after.get(key)))
-    report.audit_differences = tuple(differences)
     return report
 
 
