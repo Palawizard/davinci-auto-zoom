@@ -204,6 +204,47 @@ def snapshot_assets(
     return tuple(bin_paths), tuple(assets)
 
 
+def find_timeline(project: Any, name: str) -> Any:
+    """The live Timeline object with this name, or None. Read-only."""
+
+    for index in range(1, int(project.GetTimelineCount() or 0) + 1):
+        timeline = project.GetTimelineByIndex(index)
+        if timeline is not None and str(timeline.GetName()) == name:
+            return timeline
+    return None
+
+
+def find_asset_items(project: Any, config: Config) -> dict[str, Any]:
+    """Live MediaPoolItem objects inside the configured asset bin, keyed by clip name.
+
+    Read-only. Callers that intend to write must first validate the counts through
+    `domain.probe.preflight_failures`, which sees the same bins via `snapshot_assets`.
+    """
+
+    media_pool = project.GetMediaPool()
+    if media_pool is None:
+        return {}
+    items: dict[str, Any] = {}
+    for _, folder in _walk_bins(media_pool.GetRootFolder()):
+        if folder.GetName() != config.asset_bin:
+            continue
+        for clip in folder.GetClipList() or []:
+            items[str(clip.GetName())] = clip
+    return items
+
+
+def find_asset_folder(project: Any, config: Config) -> Any:
+    """The live Folder object for the configured asset bin, or None. Read-only."""
+
+    media_pool = project.GetMediaPool()
+    if media_pool is None:
+        return None
+    for _, folder in _walk_bins(media_pool.GetRootFolder()):
+        if folder.GetName() == config.asset_bin:
+            return folder
+    return None
+
+
 def snapshot_project(resolve: Any, project: Any, config: Config) -> ProjectSnapshot:
     current = project.GetCurrentTimeline()
     current_name = str(current.GetName()) if current else None
