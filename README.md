@@ -2,11 +2,12 @@
 
 Experimental automation tool for **DaVinci Resolve** that turns speech activity on a dedicated voice track into deterministic zoom-edit decisions, then applies prebuilt Resolve assets from a specially named Media Pool bin.
 
-> Status: capability discovery complete, asset reuse **proven**, and speech detection
-> **proven** end to end on the verified build — a configured voice track now yields speech
-> segments in absolute timeline frames. Nothing places zooms yet. Every day-to-day command
-> remains **strictly read-only**; the two write-capable commands are development spikes that
-> refuse to run without an explicit confirmation flag.
+> Status: capability discovery complete, asset reuse **proven**, speech detection **proven**,
+> and the deterministic planner **working end to end** on the verified build — a configured
+> voice track now yields a complete, inspectable zoom plan in absolute timeline frames.
+> **Nothing places zooms yet**: no command inserts, moves or deletes a zoom clip. The
+> day-to-day commands are strictly read-only; the development probes make temporary,
+> explicitly opt-in changes and each refuses to run without its own confirmation flag.
 
 ## MVP target
 
@@ -16,7 +17,7 @@ For dynamic gaming edits:
 2. Detect speech regions on that track.
 3. When speech begins, plan a `facecam x1` zoom event.
 4. When speech has stopped for a configurable amount of time, plan a smooth reset to `x0`.
-5. Prefer a nearby eligible edit boundary for the reset when that produces a cleaner cut; otherwise use the direct speech-derived timing.
+5. Prefer a nearby real cut for the reset when that produces a cleaner return; otherwise use the direct speech-derived timing.
 6. Resolve the required prebuilt zoom assets by **bin name + clip name**, never by fragile timeline position.
 7. Preview the complete plan before any timeline mutation.
 
@@ -51,10 +52,32 @@ proof is a structural comparison of exported `.comp` files against a hand-made r
 instance, not merely "a composition exists".
 
 One consequence worth knowing when you build your assets: an instance's keyframes stay
-anchored to the clip's first frame and are **never rescaled** to its length. A zoom whose
-move takes 15 frames will simply be cut off mid-move if the tool ever places a 10-frame
-instance, so the planner's minimum zoom duration has to respect your asset's own animation
-length.
+anchored to the clip's first frame and are **never rescaled** to its length. Three different
+lengths are involved, and only two of them matter:
+
+| Length | Example | Used for planning |
+| --- | --- | --- |
+| the asset's length in the Media Pool | `FACE_X0_SMOOTH` is 42 frames | **no, never** |
+| the **animation** length you configure | its move finishes in 15 frames | yes |
+| the instance the tool places | 15 frames for a reset; anything for a zoom-in | computed |
+
+So a zoom-in asset animates for its 15 frames and then simply **holds** the zoom: its
+instances are as long as the speech needs — 30 frames, 250, more — and the animation length is
+only the floor below which the move would be cut off mid-way. A reset asset finishes its
+return in 15 frames, so a 15-frame instance does the whole job even though the clip in your
+bin is 42 frames long.
+
+That is why you tell the tool the animation lengths, in
+[`config.example.toml`](config.example.toml):
+
+```toml
+[assets.transition_frames]
+facecam_x1 = 15
+reset_x0 = 15
+```
+
+In frames, because that is how you keyframed them, and with no default: they are properties of
+*your* assets, and the tool will not guess them or read your Fusion graph to find out.
 
 ## Speech strategy
 
@@ -83,6 +106,38 @@ speaking here?"** and nothing else. It does not decide when to zoom. A 650 ms pa
 two speech segments; whether that pause is worth zooming out for is an editing decision, and
 it belongs to the planner. That is why technical VAD tuning lives under `[speech.vad]` and
 editorial timing lives under `[planner]`.
+
+## How the plan is built
+
+The planner is pure: no Resolve object, no model, no clock, no filesystem. The same inputs
+always produce the same plan.
+
+```
+timeline range + fps + speech segments + hard cuts + your settings + your asset timing
+   ->  FACE_X1 / FACE_X0 placements, each with a reason
+```
+
+The rules, in the order they apply:
+
+1. **Speech regions become editorial bursts.** Two speech regions separated by less than
+   `reset_after_silence_ms` belong to the same burst, and the zoom simply stays up across the
+   pause — popping out and back in for a breath looks worse than holding. This setting is a
+   *gate*, not a delay: the tool works offline and already knows how long every pause lasts,
+   so it never plans a reset 650 ms after you stopped talking.
+2. **One zoom-in per burst**, starting at the burst (plus an optional lead-in, 0 by default)
+   and lasting until the reset. It is dropped entirely if it would be shorter than its own
+   animation, because a truncated move is worse than no zoom.
+3. **The reset is placed at the end of the burst** — and may be pushed forward to the *last*
+   hard cut within `cut_snap_window_ms`, when returning to normal framing on a real cut reads
+   as intentional. A "hard cut" means one clip ends exactly where the next begins on
+   `cut_reference_video_track`; entering from black or running out into a gap is not a cut.
+4. **A reset is only placed if it fits.** The whole reset animation must finish before the
+   next zoom starts, or before the timeline ends. A cut that leaves too little room is
+   rejected in favour of an earlier one; if nothing fits, no reset is placed and the zoom is
+   held. Every one of those decisions is printed.
+
+The result is a table of placements with absolute frames, plus the full decision trace, so you
+can see *why* each zoom is where it is before anything is applied.
 
 Whisper is explicitly **not** part of the MVP: knowing *which words* were said buys nothing
 for "is there a voice here". It stays a candidate for later, semantic rules (spotting a
@@ -138,6 +193,10 @@ Available read-only commands (all accept `--json` and `--config`):
 | `assets` | Just the asset bin: which prebuilt zoom assets were found and which configured role each fills. |
 | `compare A B` | Structural diff of two timelines: which items exist only in B, their durations, and how their boundaries relate to existing cuts. |
 | `speech-file AUDIO` | Speech detection on a local audio file, with **no Resolve session at all**. Takes `--fps` and `--start-frame` so the segments come out in your timeline's coordinates. |
+
+Plus three development probes that do make temporary, opt-in changes and clean up after
+themselves: `probe-write`, `speech-probe` and `plan-probe` (below). None of them ever inserts
+a zoom clip.
 
 Every command fails gracefully with an actionable message when Resolve is closed or the
 scripting module cannot be found, and exits non-zero rather than raising.
@@ -209,6 +268,38 @@ The rendered audio's duration is checked against the timeline range it came from
 mismatch beyond two frames **fails the probe** — a trimmed or padded render would silently
 offset every speech frame downstream.
 
+### `plan-probe` — the full dry run
+
+The whole chain, ending in a plan you can read:
+
+```bash
+python -m davinci_auto_zoom plan-probe \
+  --confirm-resolve-render-test \
+  --project MY_PROJECT \
+  --source-timeline MY_INPUT_TIMELINE \
+  --reference-timeline MY_REFERENCE_TIMELINE \   # optional, diagnostics only
+  --config config.toml
+```
+
+```
+snapshot -> isolated voice render -> Silero VAD -> hard cuts -> planner -> plan
+```
+
+It reuses `speech-probe`'s temporary render, with the same confirmation flag and the same
+cleanup, and then plans. **It never inserts a zoom**: no `AppendToTimeline` call exists on
+this path, and a plan whose placements overlap fails the run rather than being reported as a
+result. Output is a placement table (`role | start | end | frames | reason | cut`), the
+diagnostics, and the decision trace; `--json` gives the same thing machine-readably, plus the
+`source` signature a future executor will check a plan against.
+
+It needs `[assets.transition_frames]` in your config and says so if it is missing — the tool
+will not guess how long your assets take to animate.
+
+With `--reference-timeline` it also prints a qualitative comparison against your hand-made
+timeline: how many planned zooms match a manual one, how many do not, and the start/reset
+offsets. That is a diagnostic, never a score — the planner is deliberately **not** tuned to
+reproduce a human edit, and a human correction pass is part of how the tool is meant to work.
+
 ## Configuration
 
 Copy the example file before later milestones:
@@ -235,13 +326,21 @@ These are two different questions and the config keeps them apart on purpose:
 | Block | Question it answers | Example |
 | --- | --- | --- |
 | `[speech.vad]` | *Was the creator making speech sounds here?* | `min_silence_ms = 100` — how long the voice must stop before an utterance has really ended |
-| `[planner]` | *What should the edit do about it?* | `reset_after_silence_ms = 650` — how long a silence must last before zooming back out |
+| `[planner]` | *What should the edit do about it?* | `reset_after_silence_ms = 650` — how long a silence must last to be worth zooming back out for |
+| `[assets.transition_frames]` | *How long do your assets take to animate?* | `facecam_x1 = 15` — in frames, no default, never guessed |
 
 The `[speech.vad]` values are Silero's own defaults. Change them when the detector is
 visibly wrong about the *audio*; change `[planner]` when you disagree with the *edit*. The
 older config had a single `[speech]` block where `min_silence_ms = 650` made an editing
 preference look like a property of the detector — that is the ambiguity this split removes.
-The `[planner]` keys are documented but not yet read by anything.
+
+Two `[planner]` keys from the early scaffold are gone rather than re-tuned:
+
+- **`min_zoom_ms = 450`** — an editorial guess nobody measured. The only real minimum for a
+  zoom-in is its own animation length, which now comes from `[assets.transition_frames]`.
+- **`zoom_lead_in_ms = 80` / `zoom_lead_out_ms = 120`** — also guesses. The baseline is now
+  `0` / `0`: the zoom starts on the burst and the reset is placed at its end. Both keys still
+  exist if you want anticipation.
 
 ## Development safety rules
 
