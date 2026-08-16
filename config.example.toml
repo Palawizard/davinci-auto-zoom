@@ -12,6 +12,12 @@ voice_audio_track = 1
 # 1-based video track that receives the zoom adjustment clips.
 zoom_video_track = 3
 
+# 1-based video track whose cuts the planner may snap a reset to. This is the edited footage
+# track, NOT the zoom track: the zoom track is DAZ's own output and has no cuts of its own.
+# A "hard cut" here means one clip ends exactly where the next begins on this track; entering
+# from black or running out into a gap is not a cut and is never snapped to.
+cut_reference_video_track = 1
+
 # Media Pool bin holding the user's prebuilt zoom assets.
 asset_bin = "DAVINCI_AUTO_ZOOM"
 
@@ -20,6 +26,21 @@ asset_bin = "DAVINCI_AUTO_ZOOM"
 [assets]
 facecam_x1 = "FACE_X1"
 reset_x0 = "FACE_X0_SMOOTH"
+
+# How many frames each asset needs to finish its own animation. REQUIRED for planning, and
+# deliberately without a default: these are your assets, and the tool never opens their Fusion
+# graph to guess (see .agent/DECISIONS.md D007).
+#
+# This is NOT the clip's length in the Media Pool. `FACE_X0_SMOOTH` is 42 frames long in this
+# project and completes its move in 15, so a 15-frame instance does the whole job; the planner
+# never uses the 42. Likewise `FACE_X1` animates in 15 frames and then simply *holds* the
+# zoom, so its instances are as long as the speech needs — 15 frames, 300, or more — with 15
+# only as the minimum below which the move would be truncated (D014).
+#
+# Frames, not milliseconds: the keyframes were authored on a frame grid.
+[assets.transition_frames]
+facecam_x1 = 15
+reset_x0 = 15
 
 [speech]
 # Resolve exposes no API to read transcription data back (see .agent/HANDOFF.md), so the
@@ -57,26 +78,31 @@ speech_pad_ms = 30
 
 [planner]
 # ---------------------------------------------------------------------------------------
-# EDITORIAL timing. Phase 4 territory — these keys are documented here so the boundary is
-# unambiguous, but nothing reads them yet.
+# EDITORIAL timing — when a zoom should happen, as opposed to whether the creator was
+# talking, which is [speech.vad] above.
 # ---------------------------------------------------------------------------------------
 
-# How long the creator must be silent before the tool decides to reset to x0. This is the
-# knob that used to be called [speech].min_silence_ms, which wrongly made an editing
-# preference look like a property of the detector.
+# A GATE, not a delay. A silence shorter than this does not deserve a reset, so the two
+# speech regions around it belong to the same editorial burst and the zoom simply stays up.
+# A silence at least this long allows a reset — planned at the end of the burst, NOT 650 ms
+# after it. The planner runs offline and already knows how long every pause will last.
 reset_after_silence_ms = 650
 
-# Optional zoom lead-in/lead-out around a speech region (formerly pre_roll_ms/post_roll_ms,
-# which sat in [speech] and were indistinguishable from Silero's technical speech_pad_ms).
-zoom_lead_in_ms = 80
-zoom_lead_out_ms = 120
+# Optional anticipation around a burst. The MVP baseline is 0/0: the zoom starts exactly on
+# the burst and the reset is placed exactly at its end. The old 80/120 ms defaults were
+# scaffold guesses with no measurement behind them.
+zoom_lead_in_ms = 0
+zoom_lead_out_ms = 0
 
-# If an eligible video edit is this close to a reset decision, planner may snap to it.
+# When the creator stops talking and the edit cuts shortly after, the reset looks better on
+# that cut. The planner looks this far past the reset point for hard cuts on
+# [resolve].cut_reference_video_track and takes the LAST one that still leaves room for the
+# whole reset_x0 animation before the next zoom.
 cut_snap_window_ms = 350
 
-# Must respect the zoom asset's own animation length: an instance shorter than the asset's
-# keyframed move is truncated mid-move (see .agent/DECISIONS.md D014).
-min_zoom_ms = 450
+# There is no min_zoom_ms. The only minimum a FACE_X1 instance has is its own animation
+# length, which is [assets.transition_frames].facecam_x1 — an instance shorter than that is
+# truncated mid-move (D014). The old 450 ms was an editorial assumption nobody measured.
 
 [safety]
 # Must remain true until the write milestone is explicitly implemented and validated.
