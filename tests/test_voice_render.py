@@ -291,13 +291,76 @@ def test_the_deliver_page_comes_back_to_where_it_was(live):
     assert report.delivery.unrestored == ()
 
 
-def test_an_unrestorable_deliver_state_is_reported_not_hidden(live):
+def test_an_unsnapshottable_deliver_page_fails_closed(live):
+    """If the Deliver state cannot be captured, it could not be restored either.
+
+    `SetRenderSettings` has no getter (D020), so the temporary preset *is* the snapshot. With
+    no snapshot the run must stop before it loads a preset or changes a single render setting,
+    rather than proceeding and leaving the user's Deliver page somewhere else.
+    """
+
     _, project, _ = live
     project.can_save_render_preset = False
-    report, _ = run(live)
-    # The run may still work, but it must say the snapshot could not be taken.
+    report, rendered = run(live)
+
+    assert rendered is None
     assert report.delivery.preset_saved is False
+    assert report.succeeded is False
+    assert "SaveAsNewRenderPreset" in (report.error or "")
     assert any("SaveAsNewRenderPreset" in note for note in report.notes)
+    # Nothing downstream ran: no preset loaded, no render settings written, no job queued.
+    # (Cleanup still re-asserts the format/codec/mode it read, which writes the same values
+    # back — that is the verification step, not a change.)
+    assert not any(
+        call.startswith(("LoadRenderPreset", "SetRenderSettings", "AddRenderJob"))
+        for call in project.mutations
+    )
+    assert project.GetRenderJobList() == []
+    assert report.queue.our_job_id is None
+    # And the Deliver page is untouched, so there is nothing to report as unrestored.
+    assert (project.render_format, project.render_codec, project.render_mode) == (
+        "mov",
+        "ProRes422HQ",
+        1,
+    )
+    assert report.delivery.unrestored == ()
+
+
+def test_the_first_deliver_mutation_is_already_inside_the_cleanup_transaction(live, monkeypatch):
+    """`SaveAsNewRenderPreset` writes to the project; a later failure must still undo it."""
+
+    _, project, _ = live
+    presets_before = project.GetRenderPresetList()
+    # Fail at the very next mutating step after the preset was created.
+    monkeypatch.setattr(
+        type(project.GetTimelineByIndex(1)), "DuplicateTimeline", lambda self, name: None
+    )
+    report, rendered = run(live)
+
+    assert rendered is None
+    assert "DuplicateTimeline" in (report.error or "")
+    # The preset existed, and cleanup removed it: no DAZ_ leftovers on the Deliver page.
+    assert report.delivery.preset_saved is True
+    assert report.delivery.preset_deleted is True
+    assert project.GetRenderPresetList() == presets_before
+    assert not any(name.startswith("DAZ_RENDER_RESTORE_") for name in presets_before)
+    assert report.delivery.unrestored == ()
+    assert (project.render_format, project.render_codec, project.render_mode) == (
+        "mov",
+        "ProRes422HQ",
+        1,
+    )
+
+
+def test_a_temporary_preset_that_cannot_be_deleted_is_reported(live):
+    _, project, _ = live
+    project.DeleteRenderPreset = lambda name: False
+    report, _ = run(live)
+
+    assert report.delivery.preset_deleted is False
+    assert any("still exists" in item for item in report.delivery.unrestored)
+    assert report.clean is False
+    assert report.succeeded is False
 
 
 def test_a_failed_render_still_cleans_up_completely(live):

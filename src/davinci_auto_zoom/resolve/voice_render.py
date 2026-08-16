@@ -14,7 +14,9 @@ Safety model, in order:
 
 1. fail-closed preflight — one mismatch aborts *before* any mutating call (D015);
 2. the Deliver page state is captured into a temporary render preset, the only documented
-   way to read it back, since `SetRenderSettings` has no getter;
+   way to read it back, since `SetRenderSettings` has no getter. Saving that preset is
+   itself a mutation, so it happens *inside* the `try/finally` and fails closed: if the
+   snapshot cannot be taken, no render setting is touched at all;
 3. every timeline mutation happens on a `DAZ_AUDIO_SCRATCH_*` duplicate created by this run;
    the configured source timeline is never touched, and none of its tracks are ever removed;
 4. exactly one render job is created; pre-existing jobs are recorded and never deleted
@@ -169,6 +171,9 @@ class DeliveryState:
     render_codec: str | None = None
     render_mode: int | None = None
     preset: str | None = None
+    #: True once format/codec/mode were read. Until then there is nothing to restore, and
+    #: comparing the live Deliver page against unset fields would invent false differences.
+    captured: bool = False
     preset_saved: bool = False
     preset_restored: bool | None = None
     preset_deleted: bool | None = None
@@ -359,8 +364,17 @@ class VoiceRenderReport:
         return "\n".join(lines)
 
 
-def _capture_delivery(project: Any, report: VoiceRenderReport) -> DeliveryState:
-    """Read back everything the API allows, then snapshot the rest into a temp preset."""
+def _capture_delivery(project: Any, report: VoiceRenderReport) -> None:
+    """Read back everything the API allows, then snapshot the rest into a temp preset.
+
+    **This is the first mutating call of the run** — `SaveAsNewRenderPreset` adds a preset to
+    the user's Deliver page — so it is made inside the `try/finally` that guarantees cleanup,
+    and the state object is published on the report *before* the call, so an exception mid-way
+    still leaves cleanup something to undo.
+
+    It is also fail-closed: if the snapshot cannot be taken, the Deliver page could not be put
+    back afterwards, so nothing may load a preset or touch render settings (D020).
+    """
 
     current = project.GetCurrentRenderFormatAndCodec() or {}
     state = DeliveryState(
@@ -368,32 +382,49 @@ def _capture_delivery(project: Any, report: VoiceRenderReport) -> DeliveryState:
         render_codec=current.get("codec"),
         render_mode=project.GetCurrentRenderMode(),
         preset=restore_preset_name(),
+        captured=True,
     )
+    report.delivery = state
     state.preset_saved = bool(project.SaveAsNewRenderPreset(state.preset))
     if not state.preset_saved:
         report.notes.append(
-            f"SaveAsNewRenderPreset({state.preset!r}) failed; only format/codec/mode can be "
-            "restored, and any other Deliver page field this run changes will stay changed"
+            f"SaveAsNewRenderPreset({state.preset!r}) failed, so the Deliver page could not "
+            "be snapshotted; the run was refused before any render setting was changed"
         )
-    return state
+        raise VoiceRenderFailed(
+            f"SaveAsNewRenderPreset({state.preset!r}) failed. Only format/codec/mode are "
+            "readable through the API, so without that preset the rest of the Deliver page "
+            "(target directory, file name, export flags, audio settings) could not be "
+            "restored after the render. Refusing to change render settings."
+        )
 
 
 def _restore_delivery(project: Any, state: DeliveryState, report: VoiceRenderReport) -> None:
     """Undo the Deliver page changes and *verify* the undo, recording what did not come back."""
 
+    if not state.captured:
+        # Nothing was read, so nothing was changed either: the run stopped before or during
+        # the snapshot. Comparing against unset fields would report invented differences.
+        return
+
     unrestored: list[str] = []
-    if state.preset_saved and state.preset:
-        with suppress(Exception):
-            state.preset_restored = bool(project.LoadRenderPreset(state.preset))
-        if not state.preset_restored:
-            unrestored.append(f"render preset {state.preset!r} could not be re-loaded")
-        with suppress(Exception):
-            state.preset_deleted = bool(project.DeleteRenderPreset(state.preset))
-        if not state.preset_deleted:
-            unrestored.append(
-                f"temporary render preset {state.preset!r} still exists; delete it from the "
-                "Deliver page preset list"
-            )
+    if state.preset:
+        # Deletion is attempted whenever the preset actually exists, not only when the save
+        # was recorded as successful: a failure *after* Resolve created it must not leak it.
+        existing = state.preset in tuple(project.GetRenderPresetList() or ())
+        if state.preset_saved:
+            with suppress(Exception):
+                state.preset_restored = bool(project.LoadRenderPreset(state.preset))
+            if not state.preset_restored:
+                unrestored.append(f"render preset {state.preset!r} could not be re-loaded")
+        if existing:
+            with suppress(Exception):
+                state.preset_deleted = bool(project.DeleteRenderPreset(state.preset))
+            if not state.preset_deleted:
+                unrestored.append(
+                    f"temporary render preset {state.preset!r} still exists; delete it from "
+                    "the Deliver page preset list"
+                )
 
     with suppress(Exception):
         if state.render_mode is not None:
@@ -599,7 +630,6 @@ def _cleanup(
     media_pool: Any,
     previous_timeline: Any,
     scratch: Any,
-    delivery: DeliveryState,
     report: VoiceRenderReport,
 ) -> None:
     """Unwind in reverse order of setup. Never raises; records what it could not undo."""
@@ -619,8 +649,9 @@ def _cleanup(
                 "was touched; remove it from the Deliver page."
             )
 
-    # 2. Deliver page state.
-    _restore_delivery(project, delivery, report)
+    # 2. Deliver page state, as recorded on the report (the snapshot itself is a mutation and
+    #    may have failed halfway, so cleanup reads the live state rather than a passed copy).
+    _restore_delivery(project, report.delivery, report)
 
     # 3. The timeline the user had open.
     if previous_timeline is not None:
@@ -730,8 +761,6 @@ def render_voice_track(
     audit_names = tuple(dict.fromkeys((target.source_timeline, *protected_timelines)))
     before = _protected_signatures(project, audit_names)
     report.queue.job_ids_before = _job_ids(project)
-    delivery = _capture_delivery(project, report)
-    report.delivery = delivery
 
     media_pool = project.GetMediaPool()
     previous_timeline = project.GetCurrentTimeline()
@@ -744,6 +773,10 @@ def render_voice_track(
     render_directory: Path | None = None
     scratch_name = scratch_timeline_name(now)
     try:
+        # First mutation of the run, and therefore the first statement inside the block that
+        # guarantees cleanup: saving the restore preset already writes to the user's project.
+        _capture_delivery(project, report)
+
         # Resolve will only render inside its Media Storage, never into a system temp dir.
         render_directory = create_render_directory(report.media_storage_volumes)
         report.render_directory = str(render_directory)
@@ -779,7 +812,7 @@ def render_voice_track(
         report.error = f"{type(exc).__name__}: {exc}"
         rendered = None
     finally:
-        _cleanup(project, media_pool, previous_timeline, scratch, delivery, report)
+        _cleanup(project, media_pool, previous_timeline, scratch, report)
         remove_render_directory(render_directory, report)
 
     after = _protected_signatures(project, audit_names)
