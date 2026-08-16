@@ -119,6 +119,15 @@ def threshold_stability(
             min_speech_ms=settings.min_speech_ms,
             min_silence_ms=settings.min_silence_ms,
             speech_pad_ms=settings.speech_pad_ms,
+            # An explicitly configured exit threshold is part of the segmentation being
+            # measured; dropping it would silently re-run each trial with Silero's default
+            # instead, and the stability table would describe settings nobody is using.
+            # It is capped at the trial threshold because a neg_threshold above the entry
+            # threshold is not a valid state machine (VadSettings rejects it).
+            neg_threshold=(
+                None if settings.neg_threshold is None
+                else min(settings.neg_threshold, threshold)
+            ),
         )
         segments = segments_from_probabilities(probabilities, total_samples, trial_settings)
         shifts: list[int] = []

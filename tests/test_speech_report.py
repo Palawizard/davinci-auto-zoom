@@ -135,3 +135,35 @@ def test_segment_exposes_the_half_open_convention():
     assert one.end_frame == 216060
     assert one.duration_frames == 60
     assert Fraction(one.duration_frames, 60) == 1  # one second at 60 fps
+
+
+def test_threshold_trials_keep_an_explicit_neg_threshold():
+    """An explicitly configured exit threshold is part of what is being measured.
+
+    Dropping it would silently re-run every trial with Silero's default of `threshold - 0.15`,
+    so the stability table would describe a segmentation nobody is using.
+    """
+
+    settings = VadSettings(threshold=0.5, neg_threshold=0.45, min_speech_ms=0, min_silence_ms=0)
+    # A run whose probabilities sit between the default exit threshold (0.35) and 0.45: with
+    # the explicit setting the speech ends, with Silero's default it would not.
+    probabilities = [0.9] * 20 + [0.4] * 20 + [0.9] * 20
+    total = WINDOW_SAMPLES * len(probabilities)
+
+    trials = threshold_stability(probabilities, total, settings, (0.5,))
+    assert trials[0].segment_count == 2
+
+    # Same probabilities, no explicit exit threshold: one uninterrupted segment.
+    default = VadSettings(threshold=0.5, min_speech_ms=0, min_silence_ms=0)
+    assert threshold_stability(probabilities, total, default, (0.5,))[0].segment_count == 1
+
+
+def test_an_explicit_neg_threshold_is_capped_at_a_lower_trial_threshold():
+    """`neg_threshold > threshold` is not a valid state machine; the trial must still run."""
+
+    settings = VadSettings(threshold=0.6, neg_threshold=0.55, min_speech_ms=0, min_silence_ms=0)
+    probabilities = [0.9] * 10 + [0.1] * 10
+    trials = threshold_stability(
+        probabilities, WINDOW_SAMPLES * len(probabilities), settings, (0.4, 0.5, 0.6)
+    )
+    assert [trial.segment_count for trial in trials] == [1, 1, 1]
