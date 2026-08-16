@@ -4,7 +4,9 @@ Experimental automation tool for **DaVinci Resolve** that turns speech activity 
 
 > Status: capability discovery complete, asset reuse **proven**, speech detection **proven**,
 > the deterministic planner **working end to end**, and — new — a plan can now be **applied
-> for real**, on a preview timeline the tool creates itself.
+> for real**, on a preview timeline the tool creates itself. Confirmed against DaVinci Resolve
+> Studio 21.0.4.5: 28 planned zooms became 28 frame-exact clips on a new preview timeline,
+> with the source timelines, the active timeline and the Deliver page left untouched.
 > **No command modifies an existing timeline of yours.** The day-to-day commands are strictly
 > read-only; the development probes make temporary, opt-in changes and clean up after
 > themselves; and `apply-preview` places the planned zooms on a **new** `DAZ_AUTO_PREVIEW_*`
@@ -354,9 +356,17 @@ What it guarantees:
 - **The preview is the transaction.** If anything at all fails, the timeline you had open is
   restored and *that* preview is deleted and confirmed gone. A preview from an earlier run is
   never reused, overwritten or deleted.
+- **The timeline you had open is put back, and that is checked, not assumed.** The tool
+  records its name and unique id before it starts, and afterwards re-reads what Resolve
+  actually has open and compares. If it cannot prove the restore worked, the run fails and
+  says so — and in that one case it deliberately **does not** delete the preview, because the
+  preview may still be the timeline Resolve has open and deleting it would not be safe.
+- **Your originals are re-checked at the end.** After the writes, the tool re-reads the source
+  and reference timelines and your assets and compares them with how they looked before. Any
+  difference fails the run and deletes the preview it made. Keeping the preview is the last
+  decision, taken only once everything else has passed.
 - **On success the preview is kept**, on purpose — it is the thing you open and watch. The
-  timeline you had open is still restored, and the report ends with the preview's exact name
-  and unique id.
+  report ends with the preview's exact name and unique id.
 - An empty plan creates no timeline at all and reports "nothing to apply".
 - `SaveProject()` is never called.
 
