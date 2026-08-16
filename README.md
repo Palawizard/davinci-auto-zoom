@@ -2,8 +2,9 @@
 
 Experimental automation tool for **DaVinci Resolve** that turns speech activity on a dedicated voice track into deterministic zoom-edit decisions, then applies prebuilt Resolve assets from a specially named Media Pool bin.
 
-> Status: capability discovery complete; no write path exists yet. Every command shipped
-> today is **strictly read-only**.
+> Status: capability discovery complete, and asset reuse is now **proven** on the verified
+> build. Every day-to-day command remains **strictly read-only**; the single write-capable
+> command is a development spike that refuses to run without an explicit confirmation flag.
 
 ## MVP target
 
@@ -39,6 +40,19 @@ keyframes, Fusion, OFX or plugins suits your edit. davinci-auto-zoom looks them 
 places instances of them, and never inspects or rebuilds their contents. That is what lets
 it work across different editing styles, and what will let facecam x2/x3 and gameplay zooms
 be added later without touching the engine.
+
+This is now verified rather than aspirational. On Resolve Studio 21.0.4.5, placing a new
+instance of a user's asset preserves its Fusion composition exactly — same tools, same
+wiring, same keyframe values and Bezier handles as the asset the user built — at any
+requested duration, including durations longer than the asset's own native length. The
+proof is a structural comparison of exported `.comp` files against a hand-made reference
+instance, not merely "a composition exists".
+
+One consequence worth knowing when you build your assets: an instance's keyframes stay
+anchored to the clip's first frame and are **never rescaled** to its length. A zoom whose
+move takes 15 frames will simply be cut off mid-move if the tool ever places a 10-frame
+instance, so the planner's minimum zoom duration has to respect your asset's own animation
+length.
 
 ## Speech strategy
 
@@ -92,6 +106,27 @@ scripting module cannot be found, and exits non-zero rather than raising.
 `documented`, `likely`, or `unsupported`. Documentation and runtime evidence are never
 conflated.
 
+### `probe-write` — development only
+
+There is one write-capable command. It is an integration spike used to prove asset reuse,
+not the future executor, and it is built to be impossible to trigger by accident:
+
+```bash
+python -m davinci_auto_zoom probe-write \
+  --confirm-resolve-write-test \
+  --project MY_PROJECT \
+  --source-timeline MY_INPUT_TIMELINE \
+  --reference-timeline MY_REFERENCE_TIMELINE
+```
+
+Without `--confirm-resolve-write-test` it refuses and changes nothing. The expected project
+and timeline names are required arguments rather than config values, and a mismatch is a
+hard refusal, not a warning. It then duplicates the source timeline into a uniquely named
+`DAZ_SCRATCH_*` timeline, adds an empty video track, performs every insertion there,
+restores the timeline you had open, deletes the scratch timeline it created — and only that
+one — and finally re-reads both original timelines to verify nothing changed. If it cannot
+delete its own scratch timeline it says so by name and leaves everything else alone.
+
 ## Configuration
 
 Copy the example file before later milestones:
@@ -114,7 +149,10 @@ track is named `Audio N` and shares one source clip.
 ## Development safety rules
 
 - Dry-run first.
-- No timeline writes until asset reuse has been proven on a duplicated throwaway timeline.
+- Read-only commands may warn about a project/timeline mismatch; write-capable ones must
+  refuse to start and require an explicit opt-in flag.
+- Timeline writes only ever target a throwaway timeline created by the run itself, and are
+  cleaned up in a `finally` block.
 - Never depend on undocumented API behavior without recording the evidence/version in the local agent notes.
 - Keep frame math in integer timeline frames; convert milliseconds only at configuration boundaries.
 - Keep raw Resolve proxy objects inside the `resolve` package.
