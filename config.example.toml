@@ -1,0 +1,43 @@
+[resolve]
+# Optional guards. When set, commands warn if the open project/timeline differs.
+project = ""
+timeline = "DAZ_INPUT"
+
+# 1-based Resolve audio track containing only the creator's voice.
+# Resolve exposes no reliable way to detect which track this is: tracks in a typical
+# project are all named "Audio N" and share the same source clip, differing only by
+# channel mapping. This index is therefore required configuration.
+voice_audio_track = 1
+
+# 1-based video track that receives the zoom adjustment clips.
+zoom_video_track = 3
+
+# Media Pool bin holding the user's prebuilt zoom assets.
+asset_bin = "DAVINCI_AUTO_ZOOM"
+
+# Semantic role -> Media Pool clip name. Names differ per user/edit style; the tool never
+# inspects or rebuilds what these assets do internally.
+[assets]
+facecam_x1 = "FACE_X1"
+reset_x0 = "FACE_X0_SMOOTH"
+
+[speech]
+# Resolve exposes no API to read transcription data back (see .agent/HANDOFF.md), so the
+# MVP uses an external voice-activity provider. Planned: "audio_activity", "srt", "whisper".
+provider = "audio_activity"
+
+# Initial values only; tune against real voice recordings.
+silence_threshold_db = -38.0
+min_silence_ms = 650
+pre_roll_ms = 80
+post_roll_ms = 120
+min_speech_ms = 180
+
+[planner]
+# If an eligible video edit is this close to a reset decision, planner may snap to it.
+cut_snap_window_ms = 350
+min_zoom_ms = 450
+
+[safety]
+# Must remain true until the write milestone is explicitly implemented and validated.
+dry_run = true
