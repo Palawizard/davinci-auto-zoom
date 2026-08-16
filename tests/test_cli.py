@@ -183,20 +183,22 @@ def test_plan_probe_refuses_without_asset_timing(capsys: pytest.CaptureFixture[s
     assert "[assets.transition_frames]" in capsys.readouterr().out
 
 
-def test_the_global_help_does_not_claim_every_command_is_read_only(
+def test_the_global_help_states_what_each_class_of_command_may_touch(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     with pytest.raises(SystemExit):
         cli.main(["--help"])
     out = " ".join(capsys.readouterr().out.split())
-    # The claim that used to be there, which the development probes contradict.
+    # Claims that used to be there and are now false.
     assert "Every command in this phase is strictly read-only" not in out
-    # What replaced it: which commands are read-only, and that the probes do mutate.
+    assert "No command places, moves or deletes a zoom" not in out
+    # Which commands are read-only, and that the probes do mutate temporarily.
     assert "doctor, snapshot, assets, compare, speech-file) are strictly read-only" in out
-    assert "DO make temporary, opt-in changes" in out
-    assert "confirmation flag" in out
-    # And the guarantee that actually matters for Phase 4.
-    assert "No command places, moves or deletes a zoom" in out
+    assert "temporary, opt-in changes" in out
+    # Phase 5: one command writes zooms, and it writes them to a new timeline of its own.
+    assert "No command modifies an existing timeline of yours" in out
+    assert "apply-preview" in out
+    assert "DAZ_AUTO_PREVIEW_*" in out
 
 
 @pytest.mark.skipif(shutil.which("ffmpeg") is None, reason="ffmpeg is not installed")
@@ -256,3 +258,99 @@ def test_plan_probe_plans_without_inserting_anything(
         for i in range(1, project.GetTimelineCount() + 1)
     ]
     assert names == ["DAZ_INPUT", "DAZ_OUTPUT_MVP"]
+
+
+def test_apply_preview_without_its_own_flag_refuses_before_touching_resolve(
+    tmp_path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The write opt-in is checked first: Resolve is never even contacted."""
+
+    resolve, project = build_test_project(audio_tracks=3)
+    monkeypatch.setattr(cli, "connect", lambda: resolve)
+    monkeypatch.setattr(cli, "current_project", lambda r: project)
+    config = tmp_path / "config.toml"
+    config.write_text(
+        "[assets.transition_frames]\nfacecam_x1 = 15\nreset_x0 = 15\n", encoding="utf-8"
+    )
+
+    exit_code = cli.main(
+        [
+            "apply-preview",
+            "--confirm-resolve-render-test",
+            "--project",
+            "davinci-auto-zoom-test",
+            "--source-timeline",
+            "DAZ_INPUT",
+            "--config",
+            str(config),
+        ]
+    )
+
+    assert exit_code == 3
+    assert "--confirm-create-preview-timeline" in capsys.readouterr().out
+    assert project.mutations == []
+    assert project.GetTimelineCount() == 2
+
+
+def test_apply_preview_needs_the_asset_animation_lengths(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    exit_code = cli.main(
+        [
+            "apply-preview",
+            "--confirm-create-preview-timeline",
+            "--confirm-resolve-render-test",
+            "--project",
+            "davinci-auto-zoom-test",
+            "--source-timeline",
+            "DAZ_INPUT",
+        ]
+    )
+    assert exit_code == 3
+    assert "[assets.transition_frames]" in capsys.readouterr().out
+
+
+@pytest.mark.skipif(shutil.which("ffmpeg") is None, reason="ffmpeg is not installed")
+def test_apply_preview_reports_nothing_to_apply_without_creating_a_timeline(
+    tmp_path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The fake renders silence, so the plan is empty — and an empty plan creates nothing."""
+
+    resolve, project = build_test_project(audio_tracks=3)
+    storage = tmp_path / "media-storage"
+    storage.mkdir()
+    resolve.media_storage.volumes = [str(storage)]
+    monkeypatch.setattr(cli, "connect", lambda: resolve)
+    monkeypatch.setattr(cli, "current_project", lambda r: project)
+
+    config = tmp_path / "config.toml"
+    config.write_text(
+        "[resolve]\nvoice_audio_track = 1\ncut_reference_video_track = 1\n"
+        "[assets.transition_frames]\nfacecam_x1 = 15\nreset_x0 = 15\n",
+        encoding="utf-8",
+    )
+
+    exit_code = cli.main(
+        [
+            "apply-preview",
+            "--confirm-create-preview-timeline",
+            "--confirm-resolve-render-test",
+            "--project",
+            "davinci-auto-zoom-test",
+            "--source-timeline",
+            "DAZ_INPUT",
+            "--config",
+            str(config),
+            "--json",
+        ]
+    )
+
+    payload = json.loads(capsys.readouterr().out)
+    assert exit_code == 0
+    assert payload["apply"]["nothing_to_apply"] is True
+    assert payload["apply"]["succeeded"] is True
+    assert not any("AppendToTimeline" in call for call in project.mutations)
+    assert [
+        project.GetTimelineByIndex(i).GetName()
+        for i in range(1, project.GetTimelineCount() + 1)
+    ] == ["DAZ_INPUT", "DAZ_OUTPUT_MVP"]

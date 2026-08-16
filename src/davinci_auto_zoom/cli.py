@@ -12,8 +12,13 @@ from typing import Any
 from davinci_auto_zoom.config import Config
 from davinci_auto_zoom.domain.compare import added_generator_items, compare_timelines
 from davinci_auto_zoom.domain.models import FrameRange
-from davinci_auto_zoom.domain.planner import PlanSource, ZoomPlan, plan_zooms
-from davinci_auto_zoom.domain.probe import VoiceRenderTarget, WriteProbeTarget
+from davinci_auto_zoom.domain.plan_validation import build_plan_source, timeline_frame_rate
+from davinci_auto_zoom.domain.planner import ZoomPlan, plan_zooms
+from davinci_auto_zoom.domain.probe import (
+    ApplyPreviewTarget,
+    VoiceRenderTarget,
+    WriteProbeTarget,
+)
 from davinci_auto_zoom.domain.snapshot import ProjectSnapshot
 from davinci_auto_zoom.domain.speech_report import (
     PlanReferenceDiagnostics,
@@ -23,6 +28,14 @@ from davinci_auto_zoom.domain.speech_report import (
 )
 from davinci_auto_zoom.domain.timebase import Timebase
 from davinci_auto_zoom.resolve.capability_probe import probe_resolve
+from davinci_auto_zoom.resolve.executor import (
+    CONFIRM_FLAG as APPLY_CONFIRM_FLAG,
+)
+from davinci_auto_zoom.resolve.executor import (
+    ApplyPreviewRefused,
+    ApplyReport,
+    apply_preview,
+)
 from davinci_auto_zoom.resolve.session import (
     ResolveUnavailableError,
     connect,
@@ -55,12 +68,14 @@ def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="davinci-auto-zoom",
         description="Speech-driven zoom automation for DaVinci Resolve. "
-        "No command places, moves or deletes a zoom: planning is dry-run only. "
-        "The everyday commands (doctor, snapshot, assets, compare, speech-file) are "
-        "strictly read-only. The development probes (probe-write, speech-probe, "
-        "plan-probe) DO make temporary, opt-in changes — each one requires its own "
-        "confirmation flag, works on a scratch timeline it creates and deletes, and "
-        "restores every piece of project state it touched.",
+        "No command modifies an existing timeline of yours. The everyday commands "
+        "(doctor, snapshot, assets, compare, speech-file) are strictly read-only. The "
+        "development probes (probe-write, speech-probe, plan-probe) make temporary, "
+        "opt-in changes on a scratch timeline they create and delete, restoring every "
+        "piece of project state they touched. apply-preview is the one write-capable "
+        "command that leaves something behind on purpose: it places the planned zooms on "
+        "a NEW DAZ_AUTO_PREVIEW_* timeline duplicated from your source, keeps it on "
+        "success for you to inspect, and deletes it again if anything fails.",
     )
     subparsers = parser.add_subparsers(dest="command", required=True)
 
@@ -185,6 +200,43 @@ def _build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Keep the rendered and normalized audio and print exactly where they are.",
     )
+
+    apply_preview = add(
+        "apply-preview",
+        "WRITE-CAPABLE. Phase 5: runs the full pipeline and places the planned zooms on a "
+        "NEW timeline duplicated from the source. Your timelines are never modified, and on "
+        "success the preview is deliberately KEPT for you to inspect.",
+    )
+    apply_preview.add_argument(
+        APPLY_CONFIRM_FLAG,
+        action="store_true",
+        dest="confirmed_apply",
+        help="Required. Without it nothing is created and nothing is modified.",
+    )
+    apply_preview.add_argument(
+        VOICE_CONFIRM_FLAG,
+        action="store_true",
+        dest="confirmed",
+        help="Required as well: the pipeline needs the same temporary voice render as "
+        "plan-probe.",
+    )
+    # Same rule as every other write-capable command (D015).
+    apply_preview.add_argument("--project", required=True, help="Exact expected project name.")
+    apply_preview.add_argument(
+        "--source-timeline",
+        required=True,
+        help="Timeline to plan against and duplicate. Never modified.",
+    )
+    apply_preview.add_argument(
+        "--reference-timeline",
+        default=None,
+        help="Optional human-edited timeline. Diagnostics only; never written to.",
+    )
+    apply_preview.add_argument(
+        "--keep-temp-audio",
+        action="store_true",
+        help="Keep the rendered and normalized audio and print exactly where they are.",
+    )
     return parser
 
 
@@ -284,19 +336,19 @@ def _build_plan(
         raise ValueError(f"timeline {args.source_timeline!r} disappeared during the run")
 
     timeline_range = FrameRange(timeline.start_frame, timeline.end_frame)
-    source = PlanSource(
+    # Built through the same constructor the executor validates against, fingerprint
+    # included, so a later mismatch can only mean Resolve changed (D030).
+    source = build_plan_source(
         project=snapshot.project_name,
-        timeline=timeline.name,
-        timeline_unique_id=timeline.unique_id,
-        start_frame=timeline.start_frame,
-        end_frame=timeline.end_frame,
-        frame_rate=str(result.timebase.frame_rate),
+        timeline=timeline,
+        frame_rate=timeline_frame_rate(timeline),
         voice_audio_track=config.voice_audio_track,
         cut_reference_video_track=config.cut_reference_video_track,
         zoom_video_track=config.zoom_video_track,
-        assets=tuple(sorted(config.assets.items())),
-        asset_transition_frames=tuple(sorted(config.asset_timing.to_dict().items())),
+        assets=config.assets,
+        asset_transition_frames=config.asset_timing.to_dict(),
         planner_settings=config.planner,
+        found_assets=snapshot.assets,
     )
     plan = plan_zooms(
         timeline=timeline_range,
@@ -355,7 +407,37 @@ def _plan_reference_text(diagnostics: PlanReferenceDiagnostics) -> str:
     )
 
 
-def _speech_probe(args: Any, config: Config, *, plan: bool = False) -> int:
+def _apply_preview(
+    args: Any, config: Config, resolve: Any, project: Any, zoom_plan: ZoomPlan
+) -> tuple[dict[str, Any], str, bool]:
+    """Hand the finished plan to the executor. Returns (payload, text, succeeded).
+
+    A refusal is a normal, reportable outcome — the guards are the point of the command — so
+    it is turned into text here instead of a traceback. Nothing was created when it happens.
+    """
+
+    target = ApplyPreviewTarget(
+        project=args.project,
+        source_timeline=args.source_timeline,
+        reference_timeline=args.reference_timeline,
+        voice_audio_track=config.voice_audio_track,
+        cut_reference_video_track=config.cut_reference_video_track,
+        zoom_video_track=config.zoom_video_track,
+        asset_bin=config.asset_bin,
+        assets=tuple(sorted(config.assets.items())),
+    )
+    try:
+        report: ApplyReport = apply_preview(
+            resolve, project, config, target, zoom_plan, confirmed=args.confirmed_apply
+        )
+    except ApplyPreviewRefused as exc:
+        return {"refused": str(exc)}, f"refused: {exc}", False
+    return report.to_dict(), report.to_text(), report.succeeded
+
+
+def _speech_probe(
+    args: Any, config: Config, *, plan: bool = False, apply_plan: bool = False
+) -> int:
     try:
         resolve = connect()
         project = current_project(resolve)
@@ -413,6 +495,18 @@ def _speech_probe(args: Any, config: Config, *, plan: bool = False) -> int:
                     text += "\n" + _plan_reference_text(comparison)
                 # A plan with overlapping placements is a bug, not a result.
                 succeeded = succeeded and zoom_plan.valid
+                if apply_plan and succeeded:
+                    apply_payload, apply_text, applied = _apply_preview(
+                        args, config, resolve, project, zoom_plan
+                    )
+                    payload["apply"] = apply_payload
+                    text += "\n\n" + apply_text
+                    succeeded = applied
+                elif apply_plan:
+                    text += (
+                        "\n\nrefused: the pipeline did not produce a usable plan, so no "
+                        "preview timeline was created"
+                    )
         _emit(payload, text, args.as_json)
     return EXIT_OK if succeeded else EXIT_PROBE_FAILED
 
@@ -492,7 +586,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     if args.command == "speech-probe":
         return _speech_probe(args, config)
 
-    if args.command == "plan-probe":
+    if args.command in ("plan-probe", "apply-preview"):
         if config.asset_timing is None:
             print(
                 "error: the planner needs to know how long your zoom assets take to animate. "
@@ -500,7 +594,16 @@ def main(argv: Sequence[str] | None = None) -> int:
                 "these are frame counts for YOUR assets, and the tool will not guess them."
             )
             return EXIT_BAD_REQUEST
-        return _speech_probe(args, config, plan=True)
+        if args.command == "plan-probe":
+            return _speech_probe(args, config, plan=True)
+        if not args.confirmed_apply:
+            # Checked before Resolve is even contacted: the flag is the whole opt-in.
+            print(
+                f"refused: apply-preview creates a new timeline in your project and "
+                f"requires {APPLY_CONFIRM_FLAG}. Nothing was modified."
+            )
+            return EXIT_BAD_REQUEST
+        return _speech_probe(args, config, plan=True, apply_plan=True)
 
     if args.command == "probe-write":
         try:
