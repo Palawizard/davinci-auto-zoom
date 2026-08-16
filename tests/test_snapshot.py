@@ -6,6 +6,8 @@ from davinci_auto_zoom.domain.snapshot import (
     ITEM_KIND_GENERATOR,
     ITEM_KIND_MEDIA,
     TimelineItemSnapshot,
+    TimelineSnapshot,
+    TrackSnapshot,
     ms_to_frames,
 )
 from davinci_auto_zoom.resolve.session import runtime_method_names, snapshot_project
@@ -111,3 +113,36 @@ def test_runtime_sample_finds_a_media_pool_item_nested_in_a_bin() -> None:
 
     runtime = runtime_method_names(resolve, project)
     assert "GetClipProperty" in runtime["MediaPoolItem"]
+
+
+def test_compare_handles_a_reference_track_with_no_cuts_to_measure_against() -> None:
+    """Offsets are None when the cut source track is empty; nothing may crash on that."""
+
+    empty = TimelineSnapshot(
+        name="A",
+        unique_id="a",
+        frame_rate=60.0,
+        start_frame=0,
+        end_frame=100,
+        start_timecode="00:00:00:00",
+        is_current=False,
+        tracks=(TrackSnapshot("video", 1, "Video 1"),),
+    )
+    reference = TimelineSnapshot(
+        name="B",
+        unique_id="b",
+        frame_rate=60.0,
+        start_frame=0,
+        end_frame=100,
+        start_timecode="00:00:00:00",
+        is_current=False,
+        tracks=(
+            TrackSnapshot("video", 1, "Video 1"),
+            TrackSnapshot(
+                "video", 2, "Video 2", items=(TimelineItemSnapshot("FACE_X1", 10, 50),)
+            ),
+        ),
+    )
+    added = added_generator_items(compare_timelines(empty, reference))
+    assert added[0].start_offset_to_nearest_cut is None
+    assert added[0].end_offset_to_nearest_cut is None

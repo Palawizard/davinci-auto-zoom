@@ -46,3 +46,16 @@ def test_compare_with_unknown_timeline_lists_the_available_ones(
     out = capsys.readouterr().out
     assert "NOPE" in out
     assert "DAZ_OUTPUT_MVP" in out
+
+
+def test_compare_text_survives_a_timeline_without_cuts(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Formatting must not blow up on the None offsets of a cut-less source track."""
+
+    resolve, project = build_test_project()
+    project.GetTimelineByIndex(1)._tracks[("video", 1)][2].clear()  # noqa: SLF001
+    monkeypatch.setattr(cli, "connect", lambda: resolve)
+
+    assert cli.main(["compare", "DAZ_INPUT", "DAZ_OUTPUT_MVP"]) == 0
+    assert "startΔcut=    ?" in capsys.readouterr().out

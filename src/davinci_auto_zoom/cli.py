@@ -153,11 +153,16 @@ def main(argv: Sequence[str] | None = None) -> int:
             f"(start on a cut: {comparison.starts_on_cut}, end on a cut: {comparison.ends_on_cut})",
             "",
         ]
+        # Offsets are None when the source track has no cut at all, so they cannot be
+        # formatted with a numeric spec.
+        def offset(value: int | None) -> str:
+            return "    ?" if value is None else f"{value:+5}"
+
         for item in added:
             text.append(
                 f"  {item.name:16} V{item.track_index} [{item.start},{item.end}) "
-                f"dur={item.duration:4} startΔcut={item.start_offset_to_nearest_cut:+5} "
-                f"endΔcut={item.end_offset_to_nearest_cut:+5} gap={item.gap_from_previous}"
+                f"dur={item.duration:4} startΔcut={offset(item.start_offset_to_nearest_cut)} "
+                f"endΔcut={offset(item.end_offset_to_nearest_cut)} gap={item.gap_from_previous}"
             )
         _emit(comparison.to_dict(), "\n".join(text), args.as_json)
         return EXIT_OK
