@@ -167,3 +167,20 @@ def test_an_explicit_neg_threshold_is_capped_at_a_lower_trial_threshold():
         probabilities, WINDOW_SAMPLES * len(probabilities), settings, (0.4, 0.5, 0.6)
     )
     assert [trial.segment_count for trial in trials] == [1, 1, 1]
+
+
+def test_a_plan_is_compared_to_a_human_edit_without_being_scored():
+    from davinci_auto_zoom.domain.speech_report import compare_plan_to_reference
+
+    diagnostics = compare_plan_to_reference(
+        planned_x1=[(1000, 1200), (2000, 2100)],
+        planned_x0=[(1200, 1215), (2100, 2115)],
+        manual_x1=[ReferenceZoom("FACE_X1", 990, 1250)],
+        manual_x0=[ReferenceZoom("FACE_X0_SMOOTH", 1250, 1292)],
+        reference_timeline="DAZ_OUTPUT_MVP",
+    )
+    assert diagnostics.matched_x1 == 1
+    assert diagnostics.planned_x1_without_manual == 1
+    assert diagnostics.manual_x1_without_planned == 0
+    assert diagnostics.start_offset_frames["min"] == 10
+    assert "NOT tuned" in diagnostics.to_dict()["caveat"]

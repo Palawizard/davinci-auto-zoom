@@ -11,9 +11,13 @@ from typing import Any
 
 from davinci_auto_zoom.config import Config
 from davinci_auto_zoom.domain.compare import added_generator_items, compare_timelines
+from davinci_auto_zoom.domain.models import FrameRange
+from davinci_auto_zoom.domain.planner import PlanSource, ZoomPlan, plan_zooms
 from davinci_auto_zoom.domain.probe import VoiceRenderTarget, WriteProbeTarget
 from davinci_auto_zoom.domain.snapshot import ProjectSnapshot
 from davinci_auto_zoom.domain.speech_report import (
+    PlanReferenceDiagnostics,
+    compare_plan_to_reference,
     compare_to_reference_zooms,
     reference_zooms,
 )
@@ -51,7 +55,12 @@ def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="davinci-auto-zoom",
         description="Speech-driven zoom automation for DaVinci Resolve. "
-        "Every command in this phase is strictly read-only.",
+        "No command places, moves or deletes a zoom: planning is dry-run only. "
+        "The everyday commands (doctor, snapshot, assets, compare, speech-file) are "
+        "strictly read-only. The development probes (probe-write, speech-probe, "
+        "plan-probe) DO make temporary, opt-in changes — each one requires its own "
+        "confirmation flag, works on a scratch timeline it creates and deletes, and "
+        "restores every piece of project state it touched.",
     )
     subparsers = parser.add_subparsers(dest="command", required=True)
 
@@ -146,6 +155,36 @@ def _build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Keep the rendered and normalized audio and print exactly where they are.",
     )
+
+    plan_probe = add(
+        "plan-probe",
+        "Phase 4 dry run: voice render -> speech -> hard cuts -> deterministic zoom plan. "
+        "Reports the plan and NEVER inserts a zoom clip. Uses the same temporary, opt-in "
+        "render as speech-probe, so it requires the same confirmation flag.",
+    )
+    plan_probe.add_argument(
+        VOICE_CONFIRM_FLAG,
+        action="store_true",
+        dest="confirmed",
+        help="Required. Covers the temporary voice render only; no zoom is ever placed.",
+    )
+    plan_probe.add_argument("--project", required=True, help="Exact expected project name.")
+    plan_probe.add_argument(
+        "--source-timeline",
+        required=True,
+        help="Timeline to plan against. Never modified; a duplicate is rendered.",
+    )
+    plan_probe.add_argument(
+        "--reference-timeline",
+        default=None,
+        help="Optional human-edited timeline. Produces a qualitative comparison only — the "
+        "planner is never tuned to reproduce it.",
+    )
+    plan_probe.add_argument(
+        "--keep-temp-audio",
+        action="store_true",
+        help="Keep the rendered and normalized audio and print exactly where they are.",
+    )
     return parser
 
 
@@ -229,7 +268,94 @@ def _speech_file(args: Any) -> int:
     return EXIT_OK
 
 
-def _speech_probe(args: Any, config: Config) -> int:
+def _build_plan(
+    args: Any, config: Config, resolve: Any, project: Any, report: Any, result: SpeechResult
+) -> tuple[ZoomPlan, PlanReferenceDiagnostics | None]:
+    """Pure planning on top of the probe's results, plus an optional qualitative comparison.
+
+    The only Resolve work here is one read-only snapshot: the planner itself never sees a
+    Resolve object, and this function places nothing on any timeline.
+    """
+
+    assert config.asset_timing is not None  # checked before the render
+    snapshot = snapshot_project(resolve, project, config)
+    timeline = snapshot.timeline(args.source_timeline)
+    if timeline is None:  # pragma: no cover - the render already proved it exists
+        raise ValueError(f"timeline {args.source_timeline!r} disappeared during the run")
+
+    timeline_range = FrameRange(timeline.start_frame, timeline.end_frame)
+    source = PlanSource(
+        project=snapshot.project_name,
+        timeline=timeline.name,
+        timeline_unique_id=timeline.unique_id,
+        start_frame=timeline.start_frame,
+        end_frame=timeline.end_frame,
+        frame_rate=str(result.timebase.frame_rate),
+        voice_audio_track=config.voice_audio_track,
+        cut_reference_video_track=config.cut_reference_video_track,
+        zoom_video_track=config.zoom_video_track,
+        assets=tuple(sorted(config.assets.items())),
+        asset_transition_frames=tuple(sorted(config.asset_timing.to_dict().items())),
+        planner_settings=config.planner,
+    )
+    plan = plan_zooms(
+        timeline=timeline_range,
+        frame_rate=result.timebase.frame_rate,
+        speech_segments=result.segments,
+        timing=config.asset_timing,
+        hard_cuts=timeline.hard_cuts(config.cut_reference_video_track),
+        settings=config.planner,
+        source=source,
+    )
+
+    if not args.reference_timeline:
+        return plan, None
+    reference = snapshot.timeline(args.reference_timeline)
+    if reference is None:
+        report.notes.append(
+            f"reference timeline {args.reference_timeline!r} not found; plan comparison skipped"
+        )
+        return plan, None
+    comparison = compare_plan_to_reference(
+        [(p.start_frame, p.end_frame) for p in plan.x1_placements],
+        [(p.start_frame, p.end_frame) for p in plan.x0_placements],
+        reference_zooms(reference, config.assets.get("facecam_x1", "")),
+        reference_zooms(reference, config.assets.get("reset_x0", "")),
+        args.reference_timeline,
+    )
+    return plan, comparison
+
+
+def _plan_reference_text(diagnostics: PlanReferenceDiagnostics) -> str:
+    return "\n".join(
+        [
+            "",
+            f"  plan vs {diagnostics.reference_timeline} "
+            "(qualitative only — the planner is NOT tuned to reproduce a human edit):",
+            f"    planned x1 / manual x1     : {diagnostics.planned_x1} / "
+            f"{diagnostics.manual_x1}",
+            f"    planned x0 / manual x0     : {diagnostics.planned_x0} / "
+            f"{diagnostics.manual_x0}",
+            f"    planned x1 matching manual : {diagnostics.matched_x1}",
+            f"    planned with no manual zoom: {diagnostics.planned_x1_without_manual}",
+            f"    manual with no planned zoom: {diagnostics.manual_x1_without_planned}",
+            f"    start offset (planned-manual): min/med/max = "
+            f"{diagnostics.start_offset_frames['min']}/"
+            f"{diagnostics.start_offset_frames['median']}/"
+            f"{diagnostics.start_offset_frames['max']} frames",
+            f"    duration ratio             : min/med/max = "
+            f"{diagnostics.duration_ratio_percent['min']}/"
+            f"{diagnostics.duration_ratio_percent['median']}/"
+            f"{diagnostics.duration_ratio_percent['max']} %",
+            f"    reset offset (planned-manual): min/med/max = "
+            f"{diagnostics.reset_offset_frames['min']}/"
+            f"{diagnostics.reset_offset_frames['median']}/"
+            f"{diagnostics.reset_offset_frames['max']} frames",
+        ]
+    )
+
+
+def _speech_probe(args: Any, config: Config, *, plan: bool = False) -> int:
     try:
         resolve = connect()
         project = current_project(resolve)
@@ -272,11 +398,22 @@ def _speech_probe(args: Any, config: Config) -> int:
 
         payload = report.to_dict()
         text = report.to_text()
+        succeeded = report.succeeded and result is not None
         if result is not None:
             payload["speech"] = result.to_dict()
             text += "\n\n" + result.to_text()
+            if plan:
+                zoom_plan, comparison = _build_plan(
+                    args, config, resolve, project, report, result
+                )
+                payload["plan"] = zoom_plan.to_dict()
+                text += "\n\n" + zoom_plan.to_text()
+                if comparison is not None:
+                    payload["plan_reference"] = comparison.to_dict()
+                    text += "\n" + _plan_reference_text(comparison)
+                # A plan with overlapping placements is a bug, not a result.
+                succeeded = succeeded and zoom_plan.valid
         _emit(payload, text, args.as_json)
-        succeeded = report.succeeded and result is not None
     return EXIT_OK if succeeded else EXIT_PROBE_FAILED
 
 
@@ -354,6 +491,16 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     if args.command == "speech-probe":
         return _speech_probe(args, config)
+
+    if args.command == "plan-probe":
+        if config.asset_timing is None:
+            print(
+                "error: the planner needs to know how long your zoom assets take to animate. "
+                "Add [assets.transition_frames] to your config (see config.example.toml): "
+                "these are frame counts for YOUR assets, and the tool will not guess them."
+            )
+            return EXIT_BAD_REQUEST
+        return _speech_probe(args, config, plan=True)
 
     if args.command == "probe-write":
         try:

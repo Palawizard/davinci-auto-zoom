@@ -243,6 +243,103 @@ def compare_to_reference_zooms(
     )
 
 
+@dataclass(frozen=True, slots=True)
+class PlanReferenceDiagnostics:
+    """How an automatic plan lines up with a human's zoom clips.
+
+    **A diagnostic, never a score, and never a tuning target.** The human timeline contains
+    deliberate choices the planner cannot know: speech left un-zoomed on purpose, zooms held
+    for rhythm. A human correction pass is part of how the product is meant to work, so
+    "planned placements with no manual equivalent" is expected output, not error count.
+    """
+
+    reference_timeline: str
+    planned_x1: int
+    manual_x1: int
+    planned_x0: int
+    manual_x0: int
+    matched_x1: int
+    planned_x1_without_manual: int
+    manual_x1_without_planned: int
+    start_offset_frames: dict[str, int | None]
+    duration_ratio_percent: dict[str, int | None]
+    reset_offset_frames: dict[str, int | None]
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "reference_timeline": self.reference_timeline,
+            "planned_x1": self.planned_x1,
+            "manual_x1": self.manual_x1,
+            "planned_x0": self.planned_x0,
+            "manual_x0": self.manual_x0,
+            "matched_x1": self.matched_x1,
+            "planned_x1_without_manual": self.planned_x1_without_manual,
+            "manual_x1_without_planned": self.manual_x1_without_planned,
+            "start_offset_frames": self.start_offset_frames,
+            "duration_ratio_percent": self.duration_ratio_percent,
+            "reset_offset_frames": self.reset_offset_frames,
+            "caveat": (
+                "qualitative comparison only: the human timeline encodes editorial choices "
+                "(deliberately un-zoomed speech, held zooms) that no planner can derive, and "
+                "the planner is NOT tuned to reproduce it"
+            ),
+        }
+
+
+def compare_plan_to_reference(
+    planned_x1: Sequence[tuple[int, int]],
+    planned_x0: Sequence[tuple[int, int]],
+    manual_x1: Sequence[ReferenceZoom],
+    manual_x0: Sequence[ReferenceZoom],
+    reference_timeline: str,
+) -> PlanReferenceDiagnostics:
+    """Match planned zoom-ins to manual ones by overlap and measure the offsets."""
+
+    start_offsets: list[int] = []
+    ratios: list[int] = []
+    matched_manual: set[int] = set()
+    matched = 0
+
+    for start, end in planned_x1:
+        overlapping = [
+            (index, zoom)
+            for index, zoom in enumerate(manual_x1)
+            if zoom.start < end and zoom.end > start
+        ]
+        if not overlapping:
+            continue
+        matched += 1
+        index, nearest = min(overlapping, key=lambda pair: abs(pair[1].start - start))
+        matched_manual.add(index)
+        start_offsets.append(start - nearest.start)
+        manual_duration = nearest.end - nearest.start
+        if manual_duration:
+            ratios.append(round(100 * (end - start) / manual_duration))
+
+    # Resets are matched to the nearest manual reset, with no window: a plan and an edit with
+    # different reset counts would make any window an arbitrary filter, and the point of the
+    # number is to show how far apart the two conventions are, not to hide the far ones.
+    reset_offsets = [
+        start - min(manual_x0, key=lambda zoom: abs(zoom.start - start)).start
+        for start, _ in planned_x0
+        if manual_x0
+    ]
+
+    return PlanReferenceDiagnostics(
+        reference_timeline=reference_timeline,
+        planned_x1=len(planned_x1),
+        manual_x1=len(manual_x1),
+        planned_x0=len(planned_x0),
+        manual_x0=len(manual_x0),
+        matched_x1=matched,
+        planned_x1_without_manual=len(planned_x1) - matched,
+        manual_x1_without_planned=len(manual_x1) - len(matched_manual),
+        start_offset_frames=_summary(sorted(start_offsets)),
+        duration_ratio_percent=_summary(sorted(ratios)),
+        reset_offset_frames=_summary(sorted(reset_offsets)),
+    )
+
+
 def reference_zooms(
     timeline: TimelineSnapshot, asset_name: str
 ) -> tuple[ReferenceZoom, ...]:
@@ -286,10 +383,12 @@ def segment_rows(
 
 
 __all__ = [
+    "PlanReferenceDiagnostics",
     "ReferenceDiagnostics",
     "ReferenceZoom",
     "SegmentStatistics",
     "ThresholdTrial",
+    "compare_plan_to_reference",
     "compare_to_reference_zooms",
     "reference_zooms",
     "segment_rows",

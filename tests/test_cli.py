@@ -146,3 +146,113 @@ def test_speech_file_analyses_silence_without_resolve(
     assert payload["timebase"]["start_frame"] == 216000
     assert payload["audio"]["sample_rate"] == 16000
     assert payload["vad"]["settings"]["threshold"] == 0.5
+
+
+def test_plan_probe_refuses_without_the_confirmation_flag(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    exit_code = cli.main(
+        [
+            "plan-probe",
+            "--project",
+            "davinci-auto-zoom-test",
+            "--source-timeline",
+            "DAZ_INPUT",
+            "--config",
+            "config.example.toml",
+        ]
+    )
+    assert exit_code == 3
+    assert "--confirm-resolve-render-test" in capsys.readouterr().out
+
+
+def test_plan_probe_refuses_without_asset_timing(capsys: pytest.CaptureFixture[str]) -> None:
+    """The planner will not guess how long someone else's assets take to animate."""
+
+    exit_code = cli.main(
+        [
+            "plan-probe",
+            "--confirm-resolve-render-test",
+            "--project",
+            "davinci-auto-zoom-test",
+            "--source-timeline",
+            "DAZ_INPUT",
+        ]
+    )
+    assert exit_code == 3
+    assert "[assets.transition_frames]" in capsys.readouterr().out
+
+
+def test_the_global_help_does_not_claim_every_command_is_read_only(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    with pytest.raises(SystemExit):
+        cli.main(["--help"])
+    out = " ".join(capsys.readouterr().out.split())
+    # The claim that used to be there, which the development probes contradict.
+    assert "Every command in this phase is strictly read-only" not in out
+    # What replaced it: which commands are read-only, and that the probes do mutate.
+    assert "doctor, snapshot, assets, compare, speech-file) are strictly read-only" in out
+    assert "DO make temporary, opt-in changes" in out
+    assert "confirmation flag" in out
+    # And the guarantee that actually matters for Phase 4.
+    assert "No command places, moves or deletes a zoom" in out
+
+
+@pytest.mark.skipif(shutil.which("ffmpeg") is None, reason="ffmpeg is not installed")
+def test_plan_probe_plans_without_inserting_anything(
+    tmp_path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The whole Phase 4 chain on fakes: render -> speech -> cuts -> plan, zero zoom writes."""
+
+    resolve, project = build_test_project(audio_tracks=3)
+    storage = tmp_path / "media-storage"
+    storage.mkdir()
+    resolve.media_storage.volumes = [str(storage)]
+    monkeypatch.setattr(cli, "connect", lambda: resolve)
+    monkeypatch.setattr(cli, "current_project", lambda r: project)
+
+    config = tmp_path / "config.toml"
+    config.write_text(
+        "[resolve]\nvoice_audio_track = 1\ncut_reference_video_track = 1\n"
+        '[assets]\nfacecam_x1 = "FACE_X1"\nreset_x0 = "FACE_X0_SMOOTH"\n'
+        "[assets.transition_frames]\nfacecam_x1 = 15\nreset_x0 = 15\n",
+        encoding="utf-8",
+    )
+
+    exit_code = cli.main(
+        [
+            "plan-probe",
+            "--confirm-resolve-render-test",
+            "--project",
+            "davinci-auto-zoom-test",
+            "--source-timeline",
+            "DAZ_INPUT",
+            "--reference-timeline",
+            "DAZ_OUTPUT_MVP",
+            "--config",
+            str(config),
+            "--json",
+        ]
+    )
+    payload = json.loads(capsys.readouterr().out)
+
+    # The fake renders silence, so there is nothing to zoom on — but the plan must exist,
+    # be valid, and carry the signature a future executor would verify.
+    assert payload["plan"]["diagnostics"]["valid"] is True
+    assert payload["plan"]["diagnostics"]["overlaps"] == []
+    source = payload["plan"]["source"]
+    assert source["timeline"] == "DAZ_INPUT"
+    assert source["cut_reference_video_track"] == 1
+    assert source["zoom_video_track"] == 3
+    assert source["asset_transition_frames"] == {"facecam_x1": 15, "reset_x0": 15}
+    assert payload["plan_reference"]["reference_timeline"] == "DAZ_OUTPUT_MVP"
+    assert exit_code == 0
+
+    # Nothing was appended to any timeline, and the originals are unchanged.
+    assert not any("AppendToTimeline" in call for call in project.mutations)
+    names = [
+        project.GetTimelineByIndex(i).GetName()
+        for i in range(1, project.GetTimelineCount() + 1)
+    ]
+    assert names == ["DAZ_INPUT", "DAZ_OUTPUT_MVP"]
