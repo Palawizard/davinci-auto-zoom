@@ -131,14 +131,21 @@ The rules, in the order they apply:
 2. **One zoom-in per burst**, starting at the burst (plus an optional lead-in, 0 by default)
    and lasting until the reset. It is dropped entirely if it would be shorter than its own
    animation, because a truncated move is worse than no zoom.
-3. **The reset is placed at the end of the burst** — and may be pushed forward to the *last*
-   hard cut within `cut_snap_window_ms`, when returning to normal framing on a real cut reads
-   as intentional. A "hard cut" means one clip ends exactly where the next begins on
-   `cut_reference_video_track`; entering from black or running out into a gap is not a cut.
+3. **The reset is placed at the end of the burst** — and snaps onto a real hard cut when one
+   is close enough, because returning to normal framing exactly on a cut reads as
+   intentional. The search window is **asymmetric**: up to `cut_snap_window_ms` after the
+   burst end, and up to `cut_snap_lookback_ms` before it. Among the candidates the **nearest**
+   one to the burst end wins — not the last — with the later cut preferred on an exact tie.
+   The small backward tolerance exists because a VAD boundary is not an editorial one: the
+   detector pads each segment so no phoneme is clipped, which puts the detected end a few
+   frames after the perceptual one. It is only ever a snap: with no cut in the window the
+   reset stays exactly at the burst end, never earlier. A "hard cut" means one clip ends
+   exactly where the next begins on `cut_reference_video_track`; entering from black or
+   running out into a gap is not a cut.
 4. **A reset is only placed if it fits.** The whole reset animation must finish before the
    next zoom starts, or before the timeline ends. A cut that leaves too little room is
-   rejected in favour of an earlier one; if nothing fits, no reset is placed and the zoom is
-   held. Every one of those decisions is printed.
+   rejected in favour of the next-nearest one; if nothing fits, no reset is placed and the
+   zoom is held. Every one of those decisions is printed.
 
 The result is a table of placements with absolute frames, plus the full decision trace, so you
 can see *why* each zoom is where it is before anything is applied.
