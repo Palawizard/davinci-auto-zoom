@@ -32,7 +32,7 @@ TARGET = WriteProbeTarget(
     source_timeline="DAZ_INPUT",
     reference_timeline="DAZ_OUTPUT_MVP",
     asset_bin="DAVINCI_AUTO_ZOOM",
-    assets=(("facecam_x1", "FACE_X1"), ("reset_x0", "FACE_X0_SMOOTH")),
+    assets=(("x0_to_face_x1", "FACE_X1"), ("face_x1_to_x0", "X1_TO_X0")),
 )
 
 
@@ -90,7 +90,7 @@ def test_same_source_and_reference_writes_nothing() -> None:
 def test_missing_asset_writes_nothing() -> None:
     from dataclasses import replace
 
-    _refuses(replace(TARGET, assets=(("facecam_x1", "NOT_AN_ASSET"),)))
+    _refuses(replace(TARGET, assets=(("x0_to_face_x1", "NOT_AN_ASSET"),)))
 
 
 def test_duplicate_asset_writes_nothing() -> None:
@@ -252,7 +252,7 @@ def test_report_is_json_safe_and_never_leaks_proxy_objects() -> None:
 def test_plan_puts_the_native_duration_experiment_first() -> None:
     experiments = plan_experiments(
         TARGET,
-        {"FACE_X1": 132, "FACE_X0_SMOOTH": 42},
+        {"FACE_X1": 132, "X1_TO_X0": 42},
         first_record_frame=216200,
         spacing=400,
     )

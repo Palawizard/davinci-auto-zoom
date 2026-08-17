@@ -14,8 +14,6 @@ from davinci_auto_zoom.domain.apply import (
 )
 from davinci_auto_zoom.domain.models import FrameRange
 from davinci_auto_zoom.domain.planner import (
-    ROLE_FACECAM_X1,
-    ROLE_RESET_X0,
     AssetPlacement,
     AssetTiming,
     PlannerSettings,
@@ -26,8 +24,12 @@ from davinci_auto_zoom.domain.snapshot import (
     TimelineSnapshot,
     TrackSnapshot,
 )
+from davinci_auto_zoom.domain.transitions import (
+    ROLE_FACE_X1_TO_X0,
+    ROLE_X0_TO_FACE_X1,
+)
 
-ASSETS = {ROLE_FACECAM_X1: "FACE_X1", ROLE_RESET_X0: "FACE_X0_SMOOTH"}
+ASSETS = {ROLE_X0_TO_FACE_X1: "FACE_X1", ROLE_FACE_X1_TO_X0: "X1_TO_X0"}
 
 
 def _timeline(tracks: tuple[TrackSnapshot, ...]) -> TimelineSnapshot:
@@ -52,7 +54,7 @@ def _plan(*placements: AssetPlacement) -> ZoomPlan:
         timeline=FrameRange(216000, 219555),
         frame_rate=Fraction(60),
         settings=PlannerSettings(),
-        timing=AssetTiming(15, 15),
+        timing=AssetTiming({"x0_to_face_x1": 15, "face_x1_to_x0": 15}),
         speech_segments=(),
         bursts=(),
         placements=placements,
@@ -61,11 +63,11 @@ def _plan(*placements: AssetPlacement) -> ZoomPlan:
 
 
 def _x1(start: int, end: int) -> AssetPlacement:
-    return AssetPlacement(ROLE_FACECAM_X1, FrameRange(start, end), "x1_until_direct_reset")
+    return AssetPlacement(ROLE_X0_TO_FACE_X1, FrameRange(start, end), "x1_until_direct_reset")
 
 
 def _x0(start: int) -> AssetPlacement:
-    return AssetPlacement(ROLE_RESET_X0, FrameRange(start, start + 15), "reset_direct")
+    return AssetPlacement(ROLE_FACE_X1_TO_X0, FrameRange(start, start + 15), "reset_direct")
 
 
 def _item(name: str, start: int, end: int, comps: int = 1) -> TimelineItemSnapshot:
@@ -106,7 +108,7 @@ def test_a_target_track_holding_previous_daz_zooms_is_refused_too() -> None:
     """Recognising and replacing our own output is Phase 6 work, not a licence to overwrite."""
 
     occupied = _video(
-        3, (_item("FACE_X1", 216045, 216132), _item("FACE_X0_SMOOTH", 216132, 216147))
+        3, (_item("FACE_X1", 216045, 216132), _item("X1_TO_X0", 216132, 216147))
     )
     preparation = plan_target_track(_timeline((_video(1), _video(2), occupied)), 3)
     assert not preparation.usable
@@ -148,8 +150,8 @@ def test_the_x1_duration_is_the_planner_s_variable_one() -> None:
 def test_expected_items_restate_the_plan_without_deciding_anything() -> None:
     plan = _plan(_x1(216045, 216132), _x0(216132))
     assert expected_items(plan, ASSETS, 3) == (
-        ExpectedItem(ROLE_FACECAM_X1, "FACE_X1", 216045, 216132, 3),
-        ExpectedItem(ROLE_RESET_X0, "FACE_X0_SMOOTH", 216132, 216147, 3),
+        ExpectedItem(ROLE_X0_TO_FACE_X1, "FACE_X1", 216045, 216132, 3),
+        ExpectedItem(ROLE_FACE_X1_TO_X0, "X1_TO_X0", 216132, 216147, 3),
     )
 
 
@@ -169,7 +171,7 @@ def _facts(**overrides: object) -> dict[str, object]:
     return facts
 
 
-EXPECTED = ExpectedItem(ROLE_FACECAM_X1, "FACE_X1", 216045, 216132, 3)
+EXPECTED = ExpectedItem(ROLE_X0_TO_FACE_X1, "FACE_X1", 216045, 216132, 3)
 
 
 def test_a_correct_insertion_has_no_differences() -> None:
@@ -197,7 +199,7 @@ def test_an_instance_without_a_fusion_composition_is_caught() -> None:
 
 def test_a_track_that_equals_the_plan_has_no_differences() -> None:
     expected = expected_items(_plan(_x1(216045, 216132), _x0(216132)), ASSETS, 3)
-    actual = (_item("FACE_X1", 216045, 216132), _item("FACE_X0_SMOOTH", 216132, 216147))
+    actual = (_item("FACE_X1", 216045, 216132), _item("X1_TO_X0", 216132, 216147))
     assert placement_differences(expected, actual) == ()
 
 
@@ -208,7 +210,7 @@ def test_a_missing_or_extra_item_is_caught() -> None:
         expected,
         (
             _item("FACE_X1", 216045, 216132),
-            _item("FACE_X0_SMOOTH", 216132, 216147),
+            _item("X1_TO_X0", 216132, 216147),
             _item("FACE_X1", 216200, 216300),
         ),
     ) != ()
@@ -222,16 +224,16 @@ def test_a_single_frame_of_drift_is_caught() -> None:
 
 def test_items_in_the_wrong_order_are_caught() -> None:
     expected = expected_items(_plan(_x1(216045, 216132), _x0(216132)), ASSETS, 3)
-    swapped = (_item("FACE_X0_SMOOTH", 216132, 216147), _item("FACE_X1", 216045, 216132))
+    swapped = (_item("X1_TO_X0", 216132, 216147), _item("FACE_X1", 216045, 216132))
     assert placement_differences(expected, swapped) != ()
 
 
 def test_overlapping_items_are_caught_even_when_each_one_matches() -> None:
     expected = (
-        ExpectedItem(ROLE_FACECAM_X1, "FACE_X1", 216045, 216132, 3),
-        ExpectedItem(ROLE_RESET_X0, "FACE_X0_SMOOTH", 216100, 216115, 3),
+        ExpectedItem(ROLE_X0_TO_FACE_X1, "FACE_X1", 216045, 216132, 3),
+        ExpectedItem(ROLE_FACE_X1_TO_X0, "X1_TO_X0", 216100, 216115, 3),
     )
-    actual = (_item("FACE_X1", 216045, 216132), _item("FACE_X0_SMOOTH", 216100, 216115))
+    actual = (_item("FACE_X1", 216045, 216132), _item("X1_TO_X0", 216100, 216115))
     problems = placement_differences(expected, actual)
     assert any("overlap" in problem for problem in problems)
 

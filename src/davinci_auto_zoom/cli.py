@@ -22,8 +22,10 @@ from davinci_auto_zoom.domain.probe import (
 from davinci_auto_zoom.domain.snapshot import ProjectSnapshot
 from davinci_auto_zoom.domain.speech_report import (
     PlanReferenceDiagnostics,
+    ReferenceZoom,
     compare_plan_to_reference,
     compare_to_reference_zooms,
+    merge_adjacent,
     reference_zooms,
 )
 from davinci_auto_zoom.domain.timebase import Timebase
@@ -432,6 +434,14 @@ def _speech_file(args: Any) -> int:
     return EXIT_OK
 
 
+def _planned_zooms(plan: ZoomPlan) -> list[ReferenceZoom]:
+    """The plan's zoom-in placements in the same shape as a reference timeline's clips."""
+
+    return [
+        ReferenceZoom(p.asset_role, p.start_frame, p.end_frame) for p in plan.zoom_placements
+    ]
+
+
 def _build_plan(
     args: Any, config: Config, resolve: Any, project: Any, report: Any, result: SpeechResult
 ) -> tuple[ZoomPlan, PlanReferenceDiagnostics | None]:
@@ -480,11 +490,13 @@ def _build_plan(
             f"reference timeline {args.reference_timeline!r} not found; plan comparison skipped"
         )
         return plan, None
+    # Cycles, not clips, on both sides: a promoted burst is several adjacent transition clips
+    # and one zoom as far as a viewer (and a comparison) is concerned.
     comparison = compare_plan_to_reference(
-        [(p.start_frame, p.end_frame) for p in plan.x1_placements],
-        [(p.start_frame, p.end_frame) for p in plan.x0_placements],
-        reference_zooms(reference, config.assets.get("facecam_x1", "")),
-        reference_zooms(reference, config.assets.get("reset_x0", "")),
+        [(z.start, z.end) for z in merge_adjacent(_planned_zooms(plan))],
+        [(p.start_frame, p.end_frame) for p in plan.reset_placements],
+        merge_adjacent(reference_zooms(reference, *config.asset_names(reset=False))),
+        reference_zooms(reference, *config.asset_names(reset=True)),
         args.reference_timeline,
     )
     return plan, comparison
@@ -732,8 +744,8 @@ def _analyze_rendered(
         result,
         reference=compare_to_reference_zooms(
             result.segments,
-            reference_zooms(reference, config.assets.get("facecam_x1", "")),
-            reference_zooms(reference, config.assets.get("reset_x0", "")),
+            merge_adjacent(reference_zooms(reference, *config.asset_names(reset=False))),
+            reference_zooms(reference, *config.asset_names(reset=True)),
             args.reference_timeline,
         ),
     )

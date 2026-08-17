@@ -1,0 +1,214 @@
+PHASE 8 — DIAGNOSTIC ANALYSIS OF DAZ_OUTPUT_MVP2
+================================================
+
+Run: 2026-08-17, DaVinci Resolve Studio 21.0.4.5, project `davinci-auto-zoom-test`.
+Mode: READ-ONLY structural read of `DAZ_INPUT` / `DAZ_OUTPUT_MVP` / `DAZ_OUTPUT_MVP2`
+(`snapshot --json`), plus one `plan-probe` for the editorial bursts. Nothing was written to
+any of the three timelines; the only mutation in the session was `plan-probe`'s own scratch
+render, which it created and deleted.
+
+Purpose: understand, before implementing anything, in which contexts the human editor goes
+from x1 to x2 and then to x3 — and whether a general rule emerges at all.
+
+
+0. WHAT THE BIN NOW HOLDS
+-------------------------
+
+`DAVINCI_AUTO_ZOOM` no longer contains `FACE_X0_SMOOTH`. It has been replaced by a per-level
+family. All six are `Type: Generator`:
+
+    FACE_X1    132 frames native   media id 4274cc06-b251-480b-95be-edbf44ca4ebe
+    FACE_X2    132 frames native   media id 217606f0-c2d2-48ba-9f55-c89ba33f38ed
+    FACE_X3    132 frames native   media id f1641e08-2df1-416e-9a1c-36e83df9b3b2
+    X1_TO_X0    42 frames native   media id c3cf0e7d-c49a-4df0-aee5-e60fb16bb2c7
+    X2_TO_X0    42 frames native   media id 5ea45470-93fd-48a6-8bbe-9e40d7d60ea7
+    X3_TO_X0    42 frames native   media id 846a736b-4af1-447e-8c6f-539038452fd6
+
+Mapped to transition roles (D045):
+
+    FACE_X1  = x0_to_face_x1        FACE_X2  = face_x1_to_face_x2
+    FACE_X3  = face_x2_to_face_x3   X1_TO_X0 = face_x1_to_x0
+    X2_TO_X0 = face_x2_to_x0        X3_TO_X0 = face_x3_to_x0
+
+Native lengths are recorded here and used by nothing (D025 still holds). Animation lengths
+are 15 frames for all six, per the user's statement, and live in `[assets.transition_frames]`.
+
+
+1. TIMELINE-LEVEL COUNTS
+------------------------
+
+    DAZ_INPUT             V3 absent          21 items on V1, 20 hard cuts in range
+    DAZ_OUTPUT_MVP        24 items on V3     12 zoom cycles, x1 only
+    DAZ_OUTPUT_MVP2       35 items on V3     14 zoom cycles, x1/x2/x3
+
+    MVP2 V3 by asset: FACE_X1 x14, FACE_X2 x6, FACE_X3 x1,
+                      X1_TO_X0 x8, X2_TO_X0 x5, X3_TO_X0 x1
+
+Every cycle is a run of adjacent clips (gap = 0 between them) terminated by exactly one
+`*_TO_X0`. There is no cycle in MVP2 that skips a level, none that descends, and none that
+returns to a lower facecam level before X0. **The state graph the phase assumes is the one
+the editor actually used.** Every manual reset asset also matches the level it came down
+from — no `X1_TO_X0` after a `FACE_X2`, ever.
+
+
+2. THE FIRST IMPORTANT FINDING: 14 BURSTS, 14 CYCLES
+-----------------------------------------------------
+
+The planner detects 14 editorial bursts on `DAZ_INPUT` (15 speech segments, 1 pause bridged).
+`DAZ_OUTPUT_MVP2` contains 14 manual zoom cycles, and they align 1:1 in order.
+
+This closes a question carried since Phase 4. "x1 over-triggering — 14 planned vs 12 manual"
+was recorded as a known defect against `DAZ_OUTPUT_MVP`. **It was not a defect.** MVP2, the
+newer manual edit of the same material, has 14 cycles in the same places. The old reference
+was simply a looser edit. Nothing was tuned to achieve this; the burst logic is byte-identical
+to Phase 6.
+
+
+3. PER-BURST TABLE
+------------------
+
+Burst = planner's editorial burst on DAZ_INPUT. Manual = the aligned cycle in MVP2.
+`x2@` / `x3@` are offsets in frames from the START OF THE MANUAL CYCLE.
+`rem2` / `rem3` are frames still remaining from that promotion to the manual reset.
+
+  #            burst  dur segs |        manual span   x1   x2@   x3@  rem2  rem3  peak
+  0  [216046,216139)   93    1 |    [216045,216132)   87    43     -    44     -   x2
+  1  [216293,216442)  149    1 |    [216291,216365)   74     -     -     -     -   x1
+  2  [216489,216519)   30    1 |    [216489,216529)   40     -     -     -     -   x1
+  3  [216679,216797)  118    1 |    [216680,216793)  113    55     -    58     -   x2
+  4  [216900,216930)   30    1 |    [216900,216923)   23     -     -     -     -   x1
+  5  [216983,217039)   56    1 |    [216987,217035)   48     -     -     -     -   x1
+  6  [217250,217316)   66    1 |    [217264,217312)   48     -     -     -     -   x1
+  7  [217499,217749)  250    1 |    [217540,217744)  204    88     -   116     -   x2
+  8  [217877,218003)  126    1 |    [217895,217999)  104    63     -    41     -   x2
+  9  [218094,218189)   95    1 |    [218095,218183)   88    61     -    27     -   x2
+ 10  [218244,218297)   53    1 |    [218244,218288)   44     -     -     -     -   x1
+ 11  [218394,218473)   79    1 |    [218394,218469)   75     -     -     -     -   x1
+ 12  [218599,218767)  168    2 |    [218722,218762)   40     -     -     -     -   x1
+ 13  [218989,219134)  145    1 |    [218989,219127)  138    49   109    89    29   x3
+
+Summary statistics:
+
+  x1->x2 offset from cycle start   n=6  min=43   median=58    max=88
+  frames held at x2 or above       n=6  min=27   median=51    max=116
+  cycle spans that promoted        n=6  min=87   median=108.5 max=204
+  cycle spans that stayed at x1    n=8  min=23   median=46    max=75
+  x2->x3 offset from cycle start   n=1  109
+  frames held at x3                n=1  29
+
+
+4. ANSWERS TO THE QUESTIONS THIS PHASE ASKED
+--------------------------------------------
+
+> After how much continuous speech does x1 become x2?
+
+Between 43 and 88 frames after the zoom opens; median 58 (~970 ms at 60 fps). There is real
+spread, but no outlier: the whole set fits in 45 frames.
+
+> After how much more does x2 become x3?
+
+Unanswerable from this material. **There is exactly one x3 in the entire timeline**, at +109
+frames. One observation is not a distribution, and this is the single weakest number in the
+phase. It is recorded as such rather than dressed up.
+
+> Are there minimum remaining durations before promoting?
+
+Yes, and this is the strongest signal in the data. Measured on cycle SPAN (zoom start to
+reset), the two populations are cleanly separable:
+
+    stayed at x1 : 23, 40, 40, 44, 48, 48, 74, 75      <- longest is 75
+    promoted     : 87, 88, 104, 113, 138, 204          <- shortest is 87
+
+**No overlap, and an 11-frame gap between them.** A rule of the form "promote at +T frames,
+but only if at least R frames remain" fires exactly when `span >= T + R`, so any threshold in
+(75, 87] reproduces all fourteen human decisions. That is what makes a simple rule defensible
+here: it is not a curve fit, it is a gap in the data.
+
+The shortest x2 the editor ever holds is 27 frames (cycle 9), which independently confirms
+that a minimum-remaining term exists in their head at all.
+
+> Are promotions driven by cuts or by speaking time?
+
+**By speaking time.** Of the 7 manual promotion frames (6 x2 + 1 x3), exactly one — cycle 3's
+`FACE_X2` at 216735 — lands on a hard cut, and 216735 is one of 20 cuts in a 3555-frame range,
+so one hit is what chance predicts. Widening the tolerance to ±8 frames adds no further hits.
+
+The contrast with resets is the point: 8 of 14 manual resets sit exactly on a hard cut. The
+same measurement, on the same timeline, gives a strong signal for resets and nothing for
+promotions. **Snapping stays where the evidence is (D047).**
+
+> When does a long speech deliberately stay at x1?
+
+Cycles 1 (74 frames) and 11 (75 frames) are the longest that stayed. Both are just under the
+threshold, so they are consistent rather than anomalous. There is no case of a genuinely long
+manual cycle held at x1.
+
+> Are there x2-without-x3 cases on long bursts?
+
+Yes, and this is the honest limit of the model. **Cycle 7 spans 204 frames — the longest cycle
+in the timeline — and the editor kept it at x2**, while cycle 13, at 138 frames, went to x3.
+No monotonic duration rule can produce both. Cycle 13 is the last cycle of the video; the most
+plausible explanation is that x3 was saved for the closing beat, which is a narrative decision
+and not something a duration heuristic can see.
+
+> Do x2->x0 and x3->x0 resets follow the same logic as x1->x0?
+
+Yes. All 14 manual resets are 42 frames long regardless of level, all are adjacent to the clip
+before them, and the cut-snapping pattern does not change with level: of the 8 resets on a
+hard cut, 4 come down from x1, 3 from x2 and 1 from x3. The reset rule is level-independent;
+only the asset changes. This was the expected answer and it is confirmed.
+
+
+5. THRESHOLDS CHOSEN, AND WHY
+-----------------------------
+
+    promote_to_face_x2_after_ms     = 1000   (60 frames at 60 fps)
+    min_remaining_after_face_x2_ms  =  350   (21 frames)
+    promote_to_face_x3_after_ms     = 1800   (108 frames)
+    min_remaining_after_face_x3_ms  =  500   (30 frames)
+
+x2 — well grounded.
+  1000 ms sits close to the median observed offset (58 frames). The pair sums to 81 frames,
+  which falls inside the empty (75, 87] gap with margin on both sides — 6 frames above the
+  longest x1-only cycle, 6 below the shortest promoted one. Choosing the midpoint of a gap
+  rather than an edge is deliberate: the edges are single observations.
+
+x3 — thin, and flagged as such.
+  1800 + 500 ms = 138 frames, exactly the span of the only manual x3. The offset 108 is within
+  1 frame of the observed 109. This is calibration on n=1. It is implemented because the phase
+  needs a working x3 rule and this is the only evidence there is, not because the number is
+  trustworthy. It is one config line to change.
+
+Deliberately NOT done: no ML, no threshold search, no per-burst fitting. Two of the four
+numbers came from a visible gap in the data and two from a single observation, and the report
+says which is which.
+
+
+6. WHAT A SIMPLE RULE CANNOT CAPTURE
+------------------------------------
+
+Recorded here so the plan-comparison report's divergences are not a surprise:
+
+1. **Cycle 7 (204 frames, kept at x2).** Genuine human nuance. Any duration rule that reaches
+   x3 on the 138-frame cycle 13 also reaches it on cycle 7. Unfixable within this scope, and
+   arguably not a defect — an automatic x3 there is defensible, just not what the human did.
+
+2. **Cycles 1 and 12 are burst-extent disagreements, not promotion errors.** In cycle 1 the
+   planner's reset lands 77 frames after the human's; in cycle 12 the planner's burst opens
+   123 frames before the human's (it is the one burst built from two speech segments). Both
+   make the automatic cycle far longer than the manual one, and a longer cycle promotes. The
+   promotion rule is behaving correctly on the burst it was given; the burst is what differs.
+   **Fixing burst extent would remove two of the three level divergences**, which makes it the
+   highest-value Phase 9 candidate.
+
+3. Manual reset instances are 42 frames (the asset's native length); DAZ places 15 (the
+   animation length). Unchanged from Phase 5 and still correct per D025 — the extra 27 frames
+   are hold-at-X0, which is visually identical to no clip at all.
+
+
+FILES
+-----
+
+Plan used for the burst boundaries: `.agent/reports/phase-08-plan-comparison.txt`.
+Raw structural read: reproducible with
+  `.venv/bin/python -m davinci_auto_zoom snapshot --config config.example.toml --json`

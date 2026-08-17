@@ -217,8 +217,8 @@ def test_plan_probe_plans_without_inserting_anything(
     config = tmp_path / "config.toml"
     config.write_text(
         "[resolve]\nvoice_audio_track = 1\ncut_reference_video_track = 1\n"
-        '[assets]\nfacecam_x1 = "FACE_X1"\nreset_x0 = "FACE_X0_SMOOTH"\n'
-        "[assets.transition_frames]\nfacecam_x1 = 15\nreset_x0 = 15\n",
+        '[assets]\nx0_to_face_x1 = "FACE_X1"\nface_x1_to_x0 = "X1_TO_X0"\n'
+        "[assets.transition_frames]\nx0_to_face_x1 = 15\nface_x1_to_x0 = 15\n",
         encoding="utf-8",
     )
 
@@ -247,7 +247,7 @@ def test_plan_probe_plans_without_inserting_anything(
     assert source["timeline"] == "DAZ_INPUT"
     assert source["cut_reference_video_track"] == 1
     assert source["zoom_video_track"] == 3
-    assert source["asset_transition_frames"] == {"facecam_x1": 15, "reset_x0": 15}
+    assert source["asset_transition_frames"] == {"x0_to_face_x1": 15, "face_x1_to_x0": 15}
     assert payload["plan_reference"]["reference_timeline"] == "DAZ_OUTPUT_MVP"
     assert exit_code == 0
 
@@ -270,7 +270,8 @@ def test_apply_preview_without_its_own_flag_refuses_before_touching_resolve(
     monkeypatch.setattr(cli, "current_project", lambda r: project)
     config = tmp_path / "config.toml"
     config.write_text(
-        "[assets.transition_frames]\nfacecam_x1 = 15\nreset_x0 = 15\n", encoding="utf-8"
+        '[assets]\nx0_to_face_x1 = "FACE_X1"\nface_x1_to_x0 = "X1_TO_X0"\n'
+        "[assets.transition_frames]\nx0_to_face_x1 = 15\nface_x1_to_x0 = 15\n", encoding="utf-8"
     )
 
     exit_code = cli.main(
@@ -326,7 +327,8 @@ def test_apply_preview_reports_nothing_to_apply_without_creating_a_timeline(
     config = tmp_path / "config.toml"
     config.write_text(
         "[resolve]\nvoice_audio_track = 1\ncut_reference_video_track = 1\n"
-        "[assets.transition_frames]\nfacecam_x1 = 15\nreset_x0 = 15\n",
+        '[assets]\nx0_to_face_x1 = "FACE_X1"\nface_x1_to_x0 = "X1_TO_X0"\n'
+        "[assets.transition_frames]\nx0_to_face_x1 = 15\nface_x1_to_x0 = 15\n",
         encoding="utf-8",
     )
 

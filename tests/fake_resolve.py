@@ -733,8 +733,19 @@ def build_test_project(audio_tracks: int = 1) -> tuple[FakeResolve, FakeProject]
     log = MutationLog()
 
     source = FakeMediaPoolItem("source.mov", {"Type": "Video + Audio", "Frames": "304871"})
-    x1 = FakeMediaPoolItem("FACE_X1", {"Type": "Generator", "Frames": "132"})
-    x0 = FakeMediaPoolItem("FACE_X0_SMOOTH", {"Type": "Generator", "Frames": "42"})
+    # The Phase 8 bin: three promotion generators that animate then hold, and one reset
+    # generator per facecam level. Native lengths are the real ones and are used by nothing.
+    zoom_assets = [
+        FakeMediaPoolItem(name, {"Type": "Generator", "Frames": frames})
+        for name, frames in (
+            ("FACE_X1", "132"),
+            ("FACE_X2", "132"),
+            ("FACE_X3", "132"),
+            ("X1_TO_X0", "42"),
+            ("X2_TO_X0", "42"),
+            ("X3_TO_X0", "42"),
+        )
+    ]
 
     def media(start: int, end: int) -> FakeTimelineItem:
         return FakeTimelineItem("source.mov", start, end, source, source_start_frame=start - 100000)
@@ -769,12 +780,12 @@ def build_test_project(audio_tracks: int = 1) -> tuple[FakeResolve, FakeProject]
         "",
         [
             generator("FACE_X1", 216045, 216132),
-            generator("FACE_X0_SMOOTH", 216132, 216174),
+            generator("X1_TO_X0", 216132, 216174),
             generator("FACE_X1", 216350, 216400),
         ],
     )
 
-    root = FakeFolder("Master", [source], [FakeFolder("DAVINCI_AUTO_ZOOM", [x1, x0])])
+    root = FakeFolder("Master", [source], [FakeFolder("DAVINCI_AUTO_ZOOM", zoom_assets)])
     project = FakeProject(
         "davinci-auto-zoom-test",
         [

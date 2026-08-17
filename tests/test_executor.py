@@ -28,8 +28,6 @@ from davinci_auto_zoom.domain.ownership import (
 )
 from davinci_auto_zoom.domain.plan_validation import build_plan_source, timeline_frame_rate
 from davinci_auto_zoom.domain.planner import (
-    ROLE_FACECAM_X1,
-    ROLE_RESET_X0,
     AssetPlacement,
     AssetTiming,
     PlannerSettings,
@@ -37,6 +35,10 @@ from davinci_auto_zoom.domain.planner import (
     ZoomPlan,
 )
 from davinci_auto_zoom.domain.probe import ApplyPreviewTarget
+from davinci_auto_zoom.domain.transitions import (
+    ROLE_FACE_X1_TO_X0,
+    ROLE_X0_TO_FACE_X1,
+)
 from davinci_auto_zoom.resolve.executor import (
     PREVIEW_PREFIX,
     ApplyPreviewRefused,
@@ -52,7 +54,7 @@ from tests.fake_resolve import (
     comp_text,
 )
 
-CONFIG = Config(asset_timing=AssetTiming(15, 15))
+CONFIG = Config(asset_timing=AssetTiming({"x0_to_face_x1": 15, "face_x1_to_x0": 15}))
 
 TARGET = ApplyPreviewTarget(
     project="davinci-auto-zoom-test",
@@ -62,16 +64,16 @@ TARGET = ApplyPreviewTarget(
     cut_reference_video_track=1,
     zoom_video_track=3,
     asset_bin="DAVINCI_AUTO_ZOOM",
-    assets=(("facecam_x1", "FACE_X1"), ("reset_x0", "FACE_X0_SMOOTH")),
+    assets=(("x0_to_face_x1", "FACE_X1"), ("face_x1_to_x0", "X1_TO_X0")),
 )
 
 #: Two full zoom cycles inside DAZ_INPUT's [216000, 219555) range. The x1 lengths differ on
 #: purpose (a variable hold), the x0 lengths are exactly the configured 15 frames.
 PLACEMENTS = (
-    AssetPlacement(ROLE_FACECAM_X1, FrameRange(216045, 216132), "x1_until_direct_reset"),
-    AssetPlacement(ROLE_RESET_X0, FrameRange(216132, 216147), "reset_direct"),
-    AssetPlacement(ROLE_FACECAM_X1, FrameRange(216300, 216550), "x1_until_direct_reset"),
-    AssetPlacement(ROLE_RESET_X0, FrameRange(216550, 216565), "reset_direct"),
+    AssetPlacement(ROLE_X0_TO_FACE_X1, FrameRange(216045, 216132), "x1_until_direct_reset"),
+    AssetPlacement(ROLE_FACE_X1_TO_X0, FrameRange(216132, 216147), "reset_direct"),
+    AssetPlacement(ROLE_X0_TO_FACE_X1, FrameRange(216300, 216550), "x1_until_direct_reset"),
+    AssetPlacement(ROLE_FACE_X1_TO_X0, FrameRange(216550, 216565), "reset_direct"),
 )
 
 
@@ -82,7 +84,7 @@ def _plan(
         timeline=FrameRange(216000, 219555),
         frame_rate=Fraction(60),
         settings=PlannerSettings(),
-        timing=AssetTiming(15, 15),
+        timing=AssetTiming({"x0_to_face_x1": 15, "face_x1_to_x0": 15}),
         speech_segments=(),
         bursts=(),
         placements=placements,
@@ -193,12 +195,14 @@ def test_a_missing_source_timeline_creates_nothing() -> None:
         pytest.param(lambda s: replace(s, cut_reference_video_track=2), id="cut-track"),
         pytest.param(lambda s: replace(s, zoom_video_track=4), id="zoom-track"),
         pytest.param(
-            lambda s: replace(s, assets=(("facecam_x1", "OTHER"), ("reset_x0", "FACE_X0_SMOOTH"))),
+            lambda s: replace(
+                s, assets=(("x0_to_face_x1", "OTHER"), ("face_x1_to_x0", "X1_TO_X0"))
+            ),
             id="asset-mapping",
         ),
         pytest.param(
             lambda s: replace(
-                s, asset_transition_frames=(("facecam_x1", 20), ("reset_x0", 15))
+                s, asset_transition_frames=(("x0_to_face_x1", 20), ("face_x1_to_x0", 15))
             ),
             id="transition-frames",
         ),
@@ -327,7 +331,7 @@ def test_every_append_call_is_exactly_the_placement() -> None:
             "recordFrame": 216045,
         },
         {
-            "mediaPoolItem": "FACE_X0_SMOOTH",
+            "mediaPoolItem": "X1_TO_X0",
             "startFrame": 0,
             "endFrame": 15,
             "trackIndex": 3,
@@ -341,7 +345,7 @@ def test_every_append_call_is_exactly_the_placement() -> None:
             "recordFrame": 216300,
         },
         {
-            "mediaPoolItem": "FACE_X0_SMOOTH",
+            "mediaPoolItem": "X1_TO_X0",
             "startFrame": 0,
             "endFrame": 15,
             "trackIndex": 3,

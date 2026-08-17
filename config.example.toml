@@ -23,26 +23,58 @@ cut_reference_video_track = 1
 # Media Pool bin holding the user's prebuilt zoom assets.
 asset_bin = "DAVINCI_AUTO_ZOOM"
 
-# Semantic role -> Media Pool clip name. Names differ per user/edit style; the tool never
-# inspects or rebuilds what these assets do internally.
+# TRANSITION role -> Media Pool clip name.
+#
+# The keys are the allowed state changes of the visual state graph, not clip names and not
+# levels:
+#
+#     X0      -> FACE_X1      x0_to_face_x1
+#     FACE_X1 -> FACE_X2      face_x1_to_face_x2
+#     FACE_X2 -> FACE_X3      face_x2_to_face_x3
+#     FACE_X1 -> X0           face_x1_to_x0
+#     FACE_X2 -> X0           face_x2_to_x0
+#     FACE_X3 -> X0           face_x3_to_x0
+#
+# The ladder is climbed one rung at a time and never descended: there is no x0->x2, no x2->x1
+# and no x3->x2. Anything else is an error, not a silently ignored key.
+#
+# Only `x0_to_face_x1` and `face_x1_to_x0` are required. Omit a promotion role (from BOTH this
+# table and [assets.transition_frames]) and the planner simply never makes that move — which
+# is how a user who has not built a FACE_X3 asset stays on a two-level edit. The two tables
+# must always list exactly the same roles.
+#
+# Names differ per user/edit style; the tool never inspects or rebuilds what these assets do
+# internally. Note that in this bin the promotion clips are named after the state they LAND in
+# (`FACE_X2` performs face_x1 -> face_x2) while the reset clips are named after the move.
 [assets]
-facecam_x1 = "FACE_X1"
-reset_x0 = "FACE_X0_SMOOTH"
+x0_to_face_x1 = "FACE_X1"
+face_x1_to_face_x2 = "FACE_X2"
+face_x2_to_face_x3 = "FACE_X3"
+face_x1_to_x0 = "X1_TO_X0"
+face_x2_to_x0 = "X2_TO_X0"
+face_x3_to_x0 = "X3_TO_X0"
 
 # How many frames each asset needs to finish its own animation. REQUIRED for planning, and
 # deliberately without a default: these are your assets, and the tool never opens their Fusion
 # graph to guess (see .agent/DECISIONS.md D007).
 #
-# This is NOT the clip's length in the Media Pool. `FACE_X0_SMOOTH` is 42 frames long in this
-# project and completes its move in 15, so a 15-frame instance does the whole job; the planner
-# never uses the 42. Likewise `FACE_X1` animates in 15 frames and then simply *holds* the
-# zoom, so its instances are as long as the speech needs — 15 frames, 300, or more — with 15
-# only as the minimum below which the move would be truncated (D014).
+# This is NOT the clip's length in the Media Pool. `X1_TO_X0` is 42 frames long in this project
+# and completes its move in 15, so a 15-frame instance does the whole job; the planner never
+# uses the 42.
+#
+# The promotion assets work the other way round: `FACE_X1`, `FACE_X2` and `FACE_X3` animate in
+# 15 frames and then simply *hold* the level they reached, so their instances are as long as
+# the speech needs — 15 frames, 300, or more — with 15 only as the minimum below which the
+# move would be truncated (D014, generalised to every promotion in D045).
 #
 # Frames, not milliseconds: the keyframes were authored on a frame grid.
 [assets.transition_frames]
-facecam_x1 = 15
-reset_x0 = 15
+x0_to_face_x1 = 15
+face_x1_to_face_x2 = 15
+face_x2_to_face_x3 = 15
+face_x1_to_x0 = 15
+face_x2_to_x0 = 15
+face_x3_to_x0 = 15
 
 [speech]
 # Resolve exposes no API to read transcription data back (see .agent/HANDOFF.md), so the
@@ -122,9 +154,37 @@ cut_snap_window_ms = 350
 # cut is 30 frames away (see .agent/reports/phase-06-cut-offset-diagnostic.txt).
 cut_snap_lookback_ms = 120
 
-# There is no min_zoom_ms. The only minimum a FACE_X1 instance has is its own animation
-# length, which is [assets.transition_frames].facecam_x1 — an instance shorter than that is
-# truncated mid-move (D014). The old 450 ms was an editorial assumption nobody measured.
+# There is no min_zoom_ms. The only minimum a transition instance has is its own animation
+# length, from [assets.transition_frames] — an instance shorter than that is truncated
+# mid-move (D014). The old 450 ms was an editorial assumption nobody measured.
+
+# ---------------------------------------------------------------------------------------
+# FACECAM LEVEL PROMOTIONS (Phase 8).
+#
+# Once a burst is zoomed, the level climbs on how long the creator keeps talking, and on
+# nothing else. Promotions are deliberately NOT snapped to hard cuts: on the reference edit
+# only 1 of 6 manual promotions landed on one, against 8 of 14 manual resets, so snapping
+# stays where the evidence is (D047).
+#
+# Each threshold is measured from the frame the zoom OPENED, not from the burst's first
+# speech sample — they are the same frame unless zoom_lead_in_ms is non-zero.
+#
+# The `min_remaining_*` values are what stops a burst that ends a heartbeat after crossing a
+# threshold from flashing a tighter level nobody can read. Together with the `after` value
+# they define the shortest burst that promotes at all: 1000 + 350 = 1350 ms for x2.
+#
+# Calibrated on DAZ_OUTPUT_MVP2, not invented — see
+# .agent/reports/phase-08-mvp2-analysis.txt. At 60 fps these are 60/21 and 108/30 frames,
+# and on that material they separate the eight bursts the editor left at x1 (longest: 75
+# frames) from the six they promoted (shortest: 86 frames) with no overlap.
+#
+# The x3 numbers rest on a SINGLE manual observation and are the weakest thing in this file.
+# See the report before trusting them on new material.
+# ---------------------------------------------------------------------------------------
+promote_to_face_x2_after_ms = 1000
+min_remaining_after_face_x2_ms = 350
+promote_to_face_x3_after_ms = 1800
+min_remaining_after_face_x3_ms = 500
 
 [safety]
 # Must remain true until the write milestone is explicitly implemented and validated.

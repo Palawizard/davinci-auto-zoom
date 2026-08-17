@@ -24,12 +24,12 @@ from davinci_auto_zoom.domain.snapshot import (
     TrackSnapshot,
 )
 
-ASSETS = {"facecam_x1": "FACE_X1", "reset_x0": "FACE_X0_SMOOTH"}
-TRANSITIONS = {"facecam_x1": 15, "reset_x0": 15}
+ASSETS = {"x0_to_face_x1": "FACE_X1", "face_x1_to_x0": "X1_TO_X0"}
+TRANSITIONS = {"x0_to_face_x1": 15, "face_x1_to_x0": 15}
 FOUND = (
-    AssetSnapshot("FACE_X1", "Master/DAZ", "Generator", 132, "media-x1", "uid-x1", "facecam_x1"),
+    AssetSnapshot("FACE_X1", "Master/DAZ", "Generator", 132, "media-x1", "uid-x1", "x0_to_face_x1"),
     AssetSnapshot(
-        "FACE_X0_SMOOTH", "Master/DAZ", "Generator", 42, "media-x0", "uid-x0", "reset_x0"
+        "X1_TO_X0", "Master/DAZ", "Generator", 42, "media-x0", "uid-x0", "face_x1_to_x0"
     ),
 )
 
@@ -99,9 +99,9 @@ def test_a_plan_without_a_source_is_refused() -> None:
         ({"voice_audio_track": 2}, "voice_audio_track"),
         ({"cut_reference_video_track": 2}, "cut_reference_video_track"),
         ({"zoom_video_track": 4}, "zoom_video_track"),
-        ({"assets": {"facecam_x1": "OTHER_X1", "reset_x0": "FACE_X0_SMOOTH"}}, "assets"),
+        ({"assets": {"x0_to_face_x1": "OTHER_X1", "face_x1_to_x0": "X1_TO_X0"}}, "assets"),
         (
-            {"asset_transition_frames": {"facecam_x1": 20, "reset_x0": 15}},
+            {"asset_transition_frames": {"x0_to_face_x1": 20, "face_x1_to_x0": 15}},
             "asset_transition_frames",
         ),
         (
@@ -149,13 +149,13 @@ def test_a_different_asset_media_id_is_reported() -> None:
         FOUND[1],
     )
     mismatches = plan_source_mismatches(_source(), _source(found_assets=reimported))
-    assert any("facecam_x1" in mismatch for mismatch in mismatches), mismatches
+    assert any("x0_to_face_x1" in mismatch for mismatch in mismatches), mismatches
 
 
 def test_an_ambiguous_asset_loses_its_recorded_ids_and_is_reported() -> None:
     duplicated = (*FOUND, replace(FOUND[0], bin_path="Master/OTHER", unique_id="uid-x1-dup"))
     mismatches = plan_source_mismatches(_source(), _source(found_assets=duplicated))
-    assert any("facecam_x1" in mismatch for mismatch in mismatches), mismatches
+    assert any("x0_to_face_x1" in mismatch for mismatch in mismatches), mismatches
 
 
 def test_a_recut_source_is_reported_by_the_fingerprint_alone() -> None:
@@ -190,8 +190,9 @@ def test_a_recut_source_is_reported_by_the_fingerprint_alone() -> None:
 def test_the_identities_record_every_stable_id_available() -> None:
     identities = _source().asset_identities
     assert identities == (
-        AssetIdentity("facecam_x1", "FACE_X1", "media-x1", "uid-x1"),
-        AssetIdentity("reset_x0", "FACE_X0_SMOOTH", "media-x0", "uid-x0"),
+        # Sorted by role, as `asset_identities` builds them.
+        AssetIdentity("face_x1_to_x0", "X1_TO_X0", "media-x0", "uid-x0"),
+        AssetIdentity("x0_to_face_x1", "FACE_X1", "media-x1", "uid-x1"),
     )
 
 

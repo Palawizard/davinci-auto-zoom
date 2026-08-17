@@ -6,10 +6,20 @@ from pathlib import Path
 from typing import Any
 
 from davinci_auto_zoom.domain.planner import (
-    ROLE_FACECAM_X1,
-    ROLE_RESET_X0,
+    PLANNER_SETTING_KEYS,
     AssetTiming,
     PlannerSettings,
+)
+from davinci_auto_zoom.domain.transitions import (
+    BY_ROLE,
+    REQUIRED_ROLES,
+    ROLE_FACE_X1_TO_FACE_X2,
+    ROLE_FACE_X1_TO_X0,
+    ROLE_FACE_X2_TO_FACE_X3,
+    ROLE_FACE_X2_TO_X0,
+    ROLE_FACE_X3_TO_X0,
+    ROLE_X0_TO_FACE_X1,
+    ROLES,
 )
 from davinci_auto_zoom.domain.vad import VadSettings
 
@@ -40,9 +50,19 @@ class Config:
 
     asset_bin: str = "DAVINCI_AUTO_ZOOM"
 
-    # Semantic role -> Media Pool clip name.
+    # Transition role -> Media Pool clip name. The keys are the roles of
+    # `domain/transitions.py`, so the config *is* the state graph's asset table (D045). The
+    # defaults are this user's bin: the promotion clips are named after the state they land in
+    # (`FACE_X2` performs face_x1 -> face_x2), and the reset clips after the move itself.
     assets: dict[str, str] = field(
-        default_factory=lambda: {"facecam_x1": "FACE_X1", "reset_x0": "FACE_X0_SMOOTH"}
+        default_factory=lambda: {
+            ROLE_X0_TO_FACE_X1: "FACE_X1",
+            ROLE_FACE_X1_TO_FACE_X2: "FACE_X2",
+            ROLE_FACE_X2_TO_FACE_X3: "FACE_X3",
+            ROLE_FACE_X1_TO_X0: "X1_TO_X0",
+            ROLE_FACE_X2_TO_X0: "X2_TO_X0",
+            ROLE_FACE_X3_TO_X0: "X3_TO_X0",
+        }
     )
 
     # How long each asset's own animation takes, in frames. This is **user metadata about
@@ -62,6 +82,22 @@ class Config:
     # mixing the two under one name was the ambiguity this split removes.
     vad: VadSettings = field(default_factory=VadSettings)
 
+    def asset_names(self, *, reset: bool) -> tuple[str, ...]:
+        """Configured clip names for the reset transitions, or for the zoom-in ones.
+
+        Reporting and reference comparison need "every asset that puts the frame on a facecam"
+        and "every asset that brings it back", not one hard-coded name each — that assumption
+        is exactly what Phase 8 removed.
+        """
+
+        return tuple(
+            sorted(
+                name
+                for role, name in self.assets.items()
+                if name and BY_ROLE[role].is_reset is reset
+            )
+        )
+
     @classmethod
     def load(cls, path: Path | None) -> Config:
         if path is None:
@@ -78,8 +114,29 @@ class Config:
         defaults = cls()
         asset_data = dict(data.get("assets", {}))
         timing_data = asset_data.pop("transition_frames", {})
-        assets = dict(defaults.assets)
-        assets.update(asset_data)
+        # A file that names any transition asset replaces the default table wholesale rather
+        # than merging into it: merging would silently keep a default `FACE_X2` for a user who
+        # deliberately configured only the two required roles, and then plan promotions they
+        # have no asset for.
+        assets = {str(k): str(v) for k, v in (asset_data or defaults.assets).items()}
+        unknown_assets = sorted(set(assets) - set(ROLES))
+        if unknown_assets:
+            raise ValueError(
+                f"unknown transition role(s) in [assets]: {', '.join(unknown_assets)}. "
+                f"Supported: {', '.join(ROLES)}"
+            )
+        timing = _asset_timing(timing_data)
+        if timing is not None:
+            named = set(assets)
+            timed = set(timing.to_dict())
+            if named != timed:
+                raise ValueError(
+                    "[assets] and [assets.transition_frames] must describe the same "
+                    f"transition roles. Only named: {sorted(named - timed) or 'none'}; "
+                    f"only timed: {sorted(timed - named) or 'none'}. A role without a clip "
+                    "name cannot be placed, and a clip name without an animation length "
+                    "cannot be planned."
+                )
 
         voice_audio_track = int(
             resolve.get("voice_audio_track", defaults.voice_audio_track)
@@ -106,8 +163,8 @@ class Config:
                 )
             ),
             asset_bin=str(resolve.get("asset_bin", defaults.asset_bin)),
-            assets={str(k): str(v) for k, v in assets.items()},
-            asset_timing=_asset_timing(timing_data),
+            assets=assets,
+            asset_timing=timing,
             planner=_planner_settings(data.get("planner", {})),
             speech_provider=provider,
             vad=_vad_settings(speech.get("vad", {})),
@@ -120,58 +177,41 @@ def _asset_timing(data: dict[str, Any]) -> AssetTiming | None:
     Frames, not milliseconds, on purpose: these describe keyframed animations authored on a
     frame grid inside the user's own Generator assets, so a millisecond value would only be
     converted straight back — and would round differently per project frame rate.
+
+    The key set is also the list of transitions this project can actually perform, so a user
+    with no `FACE_X3` asset simply omits both its lines and the planner never promotes that
+    far. Only `x0_to_face_x1` and `face_x1_to_x0` are mandatory; `AssetTiming` enforces that.
     """
 
     if not data:
         return None
-    known = {ROLE_FACECAM_X1, ROLE_RESET_X0}
-    unknown = sorted(set(data) - known)
+    unknown = sorted(set(data) - set(ROLES))
     if unknown:
         raise ValueError(
-            f"unknown role(s) in [assets.transition_frames]: {', '.join(unknown)}. "
-            f"Supported: {', '.join(sorted(known))}"
+            f"unknown transition role(s) in [assets.transition_frames]: "
+            f"{', '.join(unknown)}. Supported: {', '.join(ROLES)}"
         )
-    missing = sorted(known - set(data))
+    missing = [role for role in REQUIRED_ROLES if role not in data]
     if missing:
         raise ValueError(
-            f"[assets.transition_frames] is missing {', '.join(missing)}. Every zoom role "
-            "needs the number of frames its own animation takes to finish."
+            f"[assets.transition_frames] is missing {', '.join(missing)}. Without these "
+            "there is no zoom at all; the x2/x3 roles are optional."
         )
-    return AssetTiming(
-        facecam_x1_transition_frames=int(data[ROLE_FACECAM_X1]),
-        reset_x0_transition_frames=int(data[ROLE_RESET_X0]),
-    )
+    return AssetTiming({str(role): int(frames) for role, frames in data.items()})
 
 
 def _planner_settings(data: dict[str, Any]) -> PlannerSettings:
     """Editorial timing. Unknown keys are an error, exactly as in [speech.vad]."""
 
     defaults = PlannerSettings()
-    known = {
-        "reset_after_silence_ms",
-        "zoom_lead_in_ms",
-        "zoom_lead_out_ms",
-        "cut_snap_window_ms",
-        "cut_snap_lookback_ms",
-    }
-    unknown = sorted(set(data) - known)
+    unknown = sorted(set(data) - set(PLANNER_SETTING_KEYS))
     if unknown:
         raise ValueError(
             f"unknown key(s) in [planner]: {', '.join(unknown)}. Supported: "
-            f"{', '.join(sorted(known))}"
+            f"{', '.join(sorted(PLANNER_SETTING_KEYS))}"
         )
     return PlannerSettings(
-        reset_after_silence_ms=int(
-            data.get("reset_after_silence_ms", defaults.reset_after_silence_ms)
-        ),
-        zoom_lead_in_ms=int(data.get("zoom_lead_in_ms", defaults.zoom_lead_in_ms)),
-        zoom_lead_out_ms=int(data.get("zoom_lead_out_ms", defaults.zoom_lead_out_ms)),
-        cut_snap_window_ms=int(
-            data.get("cut_snap_window_ms", defaults.cut_snap_window_ms)
-        ),
-        cut_snap_lookback_ms=int(
-            data.get("cut_snap_lookback_ms", defaults.cut_snap_lookback_ms)
-        ),
+        **{key: int(data.get(key, getattr(defaults, key))) for key in PLANNER_SETTING_KEYS}
     )
 
 

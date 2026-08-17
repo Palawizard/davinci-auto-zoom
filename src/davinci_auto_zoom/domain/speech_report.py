@@ -341,20 +341,53 @@ def compare_plan_to_reference(
 
 
 def reference_zooms(
-    timeline: TimelineSnapshot, asset_name: str
+    timeline: TimelineSnapshot, *asset_names: str
 ) -> tuple[ReferenceZoom, ...]:
-    """Every clip on any video track whose name matches a configured zoom asset.
+    """Every clip on any video track whose name matches one of the given zoom assets.
 
     Instances are recognised by name because Resolve gives a placed generator no link back
     to its Media Pool item (D008).
+
+    Several names, because a facecam side of the graph now has three assets and a reset side
+    three more: comparing a multi-level plan against a human edit means asking "was the frame
+    zoomed here", not "was this one clip here". Results stay in timeline order so adjacent
+    promotion clips read as the single cycle they are.
     """
 
+    wanted = {name for name in asset_names if name}
     return tuple(
-        ReferenceZoom(name=item.name, start=item.start, end=item.end)
-        for track in timeline.tracks_of("video")
-        for item in track.items
-        if item.name == asset_name
+        sorted(
+            (
+                ReferenceZoom(name=item.name, start=item.start, end=item.end)
+                for track in timeline.tracks_of("video")
+                for item in track.items
+                if item.name in wanted
+            ),
+            key=lambda zoom: (zoom.start, zoom.end, zoom.name),
+        )
     )
+
+
+def merge_adjacent(zooms: Sequence[ReferenceZoom]) -> tuple[ReferenceZoom, ...]:
+    """Collapse touching clips into the zoom *cycles* a viewer actually sees.
+
+    A multi-level cycle is several clips — `FACE_X1` then `FACE_X2` then `FACE_X3` — laid end
+    to end with no gap, and counting those as three zooms would say a 14-cycle edit has 21.
+    Only clips that touch exactly are merged; a gap of even one frame is a return to X0 and
+    therefore a different cycle.
+    """
+
+    merged: list[ReferenceZoom] = []
+    for zoom in sorted(zooms, key=lambda z: (z.start, z.end)):
+        if merged and zoom.start <= merged[-1].end:
+            # The cycle keeps the name of the clip that opened it: that is the transition the
+            # viewer saw first, and the one a start offset is meaningfully measured against.
+            merged[-1] = ReferenceZoom(
+                merged[-1].name, merged[-1].start, max(merged[-1].end, zoom.end)
+            )
+        else:
+            merged.append(zoom)
+    return tuple(merged)
 
 
 def segment_rows(
@@ -390,6 +423,7 @@ __all__ = [
     "ThresholdTrial",
     "compare_plan_to_reference",
     "compare_to_reference_zooms",
+    "merge_adjacent",
     "reference_zooms",
     "segment_rows",
     "segment_statistics",

@@ -55,7 +55,7 @@ X1_141_FRAMES = (
 
 # A different asset: identical graph, inverted zoom keyframes.
 X0_42_FRAMES = (
-    X1_87_FRAMES.replace('MEDIA_NAME = "FACE_X1"', 'MEDIA_NAME = "FACE_X0_SMOOTH"')
+    X1_87_FRAMES.replace('MEDIA_NAME = "FACE_X1"', 'MEDIA_NAME = "X1_TO_X0"')
     .replace("[0] = { 1, RH = { 5, 1 } }", "[0] = { 1.5, RH = { 5, 1.5 } }")
     .replace("[15] = { 1.5, LH = { -0.15151515151515, 1.5 } }", "[15] = { 1, LH = { -0.1, 1 } }")
 )
@@ -123,7 +123,7 @@ def test_a_different_asset_is_reported_as_different() -> None:
     assert comparison.carries_user_effect is False
     assert comparison.tools_equal is True  # same graph shape...
     assert comparison.keyframes_equal is False  # ...but not the same animation
-    assert comparison.media_names == ("FACE_X1", "FACE_X0_SMOOTH")
+    assert comparison.media_names == ("FACE_X1", "X1_TO_X0")
 
 
 def test_an_empty_generic_comp_does_not_pass_as_the_user_effect() -> None:

@@ -13,7 +13,8 @@ The eight criteria the mechanism has to satisfy, and where each is checked:
 3. carries a namespace and structured data — `record_round_trip`
 4. independent of name and position — proven by construction: both inserted items carry the
    same asset names as any manual clip would, and only the tagged ones classify as owned
-5. works on both roles — one `facecam_x1` and one `reset_x0` are inserted and tagged
+5. works on both shapes of transition — one `x0_to_face_x1` and one `face_x1_to_x0` are
+   inserted and tagged
 6. survives a timeline switch and re-read — `survives_timeline_switch`
 7. needs no UI automation — true of every call here
 8. destroys no existing user data — `user_marker_preserved`, which puts a marker on the item
@@ -206,12 +207,12 @@ def _placements(start: int, assets: dict[str, str]) -> tuple[AssetPlacement, ...
     del assets
     return (
         AssetPlacement(
-            asset_role="facecam_x1",
+            asset_role="x0_to_face_x1",
             frames=FrameRange(start, start + 60),
             reason="ownership-probe",
         ),
         AssetPlacement(
-            asset_role="reset_x0",
+            asset_role="face_x1_to_x0",
             frames=FrameRange(start + 60, start + 75),
             reason="ownership-probe",
         ),
@@ -386,7 +387,7 @@ def _run_checks(
     # 1 (asset isolation). The markers must live on the instance, not on the shared asset.
     # If they were on the MediaPoolItem, every other instance of FACE_X1 in the project would
     # now be "owned" — including the ones in DAZ_OUTPUT_MVP.
-    x1_name = assets["facecam_x1"]
+    x1_name = assets["x0_to_face_x1"]
     contaminated: list[str] = []
     for index in range(1, int(project.GetTimelineCount() or 0) + 1):
         timeline = project.GetTimelineByIndex(index)
@@ -537,7 +538,7 @@ def run_ownership_probe(
             media_pool,
             (
                 AssetPlacement(
-                    asset_role="facecam_x1",
+                    asset_role="x0_to_face_x1",
                     frames=FrameRange(
                         placements[-1].end_frame, placements[-1].end_frame + 60
                     ),
@@ -552,7 +553,7 @@ def run_ownership_probe(
         report.check(
             "untagged_twin_is_unowned",
             control_verdict.state == UNOWNED,
-            f"an identical, untagged {assets['facecam_x1']!r} classifies as "
+            f"an identical, untagged {assets['x0_to_face_x1']!r} classifies as "
             f"{control_verdict.state}",
         )
 

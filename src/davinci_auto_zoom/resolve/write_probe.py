@@ -251,25 +251,25 @@ def plan_experiments(
     """
 
     roles = dict(target.assets)
-    x1 = roles.get("facecam_x1", "")
-    x0 = roles.get("reset_x0", "")
+    x1 = roles.get("x0_to_face_x1", "")
+    x0 = roles.get("face_x1_to_x0", "")
     native_x1 = native_frames.get(x1, 0)
     native_x0 = native_frames.get(x0, 0)
 
     planned = [
-        ("x1_native", x1, "facecam_x1", native_x1, True,
+        ("x1_native", x1, "x0_to_face_x1", native_x1, True,
          f"native length of {x1}: {native_x1} frames"),
-        ("x1_endframe_semantics", x1, "facecam_x1", native_x1 - 1, False,
+        ("x1_endframe_semantics", x1, "x0_to_face_x1", native_x1 - 1, False,
          "one frame shorter than native; paired with x1_native this shows whether "
          "endFrame is inclusive or exclusive"),
-        ("x1_short_87", x1, "facecam_x1", 87, True,
+        ("x1_short_87", x1, "x0_to_face_x1", 87, True,
          "87 frames, a duration observed in the human reference timeline"),
-        ("x1_extended_141", x1, "facecam_x1", 141, True,
+        ("x1_extended_141", x1, "x0_to_face_x1", 141, True,
          f"141 frames, longer than the {native_x1}-frame Media Pool asset"),
-        ("x1_shorter_than_animation", x1, "facecam_x1", 10, False,
+        ("x1_shorter_than_animation", x1, "x0_to_face_x1", 10, False,
          "10 frames, shorter than the asset's own 15-frame keyframed move; shows what "
          "happens to an animation that cannot complete"),
-        ("x0_native", x0, "reset_x0", native_x0, True,
+        ("x0_native", x0, "face_x1_to_x0", native_x0, True,
          f"native length of {x0}: {native_x0} frames"),
     ]
     return tuple(

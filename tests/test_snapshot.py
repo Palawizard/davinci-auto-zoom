@@ -50,19 +50,41 @@ def test_edit_boundaries_are_deduplicated_and_sorted() -> None:
 
 
 def test_assets_are_discovered_and_mapped_to_roles() -> None:
+    """Every transition of the Phase 8 graph resolves to its own generator."""
+
     snapshot = _snapshot()
     assert snapshot.asset_bin_found is True
     roles = {a.name: (a.role, a.clip_type, a.frames) for a in snapshot.assets}
     assert roles == {
-        "FACE_X1": ("facecam_x1", "Generator", 132),
-        "FACE_X0_SMOOTH": ("reset_x0", "Generator", 42),
+        "FACE_X1": ("x0_to_face_x1", "Generator", 132),
+        "FACE_X2": ("face_x1_to_face_x2", "Generator", 132),
+        "FACE_X3": ("face_x2_to_face_x3", "Generator", 132),
+        "X1_TO_X0": ("face_x1_to_x0", "Generator", 42),
+        "X2_TO_X0": ("face_x2_to_x0", "Generator", 42),
+        "X3_TO_X0": ("face_x3_to_x0", "Generator", 42),
     }
     assert snapshot.warnings == ()
 
 
+def test_a_bin_without_the_optional_levels_is_a_valid_setup() -> None:
+    """No x2/x3 assets configured means no warning and no promotion — not an error."""
+
+    resolve, project = build_test_project()
+    snapshot = snapshot_project(
+        resolve,
+        project,
+        Config(assets={"x0_to_face_x1": "FACE_X1", "face_x1_to_x0": "X1_TO_X0"}),
+    )
+    assert snapshot.warnings == ()
+    assert {a.role for a in snapshot.assets if a.role} == {
+        "x0_to_face_x1",
+        "face_x1_to_x0",
+    }
+
+
 def test_missing_asset_produces_a_warning_not_an_exception() -> None:
     resolve, project = build_test_project()
-    config = Config(assets={"facecam_x1": "MISSING_ASSET"})
+    config = Config(assets={"x0_to_face_x1": "MISSING_ASSET"})
     snapshot = snapshot_project(resolve, project, config)
     assert any("MISSING_ASSET" in warning for warning in snapshot.warnings)
 
@@ -80,7 +102,7 @@ def test_compare_reports_reference_only_track_and_added_items() -> None:
     assert comparison.reference_only_tracks == ("video3",)
     assert comparison.input_only_tracks == ()
     added = added_generator_items(comparison)
-    assert alternation(added) == ("FACE_X1", "FACE_X0_SMOOTH", "FACE_X1")
+    assert alternation(added) == ("FACE_X1", "X1_TO_X0", "FACE_X1")
     assert [i.duration for i in added] == [87, 42, 50]
 
 

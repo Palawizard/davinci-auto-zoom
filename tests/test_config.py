@@ -6,7 +6,15 @@ from davinci_auto_zoom.config import Config
 def test_defaults_are_usable_without_a_config_file() -> None:
     config = Config.load(None)
     assert config.asset_bin == "DAVINCI_AUTO_ZOOM"
-    assert set(config.assets) == {"facecam_x1", "reset_x0"}
+    # Every transition of the Phase 8 graph, because this user has built every asset.
+    assert set(config.assets) == {
+        "x0_to_face_x1",
+        "face_x1_to_face_x2",
+        "face_x2_to_face_x3",
+        "face_x1_to_x0",
+        "face_x2_to_x0",
+        "face_x3_to_x0",
+    }
 
 
 def test_missing_config_file_is_reported_clearly(tmp_path) -> None:  # type: ignore[no-untyped-def]
@@ -18,14 +26,15 @@ def test_user_asset_names_override_defaults(tmp_path) -> None:  # type: ignore[n
     path = tmp_path / "config.toml"
     path.write_text(
         '[resolve]\nvoice_audio_track = 2\nasset_bin = "MY_BIN"\n'
-        '[assets]\nfacecam_x1 = "PUNCH_IN"\n',
+        '[assets]\nx0_to_face_x1 = "PUNCH_IN"\nface_x1_to_x0 = "PULL_OUT"\n',
         encoding="utf-8",
     )
     config = Config.load(path)
     assert config.voice_audio_track == 2
     assert config.asset_bin == "MY_BIN"
-    # Overridden role plus the untouched default.
-    assert config.assets == {"facecam_x1": "PUNCH_IN", "reset_x0": "FACE_X0_SMOOTH"}
+    # A file that names any asset REPLACES the table: this user has no x2/x3 assets, and
+    # merging the defaults back in would plan promotions they cannot perform.
+    assert config.assets == {"x0_to_face_x1": "PUNCH_IN", "face_x1_to_x0": "PULL_OUT"}
 
 
 def test_example_config_parses() -> None:
@@ -104,7 +113,8 @@ def test_planner_and_asset_timing_are_parsed(tmp_path) -> None:  # type: ignore[
     path = tmp_path / "config.toml"
     path.write_text(
         "[resolve]\ncut_reference_video_track = 2\n"
-        "[assets.transition_frames]\nfacecam_x1 = 15\nreset_x0 = 15\n"
+        '[assets]\nx0_to_face_x1 = "FACE_X1"\nface_x1_to_x0 = "X1_TO_X0"\n'
+        "[assets.transition_frames]\nx0_to_face_x1 = 15\nface_x1_to_x0 = 15\n"
         "[planner]\nreset_after_silence_ms = 800\nzoom_lead_in_ms = 0\n"
         "cut_snap_lookback_ms = 60\n",
         encoding="utf-8",
@@ -115,8 +125,8 @@ def test_planner_and_asset_timing_are_parsed(tmp_path) -> None:  # type: ignore[
     assert config.planner.zoom_lead_in_ms == 0
     assert config.planner.cut_snap_lookback_ms == 60
     assert config.asset_timing is not None
-    assert config.asset_timing.facecam_x1_transition_frames == 15
-    assert config.asset_timing.reset_x0_transition_frames == 15
+    assert config.asset_timing.frames_for("x0_to_face_x1") == 15
+    assert config.asset_timing.frames_for("face_x1_to_x0") == 15
 
 
 def test_asset_timing_has_no_default_so_the_planner_cannot_guess() -> None:
@@ -144,15 +154,16 @@ def test_the_removed_min_zoom_assumption_is_now_an_error(tmp_path) -> None:  # t
 
 def test_a_half_configured_asset_timing_is_refused(tmp_path) -> None:  # type: ignore[no-untyped-def]
     path = tmp_path / "config.toml"
-    path.write_text("[assets.transition_frames]\nfacecam_x1 = 15\n", encoding="utf-8")
-    with pytest.raises(ValueError, match="reset_x0"):
+    path.write_text("[assets.transition_frames]\nx0_to_face_x1 = 15\n", encoding="utf-8")
+    with pytest.raises(ValueError, match="face_x1_to_x0"):
         Config.load(path)
 
 
 def test_an_unknown_asset_role_timing_is_refused(tmp_path) -> None:  # type: ignore[no-untyped-def]
     path = tmp_path / "config.toml"
     path.write_text(
-        "[assets.transition_frames]\nfacecam_x1 = 15\nreset_x0 = 15\nfacecam_x9 = 15\n",
+        "[assets.transition_frames]\n"
+        "x0_to_face_x1 = 15\nface_x1_to_x0 = 15\nfacecam_x9 = 15\n",
         encoding="utf-8",
     )
     with pytest.raises(ValueError, match="facecam_x9"):
@@ -166,6 +177,25 @@ def test_the_example_config_carries_this_projects_asset_timing() -> None:
     config = Config.load(example)
     assert config.cut_reference_video_track == 1
     assert config.asset_timing is not None
-    assert config.asset_timing.to_dict() == {"facecam_x1": 15, "reset_x0": 15}
+    assert config.asset_timing.to_dict() == {
+        "x0_to_face_x1": 15,
+        "face_x1_to_face_x2": 15,
+        "face_x2_to_face_x3": 15,
+        "face_x1_to_x0": 15,
+        "face_x2_to_x0": 15,
+        "face_x3_to_x0": 15,
+    }
     assert config.planner.reset_after_silence_ms == 650
-    assert config.assets == {"facecam_x1": "FACE_X1", "reset_x0": "FACE_X0_SMOOTH"}
+    assert config.assets == {
+        "x0_to_face_x1": "FACE_X1",
+        "face_x1_to_face_x2": "FACE_X2",
+        "face_x2_to_face_x3": "FACE_X3",
+        "face_x1_to_x0": "X1_TO_X0",
+        "face_x2_to_x0": "X2_TO_X0",
+        "face_x3_to_x0": "X3_TO_X0",
+    }
+    # Calibrated on DAZ_OUTPUT_MVP2 (Phase 8); see .agent/reports/phase-08-mvp2-analysis.txt.
+    assert config.planner.promote_to_face_x2_after_ms == 1000
+    assert config.planner.min_remaining_after_face_x2_ms == 350
+    assert config.planner.promote_to_face_x3_after_ms == 1800
+    assert config.planner.min_remaining_after_face_x3_ms == 500

@@ -373,7 +373,63 @@ One live bug found and fixed: `DeleteClips` silently no-ops on a non-current tim
 timeline; collision resolution; ripple editing; replacing a user clip. The empty-target-track
 rule (D032) is unchanged.
 
-## Phase 7b — Apply in place on a user timeline [NEXT]
+## Phase 8 — Multi-level facecam transition engine [DONE]
+
+Goal: stop modelling the edit as one zoom level and its opposite, and let the framing tighten
+while the creator keeps talking.
+
+Delivered, and proven live on Studio 21.0.4.5 (see
+`.agent/reports/phase-08-mvp2-analysis.txt`, `.agent/reports/phase-08-plan-comparison.txt` and
+`.agent/reports/phase-08-live-workflow-report.txt`):
+
+- **`domain/transitions.py`** — the visual states (`x0`, `face_x1`, `face_x2`, `face_x3`), the
+  six allowed transitions as a closed table, and role lookup. A forbidden move raises; it is
+  never a silent no-op (D044, D045).
+- **the planner reasons in states**, emitting a chain per burst: one entry, zero or more
+  promotions, one reset whose asset depends on the level reached. `AssetTiming` became a
+  role->frames map and doubles as the capability list — an unconfigured role is a move this
+  project cannot make (D045).
+- **promotions are earned by sustained speech**, never cut-snapped (D046). Four configurable
+  thresholds, calibrated on `DAZ_OUTPUT_MVP2` (D047).
+- **the executor did not change shape**: resolve role -> asset name, append at the planned
+  frames, verify, tag. It never learned what a level is, which is the property that keeps
+  gameplay a table change later.
+
+Live proof on `DAZ_INPUT`: 15 speech segments -> 14 bursts -> **40 placements** (14 entries, 8
+x2 promotions, 4 x3 promotions, 14 resets across all three return assets), 40/40 inserted,
+40/40 owned; `clean` removed all 40; two rebuilds produced identical `(role, start, end,
+placement_id)`. The reset frames, the burst boundaries and the 39.9% coverage are **identical
+to Phases 6 and 7** — the multi-level model changed how the zoomed frames are subdivided and
+nothing else.
+
+Peak level matches the human edit on 11 of 14 cycles. Of the 3 misses, 2 are burst-extent
+disagreements inherited from Phase 6 and 1 is human nuance no duration rule can express
+(D047).
+
+**Explicitly out of scope, and still is:** gameplay states (D048, not even stubbed), demotions
+(`x3 -> x2`, `x2 -> x1` — closed by D045, not deferred), apply in place, collision resolution.
+
+## Phase 8b — Burst extent [RECOMMENDED NEXT]
+
+The highest-value measured target the Phase 8 comparison produced. Two of the three level
+divergences against `DAZ_OUTPUT_MVP2` are not promotion errors at all — the planner and the
+human disagree about where the *burst* starts or ends:
+
+1. cycle 1: the automatic reset lands **77 frames** after the human's, turning a 74-frame
+   manual cycle into a 149-frame automatic one, which then promotes twice;
+2. cycle 12: the one burst built from two speech segments. The planner opens it **123 frames**
+   before the human does (40 manual frames against 163 automatic).
+
+Both are pre-existing Phase 6 behaviour that only became visible once level depended on burst
+length. Measure both directions, as Phase 6 should have from the start: for each burst, the
+offset between the automatic and manual start *and* end, against the speech segments and the
+bridged gaps. Do not tune `reset_after_silence_ms` before that measurement exists.
+
+Note what this phase already closed: **"x1 over-triggering" was not a defect.** 14 planned
+cycles against `DAZ_OUTPUT_MVP`'s 12 was the old reference being looser; `DAZ_OUTPUT_MVP2` has
+14 cycles in the same places. That entry can be struck from the carried-uncertainty list.
+
+## Phase 7b — Apply in place on a user timeline [DEFERRED]
 
 Ownership now exists, which is the precondition D032 was waiting for. The open questions, in
 order:
@@ -396,7 +452,7 @@ Also carried forward from the earlier Phase 7 list, none of it blocking:
 - config validation
 - backup/test-timeline guidance
 
-## Phase 8 — UI / Resolve launcher / packaging
+## Phase 10 — UI / Resolve launcher / packaging
 
 Only after CLI workflow is stable.
 
@@ -408,28 +464,26 @@ Potential shape:
 
 Do not make UI architecture dictate domain logic.
 
-## Phase 9 — Advanced zoom state machine [FUTURE]
+## Phase 9 — Gameplay states [FUTURE]
 
-Extend the planner's roles and placements rather than bolting rules onto the executor. (The
-Phase 0 `ZoomState` enum no longer exists — Phase 4 replaced the event model with placements,
-D028 — so a future state machine starts from `plan_zooms` and the role constants.)
+**The state machine itself now exists** (Phase 8, D044). This phase is no longer "build a state
+machine"; it is "add gameplay states to the table that is already there, with measurement behind
+them". The remaining candidate states and transitions:
 
-Candidate states:
+- `GAMEPLAY_*` states
+- `x0 -> gameplay`, `face_x1/x2/x3 -> gameplay`, `gameplay -> x0`, `gameplay -> face_x1`
 
-- `NORMAL`
-- `FACECAM_X1`
-- `FACECAM_X2`
-- `FACECAM_X3`
-- `GAMEPLAY_*`
+Preconditions before writing any of it, none of which are met today:
 
-Candidate transition matrix:
+1. a reference edit that actually uses gameplay zooms, the way `DAZ_OUTPUT_MVP2` served the
+   facecam ladder;
+2. an asset family for them in the bin, with known animation lengths;
+3. evidence about what *triggers* them. Speech duration will not be the answer, and guessing
+   would repeat the mistake D047 is careful not to make about x3.
 
-- normal -> x1
-- x1 -> x2/x3
-- x2/x3 -> x1
-- x1 -> gameplay
-- gameplay -> x1
-- gameplay -> normal
-- all defined reverse/interrupt transitions
+Deliberately still closed: demotions between facecam levels (D045). Nothing observed so far
+wants them.
 
-Rules may depend on duration, transcript semantics, gameplay events, edits, or manual annotations. The planner should choose states/transitions; the Resolve executor should only realize semantic actions using assets.
+Later rules may depend on transcript semantics, gameplay events or manual annotations. The
+planner chooses states and transitions; the executor only realizes them with assets. That
+boundary is not up for renegotiation.

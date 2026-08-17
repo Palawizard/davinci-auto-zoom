@@ -66,7 +66,7 @@ def test_threshold_stability_exposes_an_unstable_region():
 def test_reference_diagnostics_are_alignment_not_accuracy():
     segments = [segment(1000, 1200), segment(2000, 2300), segment(5000, 5100)]
     enters = [ReferenceZoom("FACE_X1", 1010, 1150), ReferenceZoom("FACE_X1", 9000, 9100)]
-    resets = [ReferenceZoom("FACE_X0_SMOOTH", 2350, 2392)]
+    resets = [ReferenceZoom("X1_TO_X0", 2350, 2392)]
 
     diagnostics = compare_to_reference_zooms(segments, enters, resets, "DAZ_OUTPUT_MVP")
     assert diagnostics.zoom_count == 2
@@ -85,7 +85,7 @@ def test_reference_zooms_are_found_by_name_on_any_video_track():
     reference = snapshot.timeline("DAZ_OUTPUT_MVP")
     assert reference is not None
     assert len(reference_zooms(reference, "FACE_X1")) == 2
-    assert len(reference_zooms(reference, "FACE_X0_SMOOTH")) == 1
+    assert len(reference_zooms(reference, "X1_TO_X0")) == 1
     assert reference_zooms(reference, "NOT_AN_ASSET") == ()
 
 
@@ -176,7 +176,7 @@ def test_a_plan_is_compared_to_a_human_edit_without_being_scored():
         planned_x1=[(1000, 1200), (2000, 2100)],
         planned_x0=[(1200, 1215), (2100, 2115)],
         manual_x1=[ReferenceZoom("FACE_X1", 990, 1250)],
-        manual_x0=[ReferenceZoom("FACE_X0_SMOOTH", 1250, 1292)],
+        manual_x0=[ReferenceZoom("X1_TO_X0", 1250, 1292)],
         reference_timeline="DAZ_OUTPUT_MVP",
     )
     assert diagnostics.matched_x1 == 1

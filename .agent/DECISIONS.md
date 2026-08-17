@@ -942,3 +942,123 @@ each — no accumulation.
 
 Because the fingerprint is hashed in, re-cut source material changes every placement id, and
 `rebuild-preview` refuses on the fingerprint mismatch before deleting anything.
+
+## D044 — The domain models **states and transitions**, not a zoom level and its opposite
+
+**Status:** adopted, Phase 8.
+
+Phases 4-7 encoded one editorial idea directly in the type system: there was a `facecam_x1`
+role and a `reset_x0` role, and planning meant alternating them. That model cannot express
+"the creator kept talking, so go tighter", and every attempt to bolt x2/x3 onto it puts
+special cases in the planner *and* in the executor.
+
+So the model is inverted. `domain/transitions.py` holds:
+
+* the **visual states** — `x0`, `face_x1`, `face_x2`, `face_x3`;
+* the **allowed transitions** between them, as a closed table;
+* the mapping transition -> configurable role.
+
+The planner reasons in states and emits transitions. The executor never learns what a state
+is: it resolves a role to a clip name, appends that clip at the frames the plan gives it,
+verifies, and tags. **No editorial logic exists below the planner**, which is the property
+that makes adding gameplay states later a change to one table rather than to five modules.
+
+A move that is not in the table raises `ForbiddenTransition`. It is never a silent no-op:
+asking for `x0 -> face_x2` is a bug in the caller, and a bug that plans nothing is worse than
+one that stops.
+
+## D045 — The facecam ladder is climbed one rung at a time and never descended
+
+**Status:** adopted, Phase 8. Confirmed against `DAZ_OUTPUT_MVP2`.
+
+The allowed transitions are exactly:
+
+    x0      -> face_x1        face_x1 -> x0
+    face_x1 -> face_x2        face_x2 -> x0
+    face_x2 -> face_x3        face_x3 -> x0
+
+There is deliberately no `x0 -> face_x2`, no `face_x2 -> face_x1`, and no `face_x3 ->
+face_x2`. A zoom that steps back out to a wider facecam level mid-sentence reads as a mistake;
+dropping all the way to x0 reads as the end of a thought. The exit from any level is to x0 and
+nowhere else.
+
+This is not only taste. All 14 manual cycles in `DAZ_OUTPUT_MVP2` obey it: none skips a level,
+none descends, and every manual reset asset matches the level it came down from.
+
+**Consequences for the assets.** A promotion clip (`FACE_X1`, `FACE_X2`, `FACE_X3`) animates
+into its destination state over its `transition_frames` and then *holds* it for as long as the
+instance lasts — D014 generalised from x1 to every rung. Its placement therefore runs to
+whatever comes next, another promotion or the reset. A reset clip (`X1_TO_X0`, `X2_TO_X0`,
+`X3_TO_X0`) does its whole job in `transition_frames`, so its placement is exactly that long.
+Native Media Pool lengths remain irrelevant to both (D025).
+
+**Consequences for the config.** `[assets]` and `[assets.transition_frames]` are both keyed by
+transition role and must list the same roles. Only `x0_to_face_x1` and `face_x1_to_x0` are
+required; a user who has not built an x2 or x3 asset omits those roles and the planner simply
+never makes that move. A file that names any asset replaces the default table wholesale rather
+than merging into it — merging would silently reinstate a default `FACE_X2` for someone who
+deliberately configured two roles, and then plan promotions they cannot perform.
+
+## D046 — Promotions are earned by sustained speech; only resets snap to cuts
+
+**Status:** adopted, Phase 8. Measured on `DAZ_OUTPUT_MVP2`.
+
+Once a burst is zoomed, the level climbs on elapsed talking time and nothing else:
+`promote_to_face_x2_after_ms` into the burst, then `promote_to_face_x3_after_ms`. Each
+promotion also requires that enough burst still remains
+(`min_remaining_after_face_x2_ms` / `..._x3_ms`), so a burst that stops a heartbeat after
+crossing a threshold does not flash a tighter level nobody can read.
+
+**Promotions are never cut-snapped.** The measurement: of the 7 manual promotion frames in
+`DAZ_OUTPUT_MVP2`, exactly 1 lands on a hard cut — and there are 20 cuts in a 3555-frame
+range, so one hit is what chance predicts. The same measurement on the same timeline puts 8 of
+14 manual *resets* exactly on a cut. Snapping stays where the evidence is; the reset rule
+(D034) is untouched and its live output is frame-identical to Phases 6 and 7.
+
+The reset asset now depends on the level reached, which introduces one ordering problem: the
+"does the reset still fit before the next zoom" check runs before the planner knows which
+level the burst will reach. It budgets for the **longest** configured reset animation. Budgeting
+high is safe — the reset actually placed is never longer, so it always fits too.
+
+## D047 — The x2/x3 thresholds are calibrated on measured data, and the x3 pair is weak
+
+**Status:** adopted, Phase 8. Honest about its own evidence.
+
+    promote_to_face_x2_after_ms    = 1000   (60 frames at 60 fps)
+    min_remaining_after_face_x2_ms =  350   (21 frames)
+    promote_to_face_x3_after_ms    = 1800   (108 frames)
+    min_remaining_after_face_x3_ms =  500   (30 frames)
+
+**x2 is well grounded.** On `DAZ_OUTPUT_MVP2` the cycles the editor left at x1 span at most 75
+frames, and the shortest they promoted spans 87. The two populations do not overlap, and there
+is an 11-frame gap between them. A rule of the form "promote at +T, if at least R remains"
+fires exactly when `span >= T + R`, so any value in (75, 87] reproduces all fourteen human
+decisions. 1000 + 350 ms = 81 frames sits in the middle of that gap. This is a gap in the data,
+not a curve fit.
+
+**x3 rests on a single observation** and is the weakest thing in the phase. There is exactly
+one `FACE_X3` in the reference timeline. 1800 + 500 ms = 138 frames is exactly that cycle's
+span, and the resulting promotion frame lands 1 frame from the human's. Calibration on n=1 is
+recorded as calibration on n=1.
+
+Explicitly not done: no ML, no automated threshold search, no per-burst fitting to reproduce
+`MVP2`. `DAZ_OUTPUT_MVP2` is a strong heuristic reference, never ground truth.
+
+**Known divergence that no simple rule can fix.** The longest manual cycle in the timeline (204
+frames) was deliberately kept at x2, while the 138-frame closing cycle went to x3. No monotonic
+duration rule produces both. The live plan matches the human's peak level on 11 of 14 cycles;
+of the 3 misses, 2 are burst-extent disagreements inherited from Phase 6 rather than promotion
+errors. See `.agent/reports/phase-08-mvp2-analysis.txt`.
+
+## D048 — Gameplay states are absent, not stubbed
+
+**Status:** adopted, Phase 8.
+
+`domain/transitions.py` contains no gameplay state and no placeholder for one. Adding empty
+rungs now would be scaffolding for a design nobody has measured: there is no reference edit for
+gameplay zooms, no asset family in the bin, and no evidence about what triggers them. The graph
+is a closed table precisely so that adding them later is one honest change with its own
+measurement behind it, rather than a half-built abstraction that constrains that measurement in
+advance.
+
+`state_after("x0_to_gameplay")` raises. It does not return `None` and it does not plan nothing.

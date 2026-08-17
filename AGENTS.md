@@ -20,9 +20,16 @@ For the current assignment, also read the prompt file named by the user.
 
 - `domain/` — pure editing decisions. Deterministic, testable without Resolve, no Resolve
   object ever reaches it.
+- `domain/transitions.py` — **the single source of which visual states exist and which moves
+  between them are legal** (D044). The planner reasons in those states and emits transitions;
+  a move outside the table raises rather than planning nothing (D048). Add a state here or
+  nowhere.
 - `resolve/` — the only place Resolve proxy objects are allowed to exist.
 - `speech/` — transcription/VAD implementations behind the `speech/base.py` interfaces.
 - Timeline positions are integer frames internally. Half-open ranges `[start, end)`.
+- **No editorial logic below the planner.** The executor resolves a role to a clip name,
+  appends it at the planned frames, verifies and tags. It does not know what a zoom level is,
+  and it must not learn.
 
 ## Resolve safety
 

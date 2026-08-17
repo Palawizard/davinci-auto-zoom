@@ -35,10 +35,10 @@ from davinci_auto_zoom.domain.ownership import (
 
 FINGERPRINT = "sha256:" + "a" * 64
 PREVIEW = "uid-preview-1"
-ASSETS = {"facecam_x1": "FACE_X1", "reset_x0": "FACE_X0_SMOOTH"}
+ASSETS = {"x0_to_face_x1": "FACE_X1", "face_x1_to_x0": "X1_TO_X0"}
 
 
-def record(role: str = "facecam_x1", start: int = 216132, end: int = 216174, **kwargs):
+def record(role: str = "x0_to_face_x1", start: int = 216132, end: int = 216174, **kwargs):
     return build_record(
         preview_id=kwargs.pop("preview_id", PREVIEW),
         role=role,
@@ -99,9 +99,9 @@ def test_the_record_carries_the_namespace_and_schema_verbatim():
 
 def test_placement_id_is_deterministic_and_free_of_any_clock():
     assert placement_id(
-        source_fingerprint=FINGERPRINT, role="reset_x0", start=10, end=25, asset="X"
+        source_fingerprint=FINGERPRINT, role="face_x1_to_x0", start=10, end=25, asset="X"
     ) == placement_id(
-        source_fingerprint=FINGERPRINT, role="reset_x0", start=10, end=25, asset="X"
+        source_fingerprint=FINGERPRINT, role="face_x1_to_x0", start=10, end=25, asset="X"
     )
 
 
@@ -110,14 +110,14 @@ def test_placement_id_is_deterministic_and_free_of_any_clock():
     [
         {"start": 11},
         {"end": 26},
-        {"role": "facecam_x1"},
+        {"role": "x0_to_face_x1"},
         {"asset": "OTHER"},
         {"source_fingerprint": "sha256:" + "b" * 64},
     ],
 )
 def test_every_hashed_input_changes_the_placement_id(changed):
     base: dict[str, Any] = dict(
-        source_fingerprint=FINGERPRINT, role="reset_x0", start=10, end=25, asset="X"
+        source_fingerprint=FINGERPRINT, role="face_x1_to_x0", start=10, end=25, asset="X"
     )
     assert placement_id(**base) != placement_id(**{**base, **changed})
 
@@ -209,14 +209,14 @@ def test_claims_ownership_is_generous_on_purpose():
 def test_valid_owned_x1():
     verdict = classify_item(item(custom_data=serialize(record())), expectations())
     assert verdict.state == OWNED
-    assert verdict.record is not None and verdict.record.role == "facecam_x1"
+    assert verdict.record is not None and verdict.record.role == "x0_to_face_x1"
     assert verdict.problems == ()
 
 
 def test_valid_owned_x0():
-    data = serialize(record("reset_x0", 216174, 216189))
+    data = serialize(record("face_x1_to_x0", 216174, 216189))
     verdict = classify_item(
-        item("FACE_X0_SMOOTH", 216174, 216189, custom_data=data), expectations()
+        item("X1_TO_X0", 216174, 216189, custom_data=data), expectations()
     )
     assert verdict.state == OWNED
 
@@ -271,7 +271,7 @@ def test_two_contradictory_daz_markers_are_ambiguous():
             markers=(
                 MarkerSnapshot(frame=0, custom_data=serialize(record())),
                 MarkerSnapshot(
-                    frame=5, custom_data=serialize(record("reset_x0", 216174, 216189))
+                    frame=5, custom_data=serialize(record("face_x1_to_x0", 216174, 216189))
                 ),
             )
         ),
@@ -305,7 +305,7 @@ def test_clean_can_skip_the_fingerprint_check_that_rebuild_enforces():
 def test_an_unconfigured_role_is_ambiguous():
     data = serialize(record())
     verdict = classify_item(
-        item(custom_data=data), expectations(assets={"reset_x0": "FACE_X0_SMOOTH"})
+        item(custom_data=data), expectations(assets={"face_x1_to_x0": "X1_TO_X0"})
     )
     assert verdict.state == AMBIGUOUS
     assert "not configured" in verdict.problems[0]
@@ -314,7 +314,7 @@ def test_an_unconfigured_role_is_ambiguous():
 def test_a_role_pointing_at_a_different_configured_asset_is_ambiguous():
     data = serialize(record())
     verdict = classify_item(
-        item(custom_data=data), expectations(assets={**ASSETS, "facecam_x1": "OTHER_X1"})
+        item(custom_data=data), expectations(assets={**ASSETS, "x0_to_face_x1": "OTHER_X1"})
     )
     assert verdict.state == AMBIGUOUS
     assert "configured for asset" in verdict.problems[0]

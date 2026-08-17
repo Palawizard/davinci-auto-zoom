@@ -441,3 +441,78 @@ Batching 27 items in one call worked. No upper bound was probed.
 - whether marker metadata survives a project close/reopen. Asset `unique_id`s do (Phase 6), and
   timeline `unique_id`s appear to, but the markers themselves were only tested within one
   session and across a timeline switch.
+
+---
+
+## Phase 8 — the multi-level asset family, measured
+
+### The bin changed between Phase 7 and Phase 8
+
+`FACE_X0_SMOOTH` **no longer exists**. Everything above that names it describes the Phase 5-7
+bin and is kept as history, not as current fact. `DAVINCI_AUTO_ZOOM` now holds six Generators:
+
+```
+FACE_X1    132 frames native   4274cc06-b251-480b-95be-edbf44ca4ebe
+FACE_X2    132 frames native   217606f0-c2d2-48ba-9f55-c89ba33f38ed
+FACE_X3    132 frames native   f1641e08-2df1-416e-9a1c-36e83df9b3b2
+X1_TO_X0    42 frames native   c3cf0e7d-c49a-4df0-aee5-e60fb16bb2c7
+X2_TO_X0    42 frames native   5ea45470-93fd-48a6-8bbe-9e40d7d60ea7
+X3_TO_X0    42 frames native   846a736b-4af1-447e-8c6f-539038452fd6
+```
+
+Native lengths are recorded and used by nothing; D025 is unchanged. All six animate in 15
+frames (user metadata, not measured by DAZ — D007).
+
+The three `FACE_X*` assets behave like the old `FACE_X1`: animate, then **hold**. So D014
+generalises without modification — a promotion instance is as long as the burst needs it to be,
+and 15 frames is only the floor. The three `*_TO_X0` assets behave like the old
+`FACE_X0_SMOOTH`: the whole return in 15 frames.
+
+Placement lengths, generalised from the Phase 4 note above:
+
+```
+entry / promotion instance : [move, next move or reset)   length >= its own animation
+reset instance             : [reset, reset + 15)          exactly the animation, never 42
+```
+
+### What `DAZ_OUTPUT_MVP2` says about how a human uses the levels
+
+Full analysis in `.agent/reports/phase-08-mvp2-analysis.txt`. The measurements that are facts
+about the material rather than conclusions:
+
+- 35 items on V3, forming **14 zoom cycles**: `FACE_X1` x14, `FACE_X2` x6, `FACE_X3` x1,
+  `X1_TO_X0` x8, `X2_TO_X0` x5, `X3_TO_X0` x1;
+- every cycle is a run of adjacent clips (gap = 0) terminated by exactly one `*_TO_X0`;
+- **no cycle skips a level, descends, or resets with the wrong asset for its level.** The state
+  graph D045 defines is the one the editor used, not one imposed on them;
+- manual reset instances are 42 frames (the native length), where DAZ places 15. The extra 27
+  frames are hold-at-X0 and are visually identical to no clip;
+- promotion offsets from the cycle start: 43, 55, 88, 63, 61, 49 frames (x2); 109 (the one x3);
+- cycle spans that stayed at x1: 23, 40, 40, 44, 48, 48, 74, 75. Cycle spans that promoted: 87,
+  88, 104, 113, 138, 204. **The two sets do not overlap and there is an 11-frame gap.**
+
+### Promotions do not sit on cuts; resets do
+
+Same timeline, same measurement, opposite answers — which is why the two rules differ (D046):
+
+```
+manual promotion frames on a hard cut :  1 of 7    (20 cuts in 3555 frames; 1 is chance)
+manual reset frames on a hard cut     :  8 of 14
+```
+
+Widening the promotion tolerance to +-8 frames adds no further hits.
+
+### The burst count question is settled
+
+The planner finds 14 editorial bursts on `DAZ_INPUT`; `DAZ_OUTPUT_MVP2` has 14 manual cycles,
+aligned 1:1 in order. The "x1 over-triggering, 14 planned vs 12 manual" carried since Phase 4
+was measured against `DAZ_OUTPUT_MVP`, a looser earlier edit. **Not a defect.** Nothing was
+tuned to reach this; the burst logic is byte-identical to Phase 6.
+
+### Not measured
+
+- whether the x2/x3 thresholds transfer to other material. They come from one timeline, and the
+  x3 pair from a single clip on it;
+- whether a short promotion instance (the shortest DAZ places here is 26 frames) reads as a move
+  or as a glitch. That is a viewing question and the Phase 8 preview has not been watched;
+- what triggers a gameplay zoom. No reference edit, no asset family, no evidence (D048).

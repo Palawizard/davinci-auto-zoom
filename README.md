@@ -19,11 +19,12 @@ For dynamic gaming edits:
 
 1. Identify a dedicated voice track containing only the creator's voice.
 2. Detect speech regions on that track.
-3. When speech begins, plan a `facecam x1` zoom event.
-4. When speech has stopped for a configurable amount of time, plan a smooth reset to `x0`.
-5. Prefer a nearby real cut for the reset when that produces a cleaner return; otherwise use the direct speech-derived timing.
-6. Resolve the required prebuilt zoom assets by **bin name + clip name**, never by fragile timeline position.
-7. Preview the complete plan before any timeline mutation.
+3. When speech begins, plan a move from normal framing to `facecam x1`.
+4. If the creator keeps talking, tighten further — `x1 -> x2 -> x3` — one level at a time.
+5. When speech has stopped for a configurable amount of time, plan a smooth reset to `x0`, using the return asset that matches the level actually reached.
+6. Prefer a nearby real cut for the reset when that produces a cleaner return; otherwise use the direct speech-derived timing.
+7. Resolve the required prebuilt zoom assets by **bin name + clip name**, never by fragile timeline position.
+8. Preview the complete plan before any timeline mutation.
 
 Automation is a first pass, not a replacement for the editor. A human review/correction pass
 after the tool runs is expected: the goal is to remove the repetitive, obvious decisions.
@@ -37,7 +38,9 @@ The project deliberately separates:
 - **Planning** — pure deterministic code turning timeline facts + speech intervals into zoom actions.
 - **Execution** — the only layer allowed to mutate Resolve.
 
-This makes future states such as facecam x2/x3, gameplay zooms, and transitions between any two zoom states an extension of the planner/state model instead of a rewrite.
+The planner reasons in **visual states and the transitions between them**, not in clip names
+and not in a hard-wired zoom/unzoom pair. Facecam x1/x2/x3 are implemented; gameplay zooms and
+transitions between any two states are an extension of that one table rather than a rewrite.
 
 ## User-supplied zoom assets
 
@@ -45,8 +48,8 @@ The tool does **not** build zoom effects. You create and configure them yourself
 reusable assets in a dedicated Media Pool bin, using whatever combination of Transform,
 keyframes, Fusion, OFX or plugins suits your edit. davinci-auto-zoom looks them up by name,
 places instances of them, and never inspects or rebuilds their contents. That is what lets
-it work across different editing styles, and what will let facecam x2/x3 and gameplay zooms
-be added later without touching the engine.
+it work across different editing styles, and what let facecam x2/x3 be added without touching
+the engine — and what will do the same for gameplay zooms later.
 
 This is now verified rather than aspirational. On Resolve Studio 21.0.4.5, placing a new
 instance of a user's asset preserves its Fusion composition exactly — same tools, same
@@ -61,24 +64,33 @@ lengths are involved, and only two of them matter:
 
 | Length | Example | Used for planning |
 | --- | --- | --- |
-| the asset's length in the Media Pool | `FACE_X0_SMOOTH` is 42 frames | **no, never** |
+| the asset's length in the Media Pool | `X1_TO_X0` is 42 frames | **no, never** |
 | the **animation** length you configure | its move finishes in 15 frames | yes |
 | the instance the tool places | 15 frames for a reset; anything for a zoom-in | computed |
 
-So a zoom-in asset animates for its 15 frames and then simply **holds** the zoom: its
-instances are as long as the speech needs — 30 frames, 250, more — and the animation length is
-only the floor below which the move would be cut off mid-way. A reset asset finishes its
-return in 15 frames, so a 15-frame instance does the whole job even though the clip in your
-bin is 42 frames long.
+So a zoom-in asset animates for its 15 frames and then simply **holds** the level it reached:
+its instances are as long as the speech needs — 30 frames, 250, more — and the animation length
+is only the floor below which the move would be cut off mid-way. That is equally true of a
+promotion asset: `FACE_X2` moves from x1 to x2 and then holds x2 until something else takes
+over. A reset asset finishes its return in 15 frames, so a 15-frame instance does the whole job
+even though the clip in your bin is 42 frames long.
 
 That is why you tell the tool the animation lengths, in
 [`config.example.toml`](config.example.toml):
 
 ```toml
 [assets.transition_frames]
-facecam_x1 = 15
-reset_x0 = 15
+x0_to_face_x1 = 15
+face_x1_to_face_x2 = 15
+face_x2_to_face_x3 = 15
+face_x1_to_x0 = 15
+face_x2_to_x0 = 15
+face_x3_to_x0 = 15
 ```
+
+Those keys are the **transitions**, not the levels. Only `x0_to_face_x1` and `face_x1_to_x0`
+are required: leave a promotion role out of both `[assets]` and this table and the tool simply
+never makes that move, which is the supported way to run a one-level or two-level edit.
 
 In frames, because that is how you keyframed them, and with no default: they are properties of
 *your* assets, and the tool will not guess them or read your Fusion graph to find out.
@@ -118,8 +130,20 @@ always produce the same plan.
 
 ```
 timeline range + fps + speech segments + hard cuts + your settings + your asset timing
-   ->  FACE_X1 / FACE_X0 placements, each with a reason
+   ->  transition placements, each with a reason
 ```
+
+The states, and the only moves allowed between them:
+
+```
+   x0  ──►  face_x1  ──►  face_x2  ──►  face_x3
+    ▲          │            │            │
+    └──────────┴────────────┴────────────┘
+```
+
+The ladder is climbed one rung at a time and never descended: there is no `x0 -> x2`, no
+`x2 -> x1`. The way out of any level is all the way out, with the return asset that matches
+the level you are leaving.
 
 The rules, in the order they apply:
 
@@ -128,10 +152,17 @@ The rules, in the order they apply:
    pause — popping out and back in for a breath looks worse than holding. This setting is a
    *gate*, not a delay: the tool works offline and already knows how long every pause lasts,
    so it never plans a reset 650 ms after you stopped talking.
-2. **One zoom-in per burst**, starting at the burst (plus an optional lead-in, 0 by default)
-   and lasting until the reset. It is dropped entirely if it would be shorter than its own
-   animation, because a truncated move is worse than no zoom.
-3. **The reset is placed at the end of the burst** — and snaps onto a real hard cut when one
+2. **One zoom-in per burst**, starting at the burst (plus an optional lead-in, 0 by default).
+   It is dropped entirely if it would be shorter than its own animation, because a truncated
+   move is worse than no zoom.
+3. **The level climbs while the creator keeps talking.** `promote_to_face_x2_after_ms` into the
+   burst the framing tightens to x2, and `promote_to_face_x3_after_ms` in, to x3 — each only if
+   enough burst still *remains* (`min_remaining_after_face_x2_ms` / `..._x3_ms`), so a burst
+   that stops just after crossing a threshold does not flash a level nobody can read. Each clip
+   holds its level until the next one takes over, so a promoted cycle is several adjacent clips
+   and one reset. Promotions are **not** snapped to cuts: on the reference edit only 1 of 6
+   manual promotions landed on one, against 8 of 14 manual resets.
+4. **The reset is placed at the end of the burst** — and snaps onto a real hard cut when one
    is close enough, because returning to normal framing exactly on a cut reads as
    intentional. The search window is **asymmetric**: up to `cut_snap_window_ms` after the
    burst end, and up to `cut_snap_lookback_ms` before it. Among the candidates the **nearest**
@@ -142,7 +173,7 @@ The rules, in the order they apply:
    reset stays exactly at the burst end, never earlier. A "hard cut" means one clip ends
    exactly where the next begins on `cut_reference_video_track`; entering from black or
    running out into a gap is not a cut.
-4. **A reset is only placed if it fits.** The whole reset animation must finish before the
+5. **A reset is only placed if it fits.** The whole reset animation must finish before the
    next zoom starts, or before the timeline ends. A cut that leaves too little room is
    rejected in favour of the next-nearest one; if nothing fits, no reset is placed and the
    zoom is held. Every one of those decisions is printed.
@@ -483,8 +514,8 @@ cp config.example.toml config.toml
 Names are explicit and fully configurable, since they differ per editor:
 
 - bin: `DAVINCI_AUTO_ZOOM`
-- facecam x1 asset: `FACE_X1`
-- reset x0 asset: `FACE_X0_SMOOTH`
+- one clip name per transition: `FACE_X1`, `FACE_X2`, `FACE_X3` going in, `X1_TO_X0`,
+  `X2_TO_X0`, `X3_TO_X0` coming back
 - the voice audio track, as a 1-based index
 
 The voice track must be configured rather than detected: Resolve exposes no metadata
@@ -499,7 +530,8 @@ These are two different questions and the config keeps them apart on purpose:
 | --- | --- | --- |
 | `[speech.vad]` | *Was the creator making speech sounds here?* | `min_silence_ms = 100` — how long the voice must stop before an utterance has really ended |
 | `[planner]` | *What should the edit do about it?* | `reset_after_silence_ms = 650` — how long a silence must last to be worth zooming back out for |
-| `[assets.transition_frames]` | *How long do your assets take to animate?* | `facecam_x1 = 15` — in frames, no default, never guessed |
+| `[assets.transition_frames]` | *How long do your assets take to animate?* | `x0_to_face_x1 = 15` — in frames, no default, never guessed |
+| `[assets]` | *Which clip performs which transition?* | `face_x1_to_face_x2 = "FACE_X2"` — omit a role to never make that move |
 
 The `[speech.vad]` values are Silero's own defaults. Change them when the detector is
 visibly wrong about the *audio*; change `[planner]` when you disagree with the *edit*. The

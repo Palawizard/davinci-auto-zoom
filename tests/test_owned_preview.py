@@ -14,6 +14,7 @@ The properties under test, in order of how much they would cost to get wrong:
 
 from __future__ import annotations
 
+from dataclasses import replace
 from fractions import Fraction
 from typing import Any
 
@@ -21,11 +22,9 @@ import pytest
 
 from davinci_auto_zoom.config import Config
 from davinci_auto_zoom.domain.models import FrameRange
-from davinci_auto_zoom.domain.ownership import build_record, serialize
+from davinci_auto_zoom.domain.ownership import NAMESPACE, build_record, serialize
 from davinci_auto_zoom.domain.plan_validation import build_plan_source, timeline_frame_rate
 from davinci_auto_zoom.domain.planner import (
-    ROLE_FACECAM_X1,
-    ROLE_RESET_X0,
     AssetPlacement,
     AssetTiming,
     PlannerSettings,
@@ -33,6 +32,10 @@ from davinci_auto_zoom.domain.planner import (
     ZoomPlan,
 )
 from davinci_auto_zoom.domain.probe import ApplyPreviewTarget
+from davinci_auto_zoom.domain.transitions import (
+    ROLE_FACE_X1_TO_X0,
+    ROLE_X0_TO_FACE_X1,
+)
 from davinci_auto_zoom.resolve.executor import PREVIEW_PREFIX, apply_preview
 from davinci_auto_zoom.resolve.owned_preview import (
     CLEAN,
@@ -45,7 +48,7 @@ from davinci_auto_zoom.resolve.owned_preview import (
 from davinci_auto_zoom.resolve.session import snapshot_project
 from tests.fake_resolve import FakeTimelineItem, build_test_project
 
-CONFIG = Config(asset_timing=AssetTiming(15, 15))
+CONFIG = Config(asset_timing=AssetTiming({"x0_to_face_x1": 15, "face_x1_to_x0": 15}))
 
 TARGET = ApplyPreviewTarget(
     project="davinci-auto-zoom-test",
@@ -55,14 +58,14 @@ TARGET = ApplyPreviewTarget(
     cut_reference_video_track=1,
     zoom_video_track=3,
     asset_bin="DAVINCI_AUTO_ZOOM",
-    assets=(("facecam_x1", "FACE_X1"), ("reset_x0", "FACE_X0_SMOOTH")),
+    assets=(("x0_to_face_x1", "FACE_X1"), ("face_x1_to_x0", "X1_TO_X0")),
 )
 
 PLACEMENTS = (
-    AssetPlacement(ROLE_FACECAM_X1, FrameRange(216045, 216132), "x1_until_direct_reset"),
-    AssetPlacement(ROLE_RESET_X0, FrameRange(216132, 216147), "reset_direct"),
-    AssetPlacement(ROLE_FACECAM_X1, FrameRange(216300, 216550), "x1_until_direct_reset"),
-    AssetPlacement(ROLE_RESET_X0, FrameRange(216550, 216565), "reset_direct"),
+    AssetPlacement(ROLE_X0_TO_FACE_X1, FrameRange(216045, 216132), "x1_until_direct_reset"),
+    AssetPlacement(ROLE_FACE_X1_TO_X0, FrameRange(216132, 216147), "reset_direct"),
+    AssetPlacement(ROLE_X0_TO_FACE_X1, FrameRange(216300, 216550), "x1_until_direct_reset"),
+    AssetPlacement(ROLE_FACE_X1_TO_X0, FrameRange(216550, 216565), "reset_direct"),
 )
 
 
@@ -71,7 +74,7 @@ def _plan(source: PlanSource | None, placements: Any = PLACEMENTS) -> ZoomPlan:
         timeline=FrameRange(216000, 219555),
         frame_rate=Fraction(60),
         settings=PlannerSettings(),
-        timing=AssetTiming(15, 15),
+        timing=AssetTiming({"x0_to_face_x1": 15, "face_x1_to_x0": 15}),
         speech_segments=(),
         bursts=(),
         placements=placements,
@@ -242,7 +245,7 @@ def test_a_legacy_preview_is_refused_and_left_exactly_as_it_is() -> None:
             "video",
             3,
             FakeTimelineItem(
-                "FACE_X1" if placement.asset_role == ROLE_FACECAM_X1 else "FACE_X0_SMOOTH",
+                "FACE_X1" if placement.asset_role == ROLE_X0_TO_FACE_X1 else "X1_TO_X0",
                 placement.start_frame,
                 placement.end_frame,
                 None,
@@ -293,7 +296,7 @@ def test_a_single_contradictory_marker_pair_is_ambiguous_and_stops_the_run() -> 
         serialize(
             build_record(
                 preview_id="uid-some-other-preview",
-                role="facecam_x1",
+                role="x0_to_face_x1",
                 asset="FACE_X1",
                 start=item.GetStart(),
                 end=item.GetEnd(),
@@ -396,8 +399,8 @@ def test_the_delete_is_never_a_ripple_delete() -> None:
     assert [call.items for call in report.delete_calls] == [len(PLACEMENTS)]
     # The exact argument Resolve was handed, from the fake's own log.
     assert _deletes(project) == [
-        f"DeleteClips([FACE_X1@216045, FACE_X0_SMOOTH@216132, FACE_X1@216300, "
-        f"FACE_X0_SMOOTH@216550], ripple=False) on {preview!r}"
+        f"DeleteClips([FACE_X1@216045, X1_TO_X0@216132, FACE_X1@216300, "
+        f"X1_TO_X0@216550], ripple=False) on {preview!r}"
     ]
 
 
@@ -559,7 +562,7 @@ def test_a_rebuild_refuses_when_the_configured_asset_changed() -> None:
 
     resolve, project, source, preview = _owned_preview()
     moved = replace(
-        source, assets=(("facecam_x1", "SOMETHING_ELSE"), ("reset_x0", "FACE_X0_SMOOTH"))
+        source, assets=(("x0_to_face_x1", "SOMETHING_ELSE"), ("face_x1_to_x0", "X1_TO_X0"))
     )
     with pytest.raises(OwnedPreviewRefused, match="no longer matches the project"):
         _rebuild(project, resolve, preview, _plan(moved))
@@ -658,3 +661,143 @@ def test_a_preview_that_cannot_be_made_current_deletes_nothing() -> None:
     assert _deletes(project) == []
     assert len(_zoom_items(project, preview)) == len(PLACEMENTS)
     assert report.recovery_retained is True
+
+
+# ---------------------------------------------------------------------------------------
+# Phase 8: the same safety properties, with the multi-level transition roles.
+#
+# Nothing in ownership, clean or rebuild knows what a "level" is — roles are opaque strings
+# to all three. These tests exist to prove that claim rather than assert it, because the one
+# way it could be false is a hard-coded role name left behind by the refactor.
+# ---------------------------------------------------------------------------------------
+
+MULTI_ASSETS = (
+    ("face_x1_to_face_x2", "FACE_X2"),
+    ("face_x1_to_x0", "X1_TO_X0"),
+    ("face_x2_to_face_x3", "FACE_X3"),
+    ("face_x2_to_x0", "X2_TO_X0"),
+    ("face_x3_to_x0", "X3_TO_X0"),
+    ("x0_to_face_x1", "FACE_X1"),
+)
+MULTI_TIMING = AssetTiming(dict.fromkeys((role for role, _ in MULTI_ASSETS), 15))
+MULTI_CONFIG = Config(assets=dict(MULTI_ASSETS), asset_timing=MULTI_TIMING)
+MULTI_TARGET = replace(TARGET, assets=MULTI_ASSETS)
+
+#: Three cycles, one per peak level, so every reset asset and every promotion is exercised.
+MULTI_PLACEMENTS = (
+    AssetPlacement("x0_to_face_x1", FrameRange(216045, 216132), "x1_until_direct_reset"),
+    AssetPlacement("face_x1_to_x0", FrameRange(216132, 216147), "reset_direct"),
+    AssetPlacement("x0_to_face_x1", FrameRange(216300, 216360), "x1_until_direct_reset"),
+    AssetPlacement("face_x1_to_face_x2", FrameRange(216360, 216450), "promoted_sustained_speech"),
+    AssetPlacement("face_x2_to_x0", FrameRange(216450, 216465), "reset_direct"),
+    AssetPlacement("x0_to_face_x1", FrameRange(216600, 216660), "x1_until_direct_reset"),
+    AssetPlacement("face_x1_to_face_x2", FrameRange(216660, 216708), "promoted_sustained_speech"),
+    AssetPlacement("face_x2_to_face_x3", FrameRange(216708, 216800), "promoted_sustained_speech"),
+    AssetPlacement("face_x3_to_x0", FrameRange(216800, 216815), "reset_direct"),
+)
+
+
+def _multi_source(resolve: Any, project: Any) -> PlanSource:
+    snapshot = snapshot_project(resolve, project, MULTI_CONFIG)
+    timeline = snapshot.timeline("DAZ_INPUT")
+    assert timeline is not None
+    return build_plan_source(
+        project=snapshot.project_name,
+        timeline=timeline,
+        frame_rate=timeline_frame_rate(timeline),
+        voice_audio_track=MULTI_CONFIG.voice_audio_track,
+        cut_reference_video_track=MULTI_CONFIG.cut_reference_video_track,
+        zoom_video_track=MULTI_CONFIG.zoom_video_track,
+        assets=MULTI_CONFIG.assets,
+        asset_transition_frames=MULTI_TIMING.to_dict(),
+        planner_settings=MULTI_CONFIG.planner,
+        found_assets=snapshot.assets,
+    )
+
+
+def _multi_plan(source: PlanSource | None) -> ZoomPlan:
+    return replace(
+        _plan(source, MULTI_PLACEMENTS), timing=MULTI_TIMING
+    )
+
+
+def _multi_preview() -> tuple[Any, Any, PlanSource, str]:
+    resolve, project = build_test_project(audio_tracks=3)
+    source = _multi_source(resolve, project)
+    report = apply_preview(
+        resolve, project, MULTI_CONFIG, MULTI_TARGET, _multi_plan(source), confirmed=True
+    )
+    assert report.succeeded is True, report.to_text()
+    assert report.preview_name is not None
+    return resolve, project, source, report.preview_name
+
+
+def _multi(project: Any, resolve: Any, preview: str, operation: str, **kwargs: Any) -> Any:
+    return run_owned_preview(
+        resolve,
+        project,
+        MULTI_CONFIG,
+        MULTI_TARGET,
+        preview,
+        operation=operation,
+        confirmed=True,
+        **kwargs,
+    )
+
+
+def test_apply_tags_every_transition_role_including_the_new_ones() -> None:
+    resolve, project, _, preview = _multi_preview()
+    items = _zoom_items(project, preview)
+    assert [i.GetName() for i in items] == [
+        "FACE_X1", "X1_TO_X0",
+        "FACE_X1", "FACE_X2", "X2_TO_X0",
+        "FACE_X1", "FACE_X2", "FACE_X3", "X3_TO_X0",
+    ]
+    # Every single one carries a DAZ marker; ownership is per item, never per role.
+    for item in items:
+        assert any(NAMESPACE in (m.get("customData") or "") for m in item.GetMarkers().values())
+
+
+def test_clean_removes_the_x2_and_x3_transitions_too() -> None:
+    resolve, project, _, preview = _multi_preview()
+    report = _multi(project, resolve, preview, CLEAN)
+    assert report.succeeded is True
+    assert report.deleted_items == len(MULTI_PLACEMENTS)
+    assert _zoom_items(project, preview) == []
+
+
+def test_an_unowned_lookalike_of_a_promotion_clip_is_never_deleted() -> None:
+    """A user's own FACE_X2, identical in every observable way but untagged, must survive."""
+
+    resolve, project, _, preview = _multi_preview()
+    # Same asset, same track, same Fusion comp, same 90-frame length as the owned x2 above —
+    # everything a name-based or shape-based rule would key on. Only the marker differs.
+    lookalike = FakeTimelineItem(
+        "FACE_X2", 217000, 217090, None, None, fusion_comp_count=1, track=("video", 3)
+    )
+    _timeline(project, preview).add_item("video", 3, lookalike)
+    lookalike_id = lookalike.GetUniqueId()
+
+    report = _multi(project, resolve, preview, CLEAN)
+
+    assert report.succeeded is True
+    assert report.deleted_items == len(MULTI_PLACEMENTS)
+    assert report.preserved_unowned == 1
+    survivors = _zoom_items(project, preview)
+    assert [i.GetName() for i in survivors] == ["FACE_X2"]
+    assert survivors[0] is lookalike
+    assert survivors[0].GetUniqueId() == lookalike_id
+
+
+def test_two_rebuilds_of_a_mixed_level_preview_are_structurally_identical() -> None:
+    resolve, project, source, preview = _multi_preview()
+
+    first = _multi(project, resolve, preview, REBUILD, plan=_multi_plan(source))
+    structure = _structure(project, preview)
+    second = _multi(project, resolve, preview, REBUILD, plan=_multi_plan(source))
+
+    assert first.succeeded is second.succeeded is True
+    assert second.placement_ids == first.placement_ids
+    assert len(set(second.placement_ids)) == len(MULTI_PLACEMENTS)
+    assert _structure(project, preview) == structure
+    assert len(_zoom_items(project, preview)) == len(MULTI_PLACEMENTS)

@@ -19,25 +19,28 @@ Conceptually:
 - input: one configured voice audio track
 - input: named zoom asset bin and named asset roles
 - analyze: speech activity over timeline time
-- plan: `NORMAL -> FACECAM_X1 -> NORMAL`
+- plan: a chain of state transitions per burst, `X0 -> FACE_X1 [-> FACE_X2 [-> FACE_X3]] -> X0`
 - output: human-readable / machine-readable dry-run plan
-- later: safely apply that plan on a dedicated video track
+- apply that plan on a dedicated video track of a preview timeline
 
-The first production MVP should only implement the `facecam x1` state and smooth reset to `x0`.
+Phases 4-7 implemented the `facecam x1` state and the smooth reset to `x0`. **Phase 8
+generalised that into a real state/transition model** and added the facecam ladder (D044-D047).
 
-## Explicitly out of MVP, but architecture must allow it
+## Explicitly out of scope, but architecture must allow it
 
 Future behavior includes:
 
-- facecam x2 and x3 when the creator speaks for longer or a rule escalates
 - zooms toward gameplay
-- transitions from x1 -> gameplay
-- gameplay -> x1
-- x1 -> x2/x3 and back
-- all other state-to-state transitions
+- transitions from facecam -> gameplay and gameplay -> facecam
 - semantic decisions using actual transcript words/context
 
-Do **not** implement those now. Model them as future states/transitions so the MVP does not hard-wire one-off Resolve operations into speech code.
+Do **not** implement those now, and do **not** stub them either (D048). They become entries in
+`domain/transitions.py`'s table when there is a reference edit and an asset family to measure
+against — one honest change with evidence behind it, rather than a half-built abstraction that
+constrains the measurement in advance.
+
+Deliberately closed by Phase 8 and **not** reopened: demotions. `x3 -> x2` and `x2 -> x1` do
+not exist and are not planned. The way out of any facecam level is all the way out (D045).
 
 ## Key design choice: speech activity vs transcription
 
@@ -103,19 +106,30 @@ Convert milliseconds to frames only at config/planner boundaries. Drop-frame tim
 
 Do not bind planner rules directly to clip names.
 
-Planner emits semantic roles such as:
+The planner emits **transition roles** — the moves of the state graph, not the levels
+(D044/D045):
 
-- `facecam_x1`
-- `reset_x0`
+```
+x0      -> face_x1      x0_to_face_x1          face_x1 -> x0   face_x1_to_x0
+face_x1 -> face_x2      face_x1_to_face_x2     face_x2 -> x0   face_x2_to_x0
+face_x2 -> face_x3      face_x2_to_face_x3     face_x3 -> x0   face_x3_to_x0
+```
 
-A Resolve-side asset registry maps roles to configured Media Pool names. The observed
-project uses:
+A Resolve-side asset registry maps roles to configured Media Pool names. The observed project
+uses bin `DAVINCI_AUTO_ZOOM` and, all Generators with a **15-frame animation**:
 
-- bin: `DAVINCI_AUTO_ZOOM`
-- `facecam_x1`: `FACE_X1` (Generator, 132 frames native, **15-frame animation**)
-- `reset_x0`: `FACE_X0_SMOOTH` (Generator, 42 frames native, **15-frame animation**)
+| role | clip | native frames |
+| --- | --- | --- |
+| `x0_to_face_x1` | `FACE_X1` | 132 |
+| `face_x1_to_face_x2` | `FACE_X2` | 132 |
+| `face_x2_to_face_x3` | `FACE_X3` | 132 |
+| `face_x1_to_x0` | `X1_TO_X0` | 42 |
+| `face_x2_to_x0` | `X2_TO_X0` | 42 |
+| `face_x3_to_x0` | `X3_TO_X0` | 42 |
 
-These are defaults in `config.example.toml`, not hardcoded: names differ per user.
+`FACE_X0_SMOOTH`, the Phase 5-7 reset asset, no longer exists in the bin; `X1_TO_X0` replaced
+it. These are defaults in `config.example.toml`, not hardcoded: names differ per user, and only
+`x0_to_face_x1` / `face_x1_to_x0` are required.
 
 ### Native length ≠ animation length ≠ instance length (D025)
 
@@ -125,13 +139,14 @@ D014 got wrong:
 | Quantity | Meaning | Used by the planner |
 | --- | --- | --- |
 | native Media Pool length (132 / **42**) | how long the asset clip is in the bin | **never** |
-| animation length (15 / 15) | how long the keyframed move takes | yes, from config |
+| animation length (15) | how long the keyframed move takes | yes, from config |
 | instance length in a plan | how long the clip is on the timeline | computed |
 
-`FACE_X1` animates in 15 frames and then **holds** the zoom, so an instance lasts as long as
-the speech needs — 30 frames, 250 frames, more — with 15 only as the floor below which the
-move would be truncated. `FACE_X0_SMOOTH` completes its whole return in 15 frames, so a
-15-frame instance does the entire job; **the 42-frame native duration constrains nothing**.
+Every **promotion** asset (`FACE_X1`, `FACE_X2`, `FACE_X3`) animates in 15 frames and then
+**holds the level it reached**, so an instance lasts as long as the burst needs — 26 frames,
+142 frames, more — with 15 only as the floor below which the move would be truncated. Every
+**reset** asset (`X1_TO_X0`, `X2_TO_X0`, `X3_TO_X0`) completes its whole return in 15 frames, so
+a 15-frame instance does the entire job; **the 42-frame native duration constrains nothing**.
 
 The animation lengths are user metadata (`[assets.transition_frames]`, in frames, no
 default). DAZ never inspects the Fusion graph to discover them (D007).

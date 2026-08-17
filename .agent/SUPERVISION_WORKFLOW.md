@@ -22,3 +22,21 @@ For large changes, the supervisor should particularly review:
 - collision behavior on real edits
 - restoration of any temporary project state
 - tests that reproduce the user's actual editing examples
+- **new states or transitions**: every addition to `domain/transitions.py` needs a reference
+  edit and a measurement behind it, never a guess (D048). The x3 thresholds are the cautionary
+  example — they rest on a single manual clip, and the report says so in those words.
+
+## A note on editorial thresholds
+
+Anything that decides *when* an edit happens must be able to answer "measured against what?".
+Phase 6 (cut snapping) and Phase 8 (level promotions) both derived their numbers from the
+user's own reference timelines, and both reports state the sample size, including when it is 1.
+
+Two failure modes to reject on sight:
+
+- a threshold tuned until the automatic plan matches a reference timeline. `DAZ_OUTPUT_MVP*`
+  are heuristic references, never ground truth, and a planner fitted to one of them has learned
+  that timeline rather than the edit style;
+- a divergence from the human edit quietly worked around instead of reported. Phase 8 ships
+  three known level mismatches out of 14 cycles and names the cause of each; that is the
+  expected shape of a report, not a shortfall in it.

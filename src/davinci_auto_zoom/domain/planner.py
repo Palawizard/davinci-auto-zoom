@@ -1,13 +1,18 @@
-"""Deterministic MVP zoom planner: speech facts in, asset placements out.
+"""Deterministic zoom planner: speech facts in, transition placements out.
 
 Pure by construction — no Resolve object, no ONNX, no ffmpeg, no filesystem, no clock. The
 same inputs always produce the same plan, which is what makes the whole thing testable and
 what lets a later executor trust the plan instead of recomputing it.
 
     timeline range + fps + SpeechSegments + hard cuts + editorial settings + asset timing
-      -> FACE_X1 / FACE_X0 placements, with a reason for every one
+      -> transition placements, with a reason for every one
 
-Three ideas do most of the work here:
+The planner reasons in the **states and transitions** of `domain/transitions.py`, never in
+clip names and no longer in a hard-wired x1/x0 pair. A burst produces a chain of placements:
+one entry, zero or more promotions up the facecam ladder, and one reset whose asset depends on
+which level the chain reached.
+
+Four ideas do most of the work here:
 
 **Speech regions are not editorial bursts.** The VAD reports where the creator made speech
 sounds (D021). The planner groups those regions into *bursts*: consecutive regions separated
@@ -34,13 +39,22 @@ detected end slightly after the perceptual one, and measurement on real material
 `.agent/reports/phase-06-cut-offset-diagnostic.txt`) found the matching cut 4-7 frames
 *before* `burst.end` in 8 of 14 bursts and never after. Among the candidates the planner
 takes the one **closest** to `base_reset`, preferring the later cut on an exact tie — but
-only if the x0 animation still fits entirely before the next zoom starts. With no candidate
+only if the reset animation still fits entirely before the next zoom starts. With no candidate
 it resets directly at `base_reset`; the lookback never moves a reset on its own.
+
+**Promotions are earned by sustained speech, not by cuts.** Once a burst is zoomed, the level
+climbs on elapsed talking time alone: `promote_to_face_x2_after_ms` into the burst, then
+`promote_to_face_x3_after_ms`. Each promotion additionally requires that enough burst *remains*
+(`min_remaining_after_face_x2_ms` / `..._x3_ms`), so a burst that stops a heartbeat after
+crossing a threshold does not flash a tighter level nobody can read. Promotions are deliberately
+**not** cut-snapped: measurement on `DAZ_OUTPUT_MVP2` found 1 of 6 manual promotions on a hard
+cut, which is chance, while 8 of 14 manual resets sit on one (D047). Snapping stays where the
+evidence is.
 """
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from fractions import Fraction
 from typing import Any
@@ -51,15 +65,23 @@ from davinci_auto_zoom.domain.models import (
     SpeechSegment,
     normalize_speech_segments,
 )
-
-#: Semantic roles. The planner never sees a Media Pool clip name (D007/D008).
-ROLE_FACECAM_X1 = "facecam_x1"
-ROLE_RESET_X0 = "reset_x0"
+from davinci_auto_zoom.domain.transitions import (
+    BY_ROLE,
+    FACECAM_LADDER,
+    REQUIRED_ROLES,
+    ROLE_X0_TO_FACE_X1,
+    ROLES,
+    STATE_FACE_X1,
+    Transition,
+    promotion_from,
+    reset_from,
+)
 
 #: Placement reasons. Short tokens: they are a table column and a JSON field, not prose.
 REASON_X1_UNTIL_DIRECT_RESET = "x1_until_direct_reset"
 REASON_X1_UNTIL_CUT_RESET = "x1_until_cut_snapped_reset"
 REASON_X1_HELD_TO_TIMELINE_END = "x1_held_to_timeline_end"
+REASON_PROMOTED_SUSTAINED = "promoted_sustained_speech"
 REASON_RESET_DIRECT = "reset_direct"
 REASON_RESET_SNAPPED_FORWARD = "reset_cut_snap_forward"
 REASON_RESET_SNAPPED_BACKWARD = "reset_cut_snap_backward"
@@ -94,51 +116,129 @@ class PlannerSettings:
     #: Only ever used to snap onto a real cut — never to move a reset earlier by itself.
     cut_snap_lookback_ms: int = 120
 
+    # --- facecam level promotions (Phase 8) --------------------------------------------
+    # Talking time, measured from the start of the burst's zoom, that earns the next rung of
+    # the ladder; and how much burst must still be left for that rung to be worth taking.
+    # Defaults are calibrated on DAZ_OUTPUT_MVP2, not invented — see
+    # .agent/reports/phase-08-mvp2-analysis.txt and D047.
+    promote_to_face_x2_after_ms: int = 1000
+    min_remaining_after_face_x2_ms: int = 350
+    promote_to_face_x3_after_ms: int = 1800
+    min_remaining_after_face_x3_ms: int = 500
+
     def __post_init__(self) -> None:
-        for name in (
-            "reset_after_silence_ms",
-            "zoom_lead_in_ms",
-            "zoom_lead_out_ms",
-            "cut_snap_window_ms",
-            "cut_snap_lookback_ms",
-        ):
+        for name in PLANNER_SETTING_KEYS:
             if getattr(self, name) < 0:
                 raise ValueError(f"{name} must be >= 0")
+        if self.promote_to_face_x3_after_ms <= self.promote_to_face_x2_after_ms:
+            raise ValueError(
+                "promote_to_face_x3_after_ms must be greater than "
+                "promote_to_face_x2_after_ms: the ladder is climbed one rung at a time, so "
+                "x3 cannot be earned before x2"
+            )
 
     def to_dict(self) -> dict[str, int]:
+        return {name: int(getattr(self, name)) for name in PLANNER_SETTING_KEYS}
+
+    def promotion_after_ms(self, transition: Transition) -> int:
+        """Talking time that earns `transition`, by the state it leads to."""
+
         return {
-            "reset_after_silence_ms": self.reset_after_silence_ms,
-            "zoom_lead_in_ms": self.zoom_lead_in_ms,
-            "zoom_lead_out_ms": self.zoom_lead_out_ms,
-            "cut_snap_window_ms": self.cut_snap_window_ms,
-            "cut_snap_lookback_ms": self.cut_snap_lookback_ms,
-        }
+            FACECAM_LADDER[1]: self.promote_to_face_x2_after_ms,
+            FACECAM_LADDER[2]: self.promote_to_face_x3_after_ms,
+        }[transition.to_state]
+
+    def min_remaining_ms(self, transition: Transition) -> int:
+        """Burst that must still be ahead for `transition` to be worth placing."""
+
+        return {
+            FACECAM_LADDER[1]: self.min_remaining_after_face_x2_ms,
+            FACECAM_LADDER[2]: self.min_remaining_after_face_x3_ms,
+        }[transition.to_state]
 
 
-@dataclass(frozen=True, slots=True)
+#: Field order is the config's key order, and the only list of them. Adding a setting in one
+#: place and forgetting the validation loop is exactly the bug this avoids.
+PLANNER_SETTING_KEYS: tuple[str, ...] = (
+    "reset_after_silence_ms",
+    "zoom_lead_in_ms",
+    "zoom_lead_out_ms",
+    "cut_snap_window_ms",
+    "cut_snap_lookback_ms",
+    "promote_to_face_x2_after_ms",
+    "min_remaining_after_face_x2_ms",
+    "promote_to_face_x3_after_ms",
+    "min_remaining_after_face_x3_ms",
+)
+
+
+@dataclass(frozen=True, slots=True, init=False)
 class AssetTiming:
-    """How many frames each user asset needs to finish its own animation.
+    """How many frames each transition asset needs to finish its own animation.
 
     User metadata about user-built assets, in **frames**, because that is how the keyframes
     were authored. DAZ never opens the Fusion graph to discover these (D007): it is told.
 
-    Emphatically *not* the Media Pool item's native duration. `FACE_X0_SMOOTH` is 42 frames
-    long in this user's bin and completes its move in 15; the planner needs the 15.
+    Emphatically *not* the Media Pool item's native duration. `X1_TO_X0` is 42 frames long in
+    this user's bin and completes its move in 15; the planner needs the 15.
+
+    The key set is also the planner's **capability list**: a transition with no timing here is
+    a transition this user has not built an asset for, and the planner simply never places it.
+    That is how "no x2/x3 configured" stays a configuration fact rather than a code path.
     """
 
-    facecam_x1_transition_frames: int
-    reset_x0_transition_frames: int
+    #: Sorted `(role, frames)` pairs — a tuple so the whole dataclass stays frozen and
+    #: hashable, and so `to_dict()` is byte-stable for the plan fingerprint.
+    transition_frames: tuple[tuple[str, int], ...]
 
-    def __post_init__(self) -> None:
-        for name in ("facecam_x1_transition_frames", "reset_x0_transition_frames"):
-            if getattr(self, name) < 1:
-                raise ValueError(f"{name} must be >= 1")
+    def __init__(self, transition_frames: Mapping[str, int]) -> None:
+        pairs = tuple(sorted((str(k), int(v)) for k, v in transition_frames.items()))
+        object.__setattr__(self, "transition_frames", pairs)
+
+        unknown = sorted({role for role, _ in pairs} - set(ROLES))
+        if unknown:
+            raise ValueError(
+                f"unknown transition role(s): {', '.join(unknown)}. "
+                f"Supported: {', '.join(ROLES)}"
+            )
+        missing = [role for role in REQUIRED_ROLES if role not in dict(pairs)]
+        if missing:
+            raise ValueError(
+                f"transition role(s) {', '.join(missing)} have no animation length. "
+                "Without them there is no zoom at all."
+            )
+        for role, frames in pairs:
+            if frames < 1:
+                raise ValueError(f"{role} animation length must be >= 1 frame, got {frames}")
+
+    def __contains__(self, role: object) -> bool:
+        return any(role == known for known, _ in self.transition_frames)
+
+    def frames_for(self, role: str) -> int:
+        """Animation length of one role. Raises for a role this config does not provide."""
+
+        for known, frames in self.transition_frames:
+            if known == role:
+                return frames
+        raise KeyError(f"no animation length configured for transition role {role!r}")
+
+    @property
+    def max_reset_frames(self) -> int:
+        """Longest configured reset animation.
+
+        The reset-fitting check runs *before* the planner knows which level the burst will
+        reach, so it budgets for the longest reset it could need. Budgeting high is safe: the
+        reset actually placed is never longer than this, so it always fits too.
+        """
+
+        return max(
+            frames
+            for role, frames in self.transition_frames
+            if BY_ROLE[role].is_reset
+        )
 
     def to_dict(self) -> dict[str, int]:
-        return {
-            ROLE_FACECAM_X1: self.facecam_x1_transition_frames,
-            ROLE_RESET_X0: self.reset_x0_transition_frames,
-        }
+        return dict(self.transition_frames)
 
 
 @dataclass(frozen=True, slots=True)
@@ -274,24 +374,76 @@ class ZoomPlan:
         return tuple(p for p in self.placements if p.asset_role == role)
 
     @property
-    def x1_placements(self) -> tuple[AssetPlacement, ...]:
-        return self.of_role(ROLE_FACECAM_X1)
+    def role_counts(self) -> dict[str, int]:
+        """How many instances of each configurable role the plan places, roles in graph order.
+
+        Every role appears, including the ones this run placed zero of: a report where a
+        missing line and a zero line look the same is a report that hides a regression.
+        """
+
+        return {role: len(self.of_role(role)) for role in ROLES}
 
     @property
-    def x0_placements(self) -> tuple[AssetPlacement, ...]:
-        return self.of_role(ROLE_RESET_X0)
+    def zoom_placements(self) -> tuple[AssetPlacement, ...]:
+        """Entries and promotions — everything that leaves the picture zoomed in."""
+
+        return tuple(p for p in self.placements if not BY_ROLE[p.asset_role].is_reset)
+
+    @property
+    def reset_placements(self) -> tuple[AssetPlacement, ...]:
+        """Returns to X0, whichever level they came down from."""
+
+        return tuple(p for p in self.placements if BY_ROLE[p.asset_role].is_reset)
+
+    @property
+    def entry_placements(self) -> tuple[AssetPlacement, ...]:
+        """One per zoom cycle: the `X0 -> FACE_X1` move that opens it."""
+
+        return self.of_role(ROLE_X0_TO_FACE_X1)
+
+    @property
+    def promotion_placements(self) -> tuple[AssetPlacement, ...]:
+        """Ladder climbs. Zero of these is the Phase 7 behaviour, and still valid."""
+
+        return tuple(p for p in self.placements if BY_ROLE[p.asset_role].is_promotion)
+
+    @property
+    def top_state_counts(self) -> dict[str, int]:
+        """How many zoom cycles peaked at each facecam level.
+
+        A cycle is identified by its `burst_index`, and its peak is the last state any of its
+        zoom placements reaches — which is exactly the level its reset asset has to come down
+        from.
+        """
+
+        peaks: dict[int, str] = {}
+        for placement in self.zoom_placements:
+            transition = BY_ROLE[placement.asset_role]
+            current = peaks.get(placement.burst_index)
+            if current is None or FACECAM_LADDER.index(transition.to_state) > FACECAM_LADDER.index(
+                current
+            ):
+                peaks[placement.burst_index] = transition.to_state
+        counts = dict.fromkeys(FACECAM_LADDER, 0)
+        for state in peaks.values():
+            counts[state] += 1
+        return counts
 
     @property
     def direct_resets(self) -> int:
-        return sum(1 for p in self.x0_placements if p.reason == REASON_RESET_DIRECT)
+        return sum(1 for p in self.reset_placements if p.reason == REASON_RESET_DIRECT)
 
     @property
     def forward_snapped_resets(self) -> int:
-        return sum(1 for p in self.x0_placements if p.reason == REASON_RESET_SNAPPED_FORWARD)
+        return sum(
+            1 for p in self.reset_placements if p.reason == REASON_RESET_SNAPPED_FORWARD
+        )
 
     @property
     def backward_snapped_resets(self) -> int:
-        return sum(1 for p in self.x0_placements if p.reason == REASON_RESET_SNAPPED_BACKWARD)
+        return sum(
+            1 for p in self.reset_placements if p.reason == REASON_RESET_SNAPPED_BACKWARD
+        )
 
     @property
     def snapped_resets(self) -> int:
@@ -301,7 +453,10 @@ class ZoomPlan:
 
     @property
     def zoomed_frames(self) -> int:
-        return sum(p.duration_frames for p in self.x1_placements)
+        """Frames spent away from X0. Entry and promotion clips are adjacent and cover the
+        whole cycle between them, so summing them is the held time, not a double count."""
+
+        return sum(p.duration_frames for p in self.zoom_placements)
 
     @property
     def zoom_coverage(self) -> float:
@@ -359,8 +514,10 @@ class ZoomPlan:
                 "speech_segment_count": len(self.speech_segments),
                 "burst_count": len(self.bursts),
                 "merged_gaps": self.merged_gaps,
-                "facecam_x1_count": len(self.x1_placements),
-                "reset_x0_count": len(self.x0_placements),
+                "role_counts": self.role_counts,
+                "top_state_counts": self.top_state_counts,
+                "zoom_cycles": len(self.entry_placements),
+                "promotions": len(self.promotion_placements),
                 "direct_resets": self.direct_resets,
                 "cut_snapped_resets": self.snapped_resets,
                 "forward_snapped_resets": self.forward_snapped_resets,
@@ -384,32 +541,40 @@ class ZoomPlan:
             f"lead_out={self.settings.zoom_lead_out_ms}ms "
             f"cut_snap=[-{self.settings.cut_snap_lookback_ms}ms, "
             f"+{self.settings.cut_snap_window_ms}ms] (nearest cut to the reset anchor wins)",
-            f"  assets    : x1 animation={self.timing.facecam_x1_transition_frames} frames, "
-            f"x0 animation={self.timing.reset_x0_transition_frames} frames "
-            "(native Media Pool lengths are irrelevant here)",
+            f"  promote   : x2 after {self.settings.promote_to_face_x2_after_ms}ms "
+            f"(>={self.settings.min_remaining_after_face_x2_ms}ms left), "
+            f"x3 after {self.settings.promote_to_face_x3_after_ms}ms "
+            f"(>={self.settings.min_remaining_after_face_x3_ms}ms left); never cut-snapped",
+            "  assets    : "
+            + ", ".join(f"{role}={frames}f" for role, frames in self.timing.transition_frames)
+            + " (native Media Pool lengths are irrelevant here)",
             "",
-            "  role         start        end   frames  reason                      cut",
+            "  role                 start        end   frames  reason                      cut",
         ]
         for placement in self.placements:
             cut = "-" if placement.cut_frame is None else str(placement.cut_frame)
             lines.append(
-                f"  {placement.asset_role:11} {placement.start_frame:>9} "
+                f"  {placement.asset_role:19} {placement.start_frame:>9} "
                 f"{placement.end_frame:>10} {placement.duration_frames:>8}  "
                 f"{placement.reason:26} {cut}"
             )
+        peaks = self.top_state_counts
         lines.extend(
             [
                 "",
                 f"  speech segments : {len(self.speech_segments)}",
                 f"  editorial bursts: {len(self.bursts)} "
                 f"({self.merged_gaps} pause(s) bridged)",
-                f"  facecam_x1      : {len(self.x1_placements)}",
-                f"  reset_x0        : {len(self.x0_placements)} "
+                f"  zoom cycles     : {len(self.entry_placements)} "
+                + ", ".join(f"peaking at {state}: {count}" for state, count in peaks.items()),
+                "  placements      : "
+                + ", ".join(f"{role}={count}" for role, count in self.role_counts.items()),
+                f"  resets          : {len(self.reset_placements)} "
                 f"({self.direct_resets} direct, {self.snapped_resets} cut-snapped = "
                 f"{self.backward_snapped_resets} backward + "
                 f"{self.forward_snapped_resets} forward)",
                 f"  suppressed      : {self.suppressed_resets} reset(s) with no room, "
-                f"{self.suppressed_cycles} cycle(s) shorter than the x1 animation, "
+                f"{self.suppressed_cycles} cycle(s) shorter than the entry animation, "
                 f"{self.rejected_cuts} cut(s) rejected as too late",
                 f"  zoom coverage   : {self.zoomed_frames} frames "
                 f"({self.zoom_coverage * 100:.1f}% of the range)",
@@ -481,6 +646,84 @@ def _choose_reset(
     return _ResetChoice(None, None, rejected)
 
 
+@dataclass(frozen=True, slots=True)
+class _ZoomChain:
+    """The zoom-in side of one cycle: adjacent transition clips, and where they end up."""
+
+    #: `(role, start_frame)` in placement order, entry first. Never empty.
+    steps: tuple[tuple[str, Frame], ...]
+    top_state: str
+    #: Trace lines explaining every promotion taken and the first one refused.
+    decisions: tuple[str, ...]
+
+
+def _zoom_chain(
+    *,
+    burst_index: int,
+    open_start: Frame,
+    reset: Frame,
+    timing: AssetTiming,
+    settings: PlannerSettings,
+    frame_rate: Fraction,
+) -> _ZoomChain:
+    """Climb the facecam ladder for one cycle, on elapsed talking time alone.
+
+    Deterministic and total: the chain always starts with the entry transition, and stops at
+    the first rung that fails any of four independent conditions — the user has no asset for
+    it, the burst has not lasted long enough to earn it, too little burst remains for it to be
+    readable, or placing it would leave a clip too short to finish its own animation. Because
+    it stops rather than skips, `FACE_X3` can never appear without `FACE_X2` before it.
+    """
+
+    steps: list[tuple[str, Frame]] = [(ROLE_X0_TO_FACE_X1, open_start)]
+    decisions: list[str] = []
+    state = STATE_FACE_X1
+
+    while (step := promotion_from(state)) is not None:
+        if step.role not in timing:
+            decisions.append(
+                f"burst {burst_index}: no {step.to_state} — role {step.role!r} has no "
+                "configured asset animation, so this project cannot make that move"
+            )
+            break
+        after = frames_from_ms(settings.promotion_after_ms(step), frame_rate)
+        remaining_needed = frames_from_ms(settings.min_remaining_ms(step), frame_rate)
+        start = open_start + after
+        remaining = reset - start
+        if remaining < remaining_needed:
+            decisions.append(
+                f"burst {burst_index}: no {step.to_state} — the burst would reach the "
+                f"{after}-frame promotion point at {start} with only {remaining} frame(s) "
+                f"left before the reset at {reset}, and {remaining_needed} are required for "
+                "the tighter level to be worth reading"
+            )
+            break
+        previous_role, previous_start = steps[-1]
+        held = start - previous_start
+        if held < timing.frames_for(previous_role):
+            decisions.append(
+                f"burst {burst_index}: no {step.to_state} — it would cut {previous_role} "
+                f"down to {held} frame(s), shorter than its own "
+                f"{timing.frames_for(previous_role)}-frame animation"
+            )
+            break
+        if remaining < timing.frames_for(step.role):
+            decisions.append(
+                f"burst {burst_index}: no {step.to_state} — {remaining} frame(s) remain and "
+                f"{step.role} needs {timing.frames_for(step.role)} to finish its own move"
+            )
+            break
+        decisions.append(
+            f"burst {burst_index}: promoted to {step.to_state} at {start} "
+            f"({after} frames of sustained speech after the zoom opened at {open_start}), "
+            f"held for {remaining} frame(s) until the reset at {reset}"
+        )
+        steps.append((step.role, start))
+        state = step.to_state
+
+    return _ZoomChain(tuple(steps), state, tuple(decisions))
+
+
 def plan_zooms(
     *,
     timeline: FrameRange,
@@ -491,7 +734,7 @@ def plan_zooms(
     settings: PlannerSettings | None = None,
     source: PlanSource | None = None,
 ) -> ZoomPlan:
-    """Turn speech facts into FACE_X1 / FACE_X0 placements. Pure and deterministic."""
+    """Turn speech facts into transition placements. Pure and deterministic."""
 
     settings = settings or PlannerSettings()
     reset_gate = frames_from_ms(settings.reset_after_silence_ms, frame_rate)
@@ -499,8 +742,9 @@ def plan_zooms(
     lead_out = frames_from_ms(settings.zoom_lead_out_ms, frame_rate)
     snap_window = frames_from_ms(settings.cut_snap_window_ms, frame_rate)
     lookback = frames_from_ms(settings.cut_snap_lookback_ms, frame_rate)
-    x1_min = timing.facecam_x1_transition_frames
-    x0_frames = timing.reset_x0_transition_frames
+    x1_min = timing.frames_for(ROLE_X0_TO_FACE_X1)
+    # Budgeted before the level is known; see `AssetTiming.max_reset_frames`.
+    x0_frames = timing.max_reset_frames
     cuts = hard_cuts_in_range(hard_cuts, timeline)
 
     decisions: list[str] = [
@@ -510,7 +754,14 @@ def plan_zooms(
         f"lead_in={lead_in}f lead_out={lead_out}f "
         f"cut snap window=[-{lookback}f, +{snap_window}f] around the reset anchor "
         "(nearest cut wins, forward on a tie); "
-        f"x1 animation={x1_min}f x0 animation={x0_frames}f",
+        "transition animations "
+        + " ".join(f"{role}={frames}f" for role, frames in timing.transition_frames),
+        "promotion ladder: "
+        + " -> ".join(FACECAM_LADDER)
+        + f"; x2 after {settings.promote_to_face_x2_after_ms}ms with "
+        f">={settings.min_remaining_after_face_x2_ms}ms left, "
+        f"x3 after {settings.promote_to_face_x3_after_ms}ms with "
+        f">={settings.min_remaining_after_face_x3_ms}ms left; promotions are never cut-snapped",
         f"{len(cuts)} hard cut(s) on the reference video track inside the range",
     ]
 
@@ -622,28 +873,51 @@ def plan_zooms(
             open_start = None
             continue
 
-        placements.append(
-            AssetPlacement(
-                asset_role=ROLE_FACECAM_X1,
-                frames=span,
-                reason=(
-                    REASON_X1_UNTIL_CUT_RESET
-                    if choice.cut_frame is not None
-                    else REASON_X1_UNTIL_DIRECT_RESET
-                ),
-                cut_frame=choice.cut_frame,
-                burst_index=open_index,
-                burst_count=index - open_index + 1,
-            )
+        chain = _zoom_chain(
+            burst_index=open_index,
+            open_start=open_start,
+            reset=reset,
+            timing=timing,
+            settings=settings,
+            frame_rate=frame_rate,
         )
+        decisions.extend(chain.decisions)
+        entry_reason = (
+            REASON_X1_UNTIL_CUT_RESET
+            if choice.cut_frame is not None
+            else REASON_X1_UNTIL_DIRECT_RESET
+        )
+        # Each clip holds its state until the next one takes over; the last one holds it to
+        # the reset. This is the whole reason a promotion needs no explicit end frame.
+        boundaries = [start for _, start in chain.steps[1:]] + [reset]
+        for position, ((role, start), end) in enumerate(
+            zip(chain.steps, boundaries, strict=True)
+        ):
+            placements.append(
+                AssetPlacement(
+                    asset_role=role,
+                    frames=FrameRange(start, end),
+                    # Only the entry clip is the one the reset decision was about; a promotion
+                    # was earned by speech and carries no cut.
+                    reason=entry_reason if position == 0 else REASON_PROMOTED_SUSTAINED,
+                    cut_frame=choice.cut_frame if position == 0 else None,
+                    burst_index=open_index,
+                    burst_count=index - open_index + 1,
+                )
+            )
+        back = reset_from(chain.top_state)
         placements.append(
             AssetPlacement(
-                asset_role=ROLE_RESET_X0,
-                frames=FrameRange(reset, reset + x0_frames),
+                asset_role=back.role,
+                frames=FrameRange(reset, reset + timing.frames_for(back.role)),
                 reason=_reset_reason(choice.cut_frame, base_reset),
                 cut_frame=choice.cut_frame,
                 burst_index=index,
             )
+        )
+        decisions.append(
+            f"burst {index}: reset from {chain.top_state} uses {back.role} "
+            f"({timing.frames_for(back.role)} frames)"
         )
         open_start = None
 
@@ -656,18 +930,38 @@ def plan_zooms(
                 f"than its {x1_min}-frame animation and was dropped"
             )
         else:
-            placements.append(
-                AssetPlacement(
-                    asset_role=ROLE_FACECAM_X1,
-                    frames=span,
-                    reason=REASON_X1_HELD_TO_TIMELINE_END,
-                    burst_index=open_index,
-                    burst_count=len(bursts) - open_index,
-                )
+            # No reset here, so the chain simply holds to the end of the range. Promotions
+            # still apply: a burst that runs out the timeline earned its levels like any other.
+            chain = _zoom_chain(
+                burst_index=open_index,
+                open_start=open_start,
+                reset=timeline.end,
+                timing=timing,
+                settings=settings,
+                frame_rate=frame_rate,
             )
+            decisions.extend(chain.decisions)
+            boundaries = [start for _, start in chain.steps[1:]] + [timeline.end]
+            for position, ((role, start), end) in enumerate(
+                zip(chain.steps, boundaries, strict=True)
+            ):
+                placements.append(
+                    AssetPlacement(
+                        asset_role=role,
+                        frames=FrameRange(start, end),
+                        reason=(
+                            REASON_X1_HELD_TO_TIMELINE_END
+                            if position == 0
+                            else REASON_PROMOTED_SUSTAINED
+                        ),
+                        burst_index=open_index,
+                        burst_count=len(bursts) - open_index,
+                    )
+                )
             decisions.append(
-                f"x1 [{span.start}, {span.end}) is held to the timeline end: the reset is not "
-                "truncated and nothing is placed past the range"
+                f"zoom [{span.start}, {span.end}) is held to the timeline end at "
+                f"{chain.top_state}: the reset is not truncated and nothing is placed past "
+                "the range"
             )
 
     plan = ZoomPlan(
@@ -689,14 +983,13 @@ def plan_zooms(
 
 
 __all__ = [
+    "REASON_PROMOTED_SUSTAINED",
     "REASON_RESET_DIRECT",
     "REASON_RESET_SNAPPED_BACKWARD",
     "REASON_RESET_SNAPPED_FORWARD",
     "REASON_X1_HELD_TO_TIMELINE_END",
     "REASON_X1_UNTIL_CUT_RESET",
     "REASON_X1_UNTIL_DIRECT_RESET",
-    "ROLE_FACECAM_X1",
-    "ROLE_RESET_X0",
     "AssetIdentity",
     "AssetPlacement",
     "AssetTiming",
