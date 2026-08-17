@@ -432,7 +432,7 @@ does inside it. Delivered, and proven live on Studio 21.0.4.5 (see
   valid one.
 - **`[speech.energy]` is part of `PlanSource`** and is compared before any write.
 
-Live proof on `DAZ_INPUT`: 15 speech segments -> 14 bursts -> **43 placements**, 63 valleys of
+Live proof on `DAZ_INPUT`: 15 speech segments -> 14 bursts -> **42 placements**, 63 valleys of
 which 14 became promotions. Peak level matches the human on 9 of 14 — **9 of 9 where the burst
 extent matches the human's cycle, 0 of 5 where it does not.** All 14 resets are frame-identical
 to Phases 6, 7 and 8; the source fingerprint is unchanged.

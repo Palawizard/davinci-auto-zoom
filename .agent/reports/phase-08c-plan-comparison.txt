@@ -48,7 +48,7 @@ Level totals:
     Phase 8       x1 x6   x2 x4   x3 x4
     Phase 8c      x1 x5   x2 x4   x3 x5
 
-Placement counts: Phase 8 40 clips, Phase 8c **43** (14 entries, 9 x1->x2, 5 x2->x3, 5+4+5
+Placement counts: Phase 8 40 clips, Phase 8c **42** (14 entries, 9 x1->x2, 5 x2->x3, 5+4+5
 resets). Zoomed frames 1417 -> 1418 (39.9% coverage in both): the extra frame is burst 1's
 entry snapping backward onto a cut, not a change in how much of the video is zoomed.
 
