@@ -1,0 +1,165 @@
+PHASE 8 — LIVE apply / clean / rebuild / rebuild WORKFLOW
+========================================================
+
+Run: 2026-08-17, DaVinci Resolve Studio 21.0.4.5, project `davinci-auto-zoom-test`.
+Source: `DAZ_INPUT` (protected). Reference: `DAZ_OUTPUT_MVP2` (protected, diagnostics only).
+
+New preview created by this phase:
+
+    DAZ_AUTO_PREVIEW_20260817_233130_203670b0
+    unique id  5a973592-620d-4dff-8063-4c7b97d5673c
+    40 items on V3, 40/40 owned
+
+Source fingerprint throughout:
+    sha256:a1d107e1fa95b6152dd06be89ccc0fbd39de8d02faa906f91d3d7fc6d46a5483
+identical to Phases 5, 6 and 7 — the source material has not moved.
+
+
+1. apply-preview
+----------------
+
+    .venv/bin/python -m davinci_auto_zoom apply-preview \
+      --confirm-create-preview-timeline --confirm-resolve-render-test \
+      --project davinci-auto-zoom-test \
+      --source-timeline DAZ_INPUT --reference-timeline DAZ_OUTPUT_MVP2 \
+      --config config.example.toml
+
+    RESULT: PASS
+    items created 40, owned 40, unowned 0, stale 0, ambiguous 0
+    every insertion: comps=1, owned=True, marker@0
+    cleanup   : preview_kept=True
+    audit     : DAZ_INPUT, DAZ_OUTPUT_MVP2, assets -> no differences
+
+Placements by role:
+
+    x0_to_face_x1        14      face_x1_to_x0         6
+    face_x1_to_face_x2    8      face_x2_to_x0         4
+    face_x2_to_face_x3    4      face_x3_to_x0         4
+
+Peak level per cycle: 6 at face_x1, 4 at face_x2, 4 at face_x3.
+
+**All six transition roles were exercised live**, including the four assets that had never
+been placed by DAZ before this phase (`FACE_X2`, `FACE_X3`, `X2_TO_X0`, `X3_TO_X0`). Each
+carries its Fusion composition and its ownership marker.
+
+
+2. clean-preview
+----------------
+
+    davinci-auto-zoom clean-preview (Phase 7)
+      preview   : DAZ_AUTO_PREVIEW_20260817_233130_203670b0 (5a973592-...)
+      before    : owned 40, unowned 0, stale 0, ambiguous 0
+      recovery  : DAZ_RECOVERY_20260817_233554_933a3341 created=True deleted=True absent=True
+      DeleteClips([40 item(s)], ripple=False) -> True
+      removed   : 40 owned item(s); 0 unowned item(s) left untouched
+      cleaned   : True
+      restored  : DAZ_OUTPUT_MVP2 (was DAZ_OUTPUT_MVP2) proven=True
+      audit differences: none
+      RESULT: PASS
+
+Every one of the 40 items was classified `owned` and removed, across all six roles. The
+classifier needed no change for the new roles — `domain/ownership.py` reasons about record
+fields and the configured role table, never about what a role means.
+
+Note the batch size: `DeleteClips` was handed 40 items in one call and returned True. Phase 7
+had only ever exercised 28. Still no upper bound established.
+
+
+3. rebuild-preview, twice
+-------------------------
+
+Rebuild #1 ran against the emptied track (`owned_before=0`, `deleted_items=0`) and re-applied
+the fresh plan. Rebuild #2 ran against #1's output (`owned_before=40`, `deleted_items=40`),
+so it exercised the full delete-then-reapply path.
+
+rebuild #1: 40 placements, succeeded=True
+rebuild #2: 40 placements, succeeded=True
+differences in (role, start, end, placement_id): 0
+duplicate placement ids in #2: 0
+identical: True
+#1: deleted=0 owned_before=0 recovery=None audit=[]
+#2: deleted=40 owned_before=40 recovery=None audit=[]
+
+Idempotence is defined as **the same desired state, not the same Resolve objects** (D043):
+same placement count, same roles, same start/end frames, same placement ids, no duplicates.
+Newly created `TimelineItem.GetUniqueId()` values necessarily differ between rebuilds and are
+deliberately excluded from the comparison.
+
+The comparison above covers all 40 placements across all six roles, including the mixed-level
+cycles (entry -> x2 -> reset, and entry -> x2 -> x3 -> reset). Zero differences.
+
+
+4. INDEPENDENT POST-RUN SAFETY AUDIT
+------------------------------------
+
+Not the run's own opinion of itself: a fresh `snapshot --json` read after the whole workflow,
+diffed item for item against the snapshot taken before Phase 8 began.
+
+  [PASS] DAZ_INPUT unchanged                                  105 items across all tracks
+  [PASS] DAZ_INPUT unique_id stable                           c4d7a327-a9eb-4f0d-af14-b1ace8e8a85b
+  [PASS] DAZ_OUTPUT_MVP unchanged                             129 items across all tracks
+  [PASS] DAZ_OUTPUT_MVP unique_id stable                      81df1b0c-a91d-4d67-88cc-ed6dddeddb95
+  [PASS] DAZ_OUTPUT_MVP2 unchanged                            140 items across all tracks
+  [PASS] DAZ_OUTPUT_MVP2 unique_id stable                     ee4eb745-aa5e-48d3-b4be-8ee8f4c30418
+  [PASS] DAZ_AUTO_PREVIEW_20260816_211026_c676d5af unchanged  133 items across all tracks
+  [PASS] DAZ_AUTO_PREVIEW_20260816_211026_c676d5af unique_id stable 96f30d77-f302-4be5-93f3-c7fbbfd58813
+  [PASS] DAZ_AUTO_PREVIEW_20260817_132005_77443d7c unchanged  133 items across all tracks
+  [PASS] DAZ_AUTO_PREVIEW_20260817_132005_77443d7c unique_id stable 6d0bde62-788c-4c04-b32c-685ebd84e9e3
+  [PASS] DAZ_AUTO_PREVIEW_20260817_163637_e8787ece unchanged  133 items across all tracks
+  [PASS] DAZ_AUTO_PREVIEW_20260817_163637_e8787ece unique_id stable 9fb7e350-345f-465c-99a8-60ef1c85d972
+  [PASS] the Phase 8 preview exists                           
+  [PASS] its V3 holds 40 items                                40 items
+  [PASS] every other track equals DAZ_INPUT's                 5 tracks compared
+  [PASS] no leftover scratch/recovery timelines               []
+  [PASS] the asset bin is unchanged                           6 assets
+  [PASS] no snapshot warnings                                 []
+  [PASS] project name unchanged                               
+  [PASS] project frame rate unchanged                         
+
+20/20 checks passed
+
+Also verified after the run:
+
+    render jobs in queue       : 0
+    rendering in progress      : False
+    current render preset      : mov / ProRes422HQ  (the project's own, restored)
+    DAZ_RECOVERY_* timelines   : none
+    scratch/temp timelines     : none
+    daz-speech-* temp dirs     : none
+    Media Storage scratch dirs : none in /home/palawi/Vidéos, /home/palawi, /mnt/nas
+
+The three earlier previews are byte-for-byte unchanged and keep their original unique ids. Note
+that the **Phase 7 preview is now `ambiguous` to this build**, because its markers carry the
+old `facecam_x1` / `reset_x0` roles which are no longer configured. `clean-preview` therefore
+refuses it — which is the fail-closed behaviour working as designed (D037), and the correct
+outcome for a preview that is preserved on purpose. There is no migration path and there must
+not be one (D039).
+
+
+5. ONE OPERATIONAL FINDING
+--------------------------
+
+The first `apply-preview` attempt of this session was **killed by a 2-minute command timeout**
+at item 16 of 40. The executor is transactional against *failures*, not against its own process
+being killed, so it could not roll back: it left a well-formed partial preview
+(`DAZ_AUTO_PREVIEW_20260817_232757_635443b7`, 16 items, 15 owned and 1 inserted-but-not-yet-
+tagged). No protected timeline was touched, and the partial output was internally consistent
+with the plan up to the point of the kill.
+
+It was disposed of by exact name — the same `MediaPool.DeleteTimelines` call the executor makes
+itself on a normal failure — and the run repeated cleanly. Recorded because the timing matters
+for whoever runs this next: on this material `apply-preview` and `rebuild-preview` each take
+**four to six minutes** (voice render + VAD + 40 insertions, each with a marker write and a
+verifying re-read). Do not run them under a short timeout.
+
+
+6. WHAT THIS RUN DOES NOT PROVE
+-------------------------------
+
+  - **How the preview looks.** Structure, frames, ownership and idempotence are proven; the
+    pixels are not. The level model in particular is unwatched: whether a 26-frame `FACE_X2`
+    reads as a deliberate move or as a glitch can only be settled by viewing it.
+  - That the four promotion thresholds transfer to other material (one timeline; the x3 pair
+    from a single clip on it).
+  - Anything about collisions — the target track was verified empty or emptied by DAZ itself,
+    exactly as in Phase 7 (D032).

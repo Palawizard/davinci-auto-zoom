@@ -120,7 +120,15 @@ delta +1 frame; the single x2->x3 comparison lands within 1 frame. Median reset 
 
 **Workflow:** `apply-preview` 40/40 inserted, 40/40 owned, audit differences none.
 `clean-preview` 40 removed, `DAZ_RECOVERY_20260817_233554_933a3341` created and deleted,
-0 unowned. `rebuild-preview` x2 — see the report for the idempotence comparison.
+0 unowned. `rebuild-preview` x2 — rebuild #1 against the emptied track, rebuild #2 against #1's
+output (so it exercised the full delete-then-reapply path): **0 differences in `(role, start,
+end, placement_id)` across all 40 placements, 0 duplicate ids.**
+
+**Independent post-run audit: 20/20.** All three earlier previews plus `DAZ_INPUT`,
+`DAZ_OUTPUT_MVP` and `DAZ_OUTPUT_MVP2` byte-for-byte unchanged with their original unique ids;
+the asset bin unchanged; every non-V3 track of the new preview equal to `DAZ_INPUT`'s; no
+leftover recovery, scratch or temp artefacts; render queue empty and the project's own render
+preset restored.
 
 The commands, for reruns:
 
@@ -181,7 +189,8 @@ That was the Phase 7 design paying off, and the new tests assert it rather than 
 - `plan-probe` live — PASS, 40 placements, no overlaps.
 - `apply-preview` live — PASS, 40/40 inserted, 40/40 owned, audit clean.
 - `clean-preview` live — PASS, 40 removed, recovery created and deleted.
-- `rebuild-preview` live x2 — see the live workflow report.
+- `rebuild-preview` live x2 — PASS, structurally identical, 0 duplicate placement ids.
+- independent post-run audit — PASS, 20/20.
 
 ## Remaining unknowns
 
