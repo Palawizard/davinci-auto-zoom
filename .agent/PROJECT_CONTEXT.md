@@ -25,6 +25,9 @@ Conceptually:
 
 Phases 4-7 implemented the `facecam x1` state and the smooth reset to `x0`. **Phase 8
 generalised that into a real state/transition model** and added the facecam ladder (D044-D047).
+**Phase 8c changed what earns a rung of that ladder** (D049-D052): not elapsed talking time, but
+a dip in the voice followed by a clear pick-up, read from an energy envelope of the same PCM the
+VAD consumes. Every transition — entry, promotion and reset — may now land on a nearby hard cut.
 
 ## Explicitly out of scope, but architecture must allow it
 
@@ -63,8 +66,12 @@ A Resolve-transcript provider is **ruled out**, not merely deferred.
 
 ### Speech facts vs editing decisions
 
-The single most important boundary in the current codebase. The VAD answers *"was the
-creator making speech sounds here?"*; it never answers *"should there be a zoom here?"*.
+The single most important boundary in the current codebase. The audio layer answers *"was the
+creator making speech sounds here?"* and *"how loud were they here?"*; it never answers
+*"should there be a zoom here?"* or *"does that dip deserve a tighter level?"*. Phase 8c added
+a second objective signal on the same side of that line — a dBFS energy envelope — and put its
+editorial reading (valleys, recoveries, promotion cues) in `domain/dynamics.py`, above it
+(D050).
 
 A 650 ms pause therefore stays **two** speech segments. The detector does not merge it just
 because the planner will probably not reset a zoom across it — throwing that information
@@ -192,6 +199,26 @@ Do not add a GUI until the real workflow has been validated from CLI/dry-run.
   not an accident
 - `cli.py`: orchestration only; no business logic
 - `tests/`: primarily pure tests; Resolve integration tests should be opt-in and clearly separated
+
+## Known uncertainty after Phase 8c
+
+- **the level model is now only as good as the burst extent.** Where the automatic burst
+  matches the human's cycle, the peak level matches 9 times out of 9; where it does not, 0 of 5.
+  Nothing else explains any divergence. Phase 8b is no longer an improvement, it is the
+  remaining defect;
+- **no local feature of a single valley separates a used cue from an unused one.** Depth and
+  duration overlap completely across the 63 valleys the reference material contains. The
+  separation comes from the ladder having two rungs, not from the detector being clever. A
+  successor that wants better frame agreement needs a different kind of evidence, not a tighter
+  threshold;
+- **frame agreement is weaker than level agreement.** Where both promote, the planner takes the
+  *first* usable cue and the human sometimes takes a later one, so deltas run to -50 frames even
+  when the level is right;
+- the thresholds sit on plateaus rather than spikes, which is the best available evidence they
+  transfer to other material — and still not evidence that they do. One speaker, one timeline,
+  7 manual promotions;
+- the envelope has never been listened to alongside the video. It is calibrated against clip
+  positions in `DAZ_OUTPUT_MVP2`, not against anyone's ears.
 
 ## Known uncertainty after Phase 7
 

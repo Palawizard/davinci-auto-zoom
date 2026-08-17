@@ -5,8 +5,10 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from davinci_auto_zoom.domain.dynamics import ENERGY_SETTING_KEYS, EnergySettings
 from davinci_auto_zoom.domain.planner import (
     PLANNER_SETTING_KEYS,
+    SUPERSEDED_PLANNER_KEYS,
     AssetTiming,
     PlannerSettings,
 )
@@ -74,6 +76,11 @@ class Config:
 
     # Editorial timing. Distinct from `vad`, which is technical detection tuning.
     planner: PlannerSettings = field(default_factory=PlannerSettings)
+
+    # Technical parameters of the voice-energy envelope the promotion cues are read from.
+    # Same split again: how loudness is measured is [speech.energy], what a measurement
+    # deserves is [planner].
+    energy: EnergySettings = field(default_factory=EnergySettings)
 
     speech_provider: str = "silero_vad"
 
@@ -168,6 +175,7 @@ class Config:
             planner=_planner_settings(data.get("planner", {})),
             speech_provider=provider,
             vad=_vad_settings(speech.get("vad", {})),
+            energy=_energy_settings(speech.get("energy", {})),
         )
 
 
@@ -204,6 +212,16 @@ def _planner_settings(data: dict[str, Any]) -> PlannerSettings:
     """Editorial timing. Unknown keys are an error, exactly as in [speech.vad]."""
 
     defaults = PlannerSettings()
+    superseded = sorted(set(data) & set(SUPERSEDED_PLANNER_KEYS))
+    if superseded:
+        # Not ignored with a warning: a user who still has these in their file believes they
+        # tune the edit, and they have not since Phase 8c (D049).
+        raise ValueError(
+            "[planner] still contains Phase 8's duration-based promotion key(s): "
+            + "; ".join(f"{key} -> {SUPERSEDED_PLANNER_KEYS[key]}" for key in superseded)
+            + ". Facecam levels are now earned by a dip in the voice followed by a recovery, "
+            "not by elapsed talking time. Remove these lines (see config.example.toml)."
+        )
     unknown = sorted(set(data) - set(PLANNER_SETTING_KEYS))
     if unknown:
         raise ValueError(
@@ -212,6 +230,21 @@ def _planner_settings(data: dict[str, Any]) -> PlannerSettings:
         )
     return PlannerSettings(
         **{key: int(data.get(key, getattr(defaults, key))) for key in PLANNER_SETTING_KEYS}
+    )
+
+
+def _energy_settings(data: dict[str, Any]) -> EnergySettings:
+    """Envelope construction. Unknown keys are an error, exactly as in [speech.vad]."""
+
+    defaults = EnergySettings()
+    unknown = sorted(set(data) - set(ENERGY_SETTING_KEYS))
+    if unknown:
+        raise ValueError(
+            f"unknown key(s) in [speech.energy]: {', '.join(unknown)}. Supported: "
+            f"{', '.join(sorted(ENERGY_SETTING_KEYS))}"
+        )
+    return EnergySettings(
+        **{key: int(data.get(key, getattr(defaults, key))) for key in ENERGY_SETTING_KEYS}
     )
 
 

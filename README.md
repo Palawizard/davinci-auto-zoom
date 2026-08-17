@@ -103,8 +103,13 @@ proven end to end on the verified build:
 ```
 configured Resolve voice track  ->  isolated temporary audio render
   ->  16 kHz mono PCM (ffmpeg)  ->  Silero VAD (ONNX, CPU)
-  ->  speech segments in absolute Resolve timeline frames
+                               \->  short-time energy envelope (dBFS)
+  ->  speech segments + voice dynamics, in absolute Resolve timeline frames
 ```
+
+**One render, one normalization, two readers.** The loudness envelope the level promotions are
+read from is computed from the same decoded PCM the VAD consumes, so a `plan-probe` still needs
+exactly one render of your voice track and the two signals can never drift apart.
 
 The voice track is rendered rather than reconstructed from source files, because only
 Resolve can produce what Resolve actually plays: cuts, trims, fades, levels and any clip or
@@ -117,8 +122,10 @@ version-pinned and checksum-verified — see
 origin, licence and inference contract. There is no PyTorch dependency and nothing is
 downloaded at runtime.
 
-An important boundary, deliberately enforced: the detector answers **"was the creator
-speaking here?"** and nothing else. It does not decide when to zoom. A 650 ms pause stays
+An important boundary, deliberately enforced: the audio layer answers **"was the creator
+speaking here?"** and **"how loud were they at this instant?"**, and nothing else. It does not
+decide when to zoom, and it does not decide that a dip in the voice deserves a tighter level —
+that reading happens in `domain/dynamics.py`, above the boundary. A 650 ms pause stays
 two speech segments; whether that pause is worth zooming out for is an editing decision, and
 it belongs to the planner. That is why technical VAD tuning lives under `[speech.vad]` and
 editorial timing lives under `[planner]`.
@@ -155,24 +162,29 @@ The rules, in the order they apply:
 2. **One zoom-in per burst**, starting at the burst (plus an optional lead-in, 0 by default).
    It is dropped entirely if it would be shorter than its own animation, because a truncated
    move is worse than no zoom.
-3. **The level climbs while the creator keeps talking.** `promote_to_face_x2_after_ms` into the
-   burst the framing tightens to x2, and `promote_to_face_x3_after_ms` in, to x3 — each only if
-   enough burst still *remains* (`min_remaining_after_face_x2_ms` / `..._x3_ms`), so a burst
-   that stops just after crossing a threshold does not flash a level nobody can read. Each clip
-   holds its level until the next one takes over, so a promoted cycle is several adjacent clips
-   and one reset. Promotions are **not** snapped to cuts: on the reference edit only 1 of 6
-   manual promotions landed on one, against 8 of 14 manual resets.
-4. **The reset is placed at the end of the burst** — and snaps onto a real hard cut when one
-   is close enough, because returning to normal framing exactly on a cut reads as
-   intentional. The search window is **asymmetric**: up to `cut_snap_window_ms` after the
-   burst end, and up to `cut_snap_lookback_ms` before it. Among the candidates the **nearest**
-   one to the burst end wins — not the last — with the later cut preferred on an exact tie.
-   The small backward tolerance exists because a VAD boundary is not an editorial one: the
-   detector pads each segment so no phoneme is clipped, which puts the detected end a few
-   frames after the perceptual one. It is only ever a snap: with no cut in the window the
-   reset stays exactly at the burst end, never earlier. A "hard cut" means one clip ends
-   exactly where the next begins on `cut_reference_video_track`; entering from black or
-   running out into a gap is not a cut.
+3. **The level climbs when the voice breaks and comes back.** Not when the burst gets long —
+   that was the Phase 8 rule and it is gone. Inside a burst the tool reads a loudness envelope
+   of your voice track: when the level drops by at least `promotion_min_drop_db` for at least
+   `promotion_min_valley_ms` and then comes back to within `promotion_recovery_within_db` of
+   your normal speaking level, that pick-up is a **promotion cue**. The first cue tightens to
+   x2, the second to x3, and any further cue is ignored — the ladder tops out and stays there
+   until the reset. A cue is skipped (never moved) if the previous transition has not finished
+   its 15-frame animation, or if the new level could not be held for `promotion_min_hold_ms`
+   before the reset. Every threshold is *relative* to your own voice level in dB, so changing
+   microphone gain does not change the edit.
+4. **Every transition may land on a real hard cut.** Each one has a raw audio anchor — the
+   burst start for the entry, a recovery cue for a promotion, the burst end for the reset — and
+   looks for a hard cut near it, because a move that happens exactly on a cut reads as
+   intentional. The **nearest** cut to the anchor wins, not the last, with the later cut
+   preferred on an exact tie. The zoom-in window (`zoom_cut_snap_*_ms`) is symmetric and small;
+   the reset's (`cut_snap_*_ms`) is **asymmetric**, wider after the burst end than before it,
+   because a VAD boundary is not an editorial one — the detector pads each segment so no
+   phoneme is clipped, which puts the detected end a few frames after the perceptual one.
+   A cut never *creates* a transition and never moves one on its own: with no cut in the
+   window the transition stays exactly on its audio anchor, and a cut that would break the
+   chain (overlapping the previous cycle, truncating an animation) gives way to the next valid
+   candidate. A "hard cut" means one clip ends exactly where the next begins on
+   `cut_reference_video_track`; entering from black or running out into a gap is not a cut.
 5. **A reset is only placed if it fits.** The whole reset animation must finish before the
    next zoom starts, or before the timeline ends. A cut that leaves too little room is
    rejected in favour of the next-nearest one; if nothing fits, no reset is placed and the
@@ -529,7 +541,8 @@ These are two different questions and the config keeps them apart on purpose:
 | Block | Question it answers | Example |
 | --- | --- | --- |
 | `[speech.vad]` | *Was the creator making speech sounds here?* | `min_silence_ms = 100` — how long the voice must stop before an utterance has really ended |
-| `[planner]` | *What should the edit do about it?* | `reset_after_silence_ms = 650` — how long a silence must last to be worth zooming back out for |
+| `[speech.energy]` | *How is loudness measured?* | `window_ms = 30` — the RMS window the envelope is built from |
+| `[planner]` | *What should the edit do about it?* | `reset_after_silence_ms = 650` — how long a silence must last to be worth zooming back out for; `promotion_min_drop_db = 20` — how big a dip in the voice deserves a tighter level |
 | `[assets.transition_frames]` | *How long do your assets take to animate?* | `x0_to_face_x1 = 15` — in frames, no default, never guessed |
 | `[assets]` | *Which clip performs which transition?* | `face_x1_to_face_x2 = "FACE_X2"` — omit a role to never make that move |
 
@@ -538,7 +551,19 @@ visibly wrong about the *audio*; change `[planner]` when you disagree with the *
 older config had a single `[speech]` block where `min_silence_ms = 650` made an editing
 preference look like a property of the detector — that is the ambiguity this split removes.
 
-Two `[planner]` keys from the early scaffold are gone rather than re-tuned:
+Four `[planner]` keys are **superseded and rejected outright** — a config that still carries
+them is an error, not a warning, because ignoring them would leave you believing they still
+tune the edit:
+
+- **`promote_to_face_x2_after_ms` / `min_remaining_after_face_x2_ms`**
+- **`promote_to_face_x3_after_ms` / `min_remaining_after_face_x3_ms`**
+
+They promoted the framing on elapsed talking time. Levels are now earned by a break in the
+voice followed by a recovery (`promotion_min_drop_db`, `promotion_min_valley_ms`,
+`promotion_recovery_within_db`, `promotion_min_hold_ms`); see
+[`.agent/reports/phase-08c-voice-dynamics-analysis.txt`](.agent/reports/phase-08c-voice-dynamics-analysis.txt).
+
+Two more `[planner]` keys from the early scaffold are gone rather than re-tuned:
 
 - **`min_zoom_ms = 450`** — an editorial guess nobody measured. The only real minimum for a
   zoom-in is its own animation length, which now comes from `[assets.transition_frames]`.

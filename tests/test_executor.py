@@ -111,6 +111,7 @@ def _live(config: Config = CONFIG) -> tuple[Any, Any, PlanSource]:
         assets=config.assets,
         asset_transition_frames=config.asset_timing.to_dict(),
         planner_settings=config.planner,
+        energy_settings=config.energy,
         found_assets=snapshot.assets,
     )
     return resolve, project, source
@@ -272,6 +273,7 @@ def test_a_non_empty_target_track_creates_nothing() -> None:
         assets=CONFIG.assets,
         asset_transition_frames=CONFIG.asset_timing.to_dict(),
         planner_settings=CONFIG.planner,
+        energy_settings=CONFIG.energy,
         found_assets=snapshot.assets,
     )
 

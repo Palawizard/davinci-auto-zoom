@@ -1,0 +1,254 @@
+PHASE 8c — VOICE DYNAMICS AGAINST DAZ_OUTPUT_MVP2
+=================================================
+
+Run: 2026-08-18, DaVinci Resolve Studio 21.0.4.5, project `davinci-auto-zoom-test`.
+Mode: one `plan-probe` (its own scratch render, created and deleted) plus a read-only
+`snapshot --json`. Nothing was written to `DAZ_INPUT`, `DAZ_OUTPUT_MVP`, `DAZ_OUTPUT_MVP2` or
+any existing `DAZ_AUTO_PREVIEW_*`.
+
+Question this phase had to answer BEFORE choosing any threshold: does the human editor's
+choice of FACE_X2 / FACE_X3 line up with something audible inside the burst — a drop in the
+voice followed by a pick-up — or does it not?
+
+Answer: **it lines up, and tightly.** All seven manual promotions in `DAZ_OUTPUT_MVP2` sit
+within 8 frames of a detected voice recovery, six of them within 3. That is the finding the
+rest of the phase is built on.
+
+
+0. THE SIGNAL, AND WHY IT IS SHAPED THIS WAY
+--------------------------------------------
+
+Envelope (`speech/energy.py`), built from the SAME normalized 16 kHz PCM the VAD already
+consumes — one Resolve render, one ffmpeg pass, two readers (D050):
+
+    window    30 ms      long enough to average a pitch period at any voice, short enough
+                         that a syllable boundary survives
+    hop       10 ms      0.6 frames at 60 fps; finer than the frame grid the plan lands on
+    smoothing 30 ms      3-point moving average, EDGE-padded (zero padding invents a loud
+                         burst at each end of the render, exactly where real bursts start)
+    value     dBFS RMS, floored at -140 dB so digital silence has a defined value
+
+Detection (`domain/dynamics.py`) is entirely relative:
+
+    reference = 75th percentile of the envelope inside the CYCLE   (its own voice level)
+    low line  = reference - promotion_min_drop_db
+    valley    = maximal run below the low line
+    recovery  = first point at/after it back above reference - promotion_recovery_within_db
+
+Because every threshold is a dB *difference* against the cycle's own level, multiplying the
+whole waveform by any constant shifts every point equally and cancels. Verified two ways:
+`tests/test_dynamics.py` (+/-12 dB gives byte-identical decisions) and, during calibration,
+by re-running the full 14-cycle plan at gains x0.25, x0.5, x2 and x4 — identical anchors in
+all four cases, 14/14.
+
+
+1. THE POSITIVE EVIDENCE: EVERY MANUAL PROMOTION IS ON A RECOVERY
+-----------------------------------------------------------------
+
+Nearest detected recovery to each of the seven manual promotion frames, with the valley that
+produced it (drop and recovery in dB against the cycle's voice level):
+
+  burst  manual        nearest recovery  delta   drop     recovery  valley
+   0     FACE_X2 216088   216094          +6     31.7 dB  26.2 dB   140 ms
+   3     FACE_X2 216735   216743          +8    118.1 dB 112.6 dB   220 ms
+   7     FACE_X2 217628   217629          +1     41.9 dB  37.0 dB    70 ms
+   8     FACE_X2 217958   217959          +1     44.3 dB  38.4 dB    60 ms
+   9     FACE_X2 218156   218157          +1     23.1 dB  17.5 dB    20 ms
+  13     FACE_X2 219038   219041          +3    118.1 dB 112.2 dB   260 ms
+  13     FACE_X3 219098   219099          +1     38.8 dB  38.3 dB    80 ms
+
+Median delta +1 frame, maximum +8. The two largest (bursts 0 and 3) are the two deepest
+valleys, where the voice takes a few frames to climb back out of a full silence.
+
+For contrast, the same seven frames against the hard cuts on V1:
+
+  +44, 0, -27, +41, +27, +89, +29 frames
+
+One of seven on a cut — chance, in a 3555-frame range with 20 cuts. This reproduces Phase 8's
+D047 measurement exactly and is why cut snapping for a promotion is a small *correction* to an
+audio anchor and never the anchor itself (section 5).
+
+
+2. THE NEGATIVE EVIDENCE, WHICH IS THE HARD PART
+-------------------------------------------------
+
+Speech contains a dip roughly every second. The live run finds **63 valleys** inside the 14
+cycles; the human made **7** promotions. So the honest question was never "can a valley
+explain a promotion" but "can a rule reject the other 56".
+
+Census of the 63, from the live plan-probe:
+
+    signal rejected them
+      valley_too_short (< 30 ms below the line)              13
+      no_recovery_before_burst_end                            9
+    the edit rejected them
+      previous_animation_unfinished (inside the 15 frames)    7
+      no_room_before_reset (< 400 ms of hold left)            3
+      already_at_face_x3 (the ladder tops out)               17
+    used
+      -> face_x2                                              9
+      -> face_x3                                              5
+
+**No local feature separates the 7 human promotions from the other valleys.** This was tested
+directly during calibration, on (low-span duration x depth) and on (pre/post level rise):
+
+    manual promotions   (40 ms, 23.0 dB) ... (270 ms, 118 dB)
+    valleys NOT used    (40 ms, 22.6 dB), (50 ms, 23.2 dB), (30 ms, 22.1 dB), ...
+
+The populations overlap completely. Recorded here rather than papered over: a single-valley
+classifier cannot reproduce this timeline, and any parameter set claiming to would be fitting
+noise on n=7.
+
+What DOES separate them is the *chain*: the ladder has two rungs, the first two usable cues
+take them, and the animation/hold constraints remove the rest. The 17 `already_at_face_x3`
+rejections are that mechanism doing most of the work.
+
+
+3. CALIBRATION
+--------------
+
+Grid search over drop (12-24 dB), valley duration (20-200 ms), hold (250-500 ms) and three
+envelope shapes, scored on peak level per cycle against `DAZ_OUTPUT_MVP2`. Chosen:
+
+    promotion_min_drop_db        = 20
+    promotion_recovery_within_db =  6
+    promotion_min_valley_ms      = 30
+    promotion_max_valley_ms      = 650
+    promotion_min_hold_ms        = 400
+
+Why each number:
+
+  drop 20 dB — a PLATEAU, not a peak. 19, 20 and 21 dB score identically; so do (16 dB,
+    50 ms) and (18 dB, 40 ms), which is the same boundary reached from a different direction.
+    A parameter chosen from the middle of a flat region is the one that survives new material.
+
+  recovery 6 dB — deliberately insensitive. Every value from 3 to 12 dB produces an identical
+    plan, because a real pick-up overshoots the line by 15 dB or more. It exists to define
+    "the dip is over", not to discriminate.
+
+  valley 30 ms — below this a dip is a plosive or a glottal stop. 13 of the 63 valleys are
+    rejected here, and none of them is near a manual promotion except burst 9's (20 ms), which
+    is discussed in section 6.
+
+  valley 650 ms — a GUARD, not a tuned value. A burst cannot contain a silence longer than
+    `reset_after_silence_ms` by construction, so it never fires on this material (longest
+    qualifying valley: 270 ms). It exists so that raising that gate cannot silently turn a
+    genuine pause — which deserves a reset — into a promotion.
+
+  hold 400 ms — the one genuinely editorial addition, and it is measured, not inherited.
+    Phase 8's `min_remaining_after_face_x2_ms` gated on time since the BURST started; this
+    gates on time after the PROMOTION. No manual promotion in `DAZ_OUTPUT_MVP2` is held for
+    fewer than 27 frames (450 ms), so 400 ms = 24 frames sits just below every hold the editor
+    actually made while still refusing a level that would flash for a few frames. Raising it to
+    500 ms costs the real FACE_X3 in burst 13, which held for exactly 28 frames — the reason
+    the number is 400 and not a rounder 500.
+
+Not done, on purpose: no ML, no per-burst parameters, no automated search over anything the
+runtime can see about `DAZ_OUTPUT_MVP2`. The runtime never reads that timeline.
+
+
+4. RESULT AGAINST THE HUMAN EDIT
+---------------------------------
+
+Peak level per cycle, and how the automatic burst compares with the manual cycle it aligns to:
+
+  burst  start delta  end delta   extent      manual  Phase 8c
+    0       +1          +7        ALIGNED       x2       x2   match
+    1       +2         +77        DIVERGENT     x1       x3
+    2       +0         -10        ALIGNED       x1       x1   match
+    3       -1          +4        ALIGNED       x2       x2   match
+    4       +0          +7        ALIGNED       x1       x1   match
+    5       -4          +4        ALIGNED       x1       x1   match
+    6      -14          +4        DIVERGENT     x1       x2
+    7      -41          +5        DIVERGENT     x2       x3
+    8      -18          +4        DIVERGENT     x2       x3
+    9       -1          +6        ALIGNED       x2       x2   match
+   10       +0          +9        ALIGNED       x1       x1   match
+   11       +0          +4        ALIGNED       x1       x1   match
+   12     -123          +5        DIVERGENT     x1       x3
+   13       +0          +7        ALIGNED       x3       x3   match
+
+**9 of 14 overall — and 9 of 9 on every cycle whose burst matches the human's, 0 of 5 on the
+five where it does not.** The correlation is total. Every remaining disagreement about a LEVEL
+is a disagreement about a burst EXTENT: a burst that opens 14-123 frames early, or closes 77
+frames late, contains audio the human's cycle never covered, and that extra audio contains
+extra breaths.
+
+This is a different and more useful result than Phase 8's 11/14. The duration rule scored
+higher while explaining nothing (it could not produce a 204-frame x2 and a 138-frame x3 at the
+same time, D047); this rule scores lower and its every error has a single named cause that is
+already the next planned phase (8b, burst extent).
+
+
+5. CUT SNAPPING — MEASURED PER TRANSITION CLASS, NOT ASSUMED
+-------------------------------------------------------------
+
+Phase 6 measured the RESET window ([-120 ms, +350 ms]) on sentence ends. That measurement does
+not transfer to a zoom-in anchor, so it was redone.
+
+ENTRY (x0 -> face_x1). Manual x1 starts against the hard cuts on V1:
+
+    exactly on a cut  : bursts 1, 3, 4, 11 (4 of 14)
+    burst start there : -2, +1, 0, 0 frames from that cut
+    nearest cut to any OTHER burst start: 61 frames (burst 10), then 62 (burst 6)
+
+So a window of +/-120 ms (7 frames at 60 fps) catches all four real ones with an **8x margin**
+to the first wrong candidate. Symmetric, unlike the reset: a zoom-in anchor has no systematic
+bias, whereas a VAD end is a few frames late by construction (`speech_pad_ms`).
+
+PROMOTION (face_x1 -> face_x2 -> face_x3). Same window, and the measurement says it will
+almost never fire: only 1 of 7 manual promotions is on a cut, and of the 14 cues the live plan
+used, exactly **1** found a cut within 7 frames (burst 7's face_x3, snapped -3 frames onto
+217601). That is the intended behaviour: the cut is a small correction to an anchor the audio
+already chose, never a reason to make a move.
+
+Live totals for this run:
+
+    entries     10 direct,  1 backward,  3 forward
+    promotions  13 direct,  1 backward,  0 forward
+    resets       6 direct,  8 backward,  0 forward   (frame-identical to Phases 6, 7 and 8)
+
+Chain constraints are applied to candidates, not after them: a cut nearer the anchor that
+would truncate the previous animation, overlap the previous cycle or leave the new level no
+room is rejected in favour of the next valid candidate, and if none is valid the transition
+stays exactly on its raw audio anchor.
+
+
+6. HONEST LIMITS
+----------------
+
+1. **Burst 9's manual x2 is matched by a valley the signal rejects.** The human promoted at
+   218156; there is a recovery at 218157 (+1) whose valley is only 20 ms long, below the 30 ms
+   floor. The cycle still ends at x2, because an earlier qualifying cue at 218130 promoted it
+   — right level, wrong frame by 26 frames. Lowering the floor to 20 ms would fix this one
+   frame and break three other cycles.
+
+2. **The frame agreement is weaker than the level agreement.** Where both the human and the
+   planner promote, the deltas are -50 to +8 frames, not the +1 median of section 1 — because
+   the planner takes the FIRST usable cue and the human sometimes takes a later one. Nothing in
+   the audio distinguishes them. This is the honest residual ambiguity of the model.
+
+3. **n = 14 cycles, 7 promotions, one timeline, one speaker.** Every number here is calibrated
+   on a single edit. The parameters sit on plateaus rather than spikes, which is the best
+   available evidence that they will transfer, but it is not the same as evidence that they do.
+
+4. **The 63-valley census is a property of this delivery.** A faster or breathier speaker
+   produces more valleys per second; the ladder's two rungs bound the damage, but the choice of
+   WHICH two would change.
+
+5. Phase 8's known divergence is now differently explained, not resolved: burst 7 (the longest
+   cycle, kept at x2 by the human) reaches x3 here as well — but because its burst opens 41
+   frames early and collects an extra breath, not because it is long.
+
+
+FILES
+-----
+
+Plan comparison, per cycle: `.agent/reports/phase-08c-plan-comparison.txt`.
+Reproduce with:
+
+  .venv/bin/python -m davinci_auto_zoom plan-probe \
+    --confirm-resolve-render-test \
+    --project davinci-auto-zoom-test \
+    --source-timeline DAZ_INPUT --reference-timeline DAZ_OUTPUT_MVP2 \
+    --config config.example.toml

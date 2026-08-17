@@ -97,6 +97,7 @@ def _source(resolve: Any, project: Any) -> PlanSource:
         assets=CONFIG.assets,
         asset_transition_frames=CONFIG.asset_timing.to_dict(),
         planner_settings=CONFIG.planner,
+        energy_settings=CONFIG.energy,
         found_assets=snapshot.assets,
     )
 
@@ -711,6 +712,7 @@ def _multi_source(resolve: Any, project: Any) -> PlanSource:
         assets=MULTI_CONFIG.assets,
         asset_transition_frames=MULTI_TIMING.to_dict(),
         planner_settings=MULTI_CONFIG.planner,
+        energy_settings=MULTI_CONFIG.energy,
         found_assets=snapshot.assets,
     )
 

@@ -110,6 +110,27 @@ speech_pad_ms = 30
 # Silero's default of threshold - 0.15.
 # neg_threshold = 0.35
 
+# ---------------------------------------------------------------------------------------
+# TECHNICAL voice-energy parameters (Phase 8c).
+#
+# How the loudness envelope that promotion cues are read from is BUILT — never what a
+# measurement deserves, which is [planner] below. It is computed from the same normalized
+# 16 kHz PCM the VAD consumes: one Resolve render, one ffmpeg pass, two readers.
+#
+# Changing any of these changes the plan, so they are part of the plan's recorded identity
+# and a stale plan is refused (D051).
+# ---------------------------------------------------------------------------------------
+[speech.energy]
+# Length of one RMS window. Long enough to average a pitch period, short enough that a
+# syllable boundary is still visible.
+window_ms = 30
+
+# Distance between windows, and so the envelope's time resolution (0.6 frames at 60 fps).
+hop_ms = 10
+
+# Moving average over the dB curve: removes per-syllable jitter without moving a real onset.
+smoothing_ms = 30
+
 [planner]
 # ---------------------------------------------------------------------------------------
 # EDITORIAL timing — when a zoom should happen, as opposed to whether the creator was
@@ -159,32 +180,67 @@ cut_snap_lookback_ms = 120
 # mid-move (D014). The old 450 ms was an editorial assumption nobody measured.
 
 # ---------------------------------------------------------------------------------------
-# FACECAM LEVEL PROMOTIONS (Phase 8).
+# ZOOM-IN CUT SNAPPING (Phase 8c).
 #
-# Once a burst is zoomed, the level climbs on how long the creator keeps talking, and on
-# nothing else. Promotions are deliberately NOT snapped to hard cuts: on the reference edit
-# only 1 of 6 manual promotions landed on one, against 8 of 14 manual resets, so snapping
-# stays where the evidence is (D047).
+# The same idea as the reset window above, applied to every zoom-IN anchor: the entry
+# (X0 -> FACE_X1) and each promotion. A zoom-in anchor has no systematic bias the way a VAD
+# end does, so this window is SYMMETRIC and small.
 #
-# Each threshold is measured from the frame the zoom OPENED, not from the burst's first
-# speech sample — they are the same frame unless zoom_lead_in_ms is non-zero.
+# Measured on DAZ_OUTPUT_MVP2: four manual entries sit exactly on a hard cut, and in all four
+# the detected burst start is 0-2 frames away — while the nearest NON-matching cut to any
+# burst start is 62 frames away. 120 ms = 7 frames at 60 fps therefore catches every real one
+# with an 8x margin to the first wrong one.
 #
-# The `min_remaining_*` values are what stops a burst that ends a heartbeat after crossing a
-# threshold from flashing a tighter level nobody can read. Together with the `after` value
-# they define the shortest burst that promotes at all: 1000 + 350 = 1350 ms for x2.
-#
-# Calibrated on DAZ_OUTPUT_MVP2, not invented — see
-# .agent/reports/phase-08-mvp2-analysis.txt. At 60 fps these are 60/21 and 108/30 frames,
-# and on that material they separate the eight bursts the editor left at x1 (longest: 75
-# frames) from the six they promoted (shortest: 86 frames) with no overlap.
-#
-# The x3 numbers rest on a SINGLE manual observation and are the weakest thing in this file.
-# See the report before trusting them on new material.
+# A cut NEVER creates a transition. With no cut in the window the transition stays exactly on
+# its audio anchor, and a cut that would break the chain (overlap the previous cycle, truncate
+# an animation) is rejected in favour of the next valid candidate.
+zoom_cut_snap_window_ms = 120
+zoom_cut_snap_lookback_ms = 120
+
 # ---------------------------------------------------------------------------------------
-promote_to_face_x2_after_ms = 1000
-min_remaining_after_face_x2_ms = 350
-promote_to_face_x3_after_ms = 1800
-min_remaining_after_face_x3_ms = 500
+# FACECAM LEVEL PROMOTIONS (Phase 8c).
+#
+# SUPERSEDED: Phase 8 promoted on elapsed talking time
+# (promote_to_face_x2_after_ms / min_remaining_after_face_x2_ms / ..._x3_ms). Those keys no
+# longer exist and a config that still carries them is an ERROR, not a warning — see D049.
+#
+# A level is now earned by what the voice DOES inside the burst: it drops or breaks for a
+# moment, then picks back up, and the tighter level starts on the pick-up. First qualifying
+# recovery -> FACE_X2, second -> FACE_X3, anything after that is ignored.
+#
+# Every threshold is RELATIVE, in dB against the burst's own voice level (its 75th-percentile
+# energy point), so changing microphone gain does not change the edit. Multiplying the whole
+# file's amplitude by 4 or by 1/4 produces exactly the same plan; there is a test for it.
+
+# How far under the burst's voice level the energy must fall to count as a dip at all.
+# 20 dB is the middle of a broad plateau (19-21 dB all score identically on the reference
+# edit) rather than a spike, which is why it is trustworthy on one timeline.
+promotion_min_drop_db = 20
+
+# How far back up the voice must come for the dip to be over: to within 6 dB of the same
+# voice level. Deliberately insensitive — every value from 3 to 12 dB gives an identical plan
+# on the reference material, because a real pick-up overshoots this line by a wide margin.
+promotion_recovery_within_db = 6
+
+# How long the energy must stay under the line. Below 30 ms a "dip" is a plosive or a glottal
+# stop, not a break in the delivery.
+promotion_min_valley_ms = 30
+
+# Upper bound, and a guard rather than a tuned value: a burst cannot contain a silence longer
+# than reset_after_silence_ms by construction, so on this material it never fires. It exists
+# so that raising that gate cannot turn a genuine pause — which deserves a RESET — into a
+# promotion. The longest qualifying valley measured is 270 ms.
+promotion_max_valley_ms = 650
+
+# How long the level a promotion opens must last, beyond its own animation. Measured: no
+# manual promotion in DAZ_OUTPUT_MVP2 is held for fewer than 27 frames (450 ms), so 400 ms =
+# 24 frames sits just below every hold the editor actually made, while still refusing a level
+# that would flash for a few frames and read as a glitch.
+#
+# This is NOT Phase 8's `min_remaining_*`: it is measured from the promotion, not from the
+# start of the burst, and it never decides WHETHER a level is deserved — only whether there is
+# room to show it.
+promotion_min_hold_ms = 400
 
 [safety]
 # Must remain true until the write milestone is explicitly implemented and validated.

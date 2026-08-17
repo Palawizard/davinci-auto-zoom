@@ -10,6 +10,7 @@ from dataclasses import replace
 
 import pytest
 
+from davinci_auto_zoom.domain.dynamics import EnergySettings
 from davinci_auto_zoom.domain.plan_validation import (
     build_plan_source,
     plan_source_mismatches,
@@ -78,6 +79,7 @@ def _source(timeline: TimelineSnapshot | None = None, **overrides: object) -> Pl
         "assets": ASSETS,
         "asset_transition_frames": TRANSITIONS,
         "planner_settings": PlannerSettings(),
+        "energy_settings": EnergySettings(),
         "found_assets": FOUND,
     }
     kwargs.update(overrides)

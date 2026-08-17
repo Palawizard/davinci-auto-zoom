@@ -13,6 +13,7 @@ from fractions import Fraction
 from pathlib import Path
 from typing import Any
 
+from davinci_auto_zoom.domain.dynamics import EnergyEnvelope, EnergySettings
 from davinci_auto_zoom.domain.models import SpeechSegment
 from davinci_auto_zoom.domain.speech_report import (
     ReferenceDiagnostics,
@@ -30,6 +31,7 @@ from davinci_auto_zoom.speech.audio import (
     NormalizedAudio,
     normalized_audio,
 )
+from davinci_auto_zoom.speech.energy import energy_envelope
 from davinci_auto_zoom.speech.silero import SileroVad, SpeechAnalysis, analyze_samples
 
 #: Thresholds probed around the default purely to measure stability. Not a tuning sweep: the
@@ -103,6 +105,9 @@ class SpeechResult:
     analysis: SpeechAnalysis
     segments: tuple[SpeechSegment, ...]
     statistics: SegmentStatistics
+    #: Voice dynamics over the same PCM the VAD read (D050). The planner turns it into
+    #: promotion cues; nothing here interprets it.
+    energy: EnergyEnvelope = EnergyEnvelope(())
     duration: DurationCheck | None = None
     stability: tuple[ThresholdTrial, ...] = ()
     reference: ReferenceDiagnostics | None = None
@@ -146,6 +151,7 @@ class SpeechResult:
                 "model_load_seconds": analysis.model_load_seconds,
                 "inference_seconds": analysis.inference_seconds,
             },
+            "energy": self.energy.to_dict(),
             "duration_check": self.duration.to_dict() if self.duration else None,
             "statistics": self.statistics.to_dict(),
             "segments": segment_rows(self.segments, self.timebase),
@@ -176,6 +182,9 @@ class SpeechResult:
             f"  timings   : ffmpeg={self.ffmpeg_seconds:.2f}s "
             f"model_load={analysis.model_load_seconds:.2f}s "
             f"inference={analysis.inference_seconds:.2f}s",
+            f"  energy    : {len(self.energy)} envelope point(s), "
+            f"window={self.energy.settings.window_ms}ms hop={self.energy.settings.hop_ms}ms "
+            f"smoothing={self.energy.settings.smoothing_ms}ms",
         ]
         if self.duration:
             check = self.duration
@@ -258,6 +267,7 @@ def analyze_audio_file(
     timebase: Timebase,
     settings: VadSettings | None = None,
     *,
+    energy_settings: EnergySettings | None = None,
     expected_frames: int | None = None,
     engine: SileroVad | None = None,
     stability_thresholds: tuple[float, ...] = STABILITY_THRESHOLDS,
@@ -283,6 +293,7 @@ def analyze_audio_file(
         else None
     )
     segments = analysis.to_segments(timebase)
+    envelope = energy_envelope(audio.samples, timebase, energy_settings)
     analysed_frames = expected_frames or int(
         timebase.frames_for_samples(audio.sample_count)
     )
@@ -292,6 +303,7 @@ def analyze_audio_file(
         analysis=analysis,
         segments=segments,
         statistics=segment_statistics(segments, analysed_frames),
+        energy=envelope,
         duration=duration,
         stability=threshold_stability(
             analysis.probabilities, audio.sample_count, settings, stability_thresholds

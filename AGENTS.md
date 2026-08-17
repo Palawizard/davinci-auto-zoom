@@ -25,7 +25,13 @@ For the current assignment, also read the prompt file named by the user.
   a move outside the table raises rather than planning nothing (D048). Add a state here or
   nowhere.
 - `resolve/` — the only place Resolve proxy objects are allowed to exist.
-- `speech/` — transcription/VAD implementations behind the `speech/base.py` interfaces.
+- `speech/` — transcription/VAD implementations behind the `speech/base.py` interfaces, plus
+  the short-time energy envelope. This layer produces **objective audio facts only**: "was
+  there speech here", "how loud was it here". It never decides that a dip in the voice deserves
+  a tighter zoom — that reading lives in `domain/dynamics.py` (D050).
+- `domain/dynamics.py` — the energy envelope as plain `(frame, dB)` pairs, and the valley +
+  recovery cues read from it. Pure: no numpy, no ONNX, no file. Every threshold is **relative**,
+  in dB against the burst's own voice level, so a gain change cannot change the edit (D051).
 - Timeline positions are integer frames internally. Half-open ranges `[start, end)`.
 - **No editorial logic below the planner.** The executor resolves a role to a clip name,
   appends it at the planned frames, verifies and tags. It does not know what a zoom level is,

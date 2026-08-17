@@ -17,6 +17,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 
+from davinci_auto_zoom.domain.dynamics import EnergySettings
 from davinci_auto_zoom.domain.fingerprint import source_fingerprint
 from davinci_auto_zoom.domain.planner import (
     AssetIdentity,
@@ -73,6 +74,7 @@ def build_plan_source(
     assets: Mapping[str, str],
     asset_transition_frames: Mapping[str, int],
     planner_settings: PlannerSettings,
+    energy_settings: EnergySettings,
     found_assets: Sequence[AssetSnapshot] = (),
 ) -> PlanSource:
     """The single place a `PlanSource` is built, used both when planning and when validating.
@@ -94,6 +96,7 @@ def build_plan_source(
         assets=tuple(sorted(assets.items())),
         asset_transition_frames=tuple(sorted(asset_transition_frames.items())),
         planner_settings=planner_settings,
+        energy_settings=energy_settings,
         asset_identities=asset_identities(assets, found_assets),
         structural_fingerprint=source_fingerprint(
             timeline,
@@ -129,6 +132,11 @@ def _scalar_differences(recorded: PlanSource, current: PlanSource) -> list[str]:
             "planner_settings",
             recorded.planner_settings.to_dict(),
             current.planner_settings.to_dict(),
+        ),
+        (
+            "energy_settings",
+            recorded.energy_settings.to_dict(),
+            current.energy_settings.to_dict(),
         ),
     )
     return [

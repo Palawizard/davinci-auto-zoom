@@ -516,3 +516,45 @@ tuned to reach this; the burst logic is byte-identical to Phase 6.
 - whether a short promotion instance (the shortest DAZ places here is 26 frames) reads as a move
   or as a glitch. That is a viewing question and the Phase 8 preview has not been watched;
 - what triggers a gameplay zoom. No reference edit, no asset family, no evidence (D048).
+
+## Phase 8c — what the voice actually does inside a burst (2026-08-18)
+
+Measured on `DAZ_INPUT` A1 against `DAZ_OUTPUT_MVP2`, from one `plan-probe` render. Full
+report: `.agent/reports/phase-08c-voice-dynamics-analysis.txt`.
+
+**The finding that made the phase possible.** All seven manual promotions in the reference edit
+sit within 8 frames of a detected voice recovery — the moment the short-time energy climbs back
+to the speaker's own level after a dip. Six of the seven are within 3 frames, median +1. The
+editor is not counting seconds; they are cutting on a breath.
+
+**The finding that constrains every successor.** Speech contains a dip roughly every second.
+The 14 cycles contain **63** valleys; the human used 7. Depth and low-span duration do not
+separate them at all:
+
+    used     (40 ms, 23.0 dB) … (270 ms, 118 dB)
+    unused   (40 ms, 22.6 dB), (50 ms, 23.2 dB), (30 ms, 22.1 dB), …
+
+There is no threshold pair that keeps all 7 and rejects the other 56. What makes the model work
+is that the ladder has exactly two rungs and takes the first two *usable* cues; the animation
+and hold constraints remove most of the rest, and 17 of the 63 are simply "already at x3".
+Anyone tempted to add a fifth threshold should read this paragraph first.
+
+**Relative in dB is not a nicety, it is the whole design.** Re-running the complete 14-cycle
+plan on the same audio scaled by ×0.25, ×0.5, ×2 and ×4 produces byte-identical anchors. An
+absolute RMS gate would have made the edit a property of the microphone preamp.
+
+**Envelope shape matters less than expected, but not nothing.** Window 20-50 ms and smoothing
+20-50 ms all tell the same story; the anchor sets agree on 8-12 of 14 cycles across that range.
+30/10/30 ms was chosen because it is central, not because it is uniquely good.
+
+**One real bug, worth remembering.** `numpy.convolve(..., mode="same")` zero-pads, so smoothing
+a dBFS curve that way averages the first and last points against an implicit 0 dB — inventing a
+loud burst at each end of every render, which is precisely where real bursts start. Edge padding
+fixes it. It cost one confusing calibration round.
+
+**Cut alignment, measured per transition class.** Manual x1 starts: 4 of 14 exactly on a hard
+cut, with the detected burst start 0-2 frames away, and the nearest non-matching cut 61 frames
+away. Manual promotions: 1 of 7 on a cut (chance), offsets otherwise 27-89 frames. Manual
+resets: 8 of 14, unchanged since Phase 6. So the entry window is worth having and small
+(±120 ms, 8x margin), the promotion window will almost never fire — 1 of 14 cues in the live
+plan — and the reset window stays exactly as D034 left it.

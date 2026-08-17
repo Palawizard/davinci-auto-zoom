@@ -422,7 +422,11 @@ def _speech_file(args: Any) -> int:
         try:
             timebase = Timebase.from_timeline(args.fps, args.start_frame)
             result = analyze_audio_file(
-                args.audio, directory / "voice_16k.wav", timebase, config.vad
+                args.audio,
+                directory / "voice_16k.wav",
+                timebase,
+                config.vad,
+                energy_settings=config.energy,
             )
         except (FfmpegError, SpeechEngineError, ValueError) as exc:
             print(f"error: {exc}")
@@ -470,6 +474,7 @@ def _build_plan(
         assets=config.assets,
         asset_transition_frames=config.asset_timing.to_dict(),
         planner_settings=config.planner,
+        energy_settings=config.energy,
         found_assets=snapshot.assets,
     )
     plan = plan_zooms(
@@ -480,6 +485,7 @@ def _build_plan(
         hard_cuts=timeline.hard_cuts(config.cut_reference_video_track),
         settings=config.planner,
         source=source,
+        energy=result.energy,
     )
 
     if not args.reference_timeline:
@@ -712,6 +718,7 @@ def _analyze_rendered(
         directory / "voice_16k.wav",
         timebase,
         config.vad,
+        energy_settings=config.energy,
         expected_frames=expected_frames,
     )
     audio, check = result.audio, result.duration

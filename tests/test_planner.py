@@ -9,8 +9,24 @@ from fractions import Fraction
 
 import pytest
 
+from davinci_auto_zoom.domain.dynamics import (
+    CUE_NO_RECOVERY,
+    CUE_VALLEY_TOO_LONG,
+    CUE_VALLEY_TOO_SHORT,
+    EnergyEnvelope,
+    EnergyPoint,
+    EnergySettings,
+)
 from davinci_auto_zoom.domain.models import FrameRange, SpeechSegment
 from davinci_auto_zoom.domain.planner import (
+    CUE_REJECTED_ANIMATION,
+    CUE_REJECTED_AT_TOP,
+    CUE_REJECTED_NO_ROOM,
+    REASON_ENTRY_DIRECT,
+    REASON_ENTRY_SNAPPED_BACKWARD,
+    REASON_ENTRY_SNAPPED_FORWARD,
+    REASON_PROMOTED_SNAPPED_BACKWARD,
+    REASON_PROMOTED_SNAPPED_FORWARD,
     REASON_RESET_DIRECT,
     REASON_RESET_SNAPPED_BACKWARD,
     REASON_RESET_SNAPPED_FORWARD,
@@ -48,6 +64,7 @@ def plan(
     frame_rate: Fraction = FPS60,
     settings: PlannerSettings | None = None,
     timing: AssetTiming = TIMING,
+    energy=None,
 ):
     return plan_zooms(
         timeline=timeline,
@@ -56,6 +73,7 @@ def plan(
         timing=timing,
         hard_cuts=cuts,
         settings=settings or PlannerSettings(),
+        energy=energy,
     )
 
 
@@ -477,15 +495,19 @@ def test_a_fractional_rate_changes_the_gate_not_the_frame_arithmetic() -> None:
     assert ranges(sixty, ROLE_X0_TO_FACE_X1) == [(1000, 1400)]
 
 
+
+
 # ---------------------------------------------------------------------------------------
-# Phase 8: multi-level facecam.
+# Phase 8c: the facecam ladder is climbed on voice dynamics.
 #
 # The tests above use TIMING, which configures only the two required transitions — that is
 # still a valid setup and must keep behaving exactly as it did in Phase 7. Everything below
-# uses FULL_TIMING, the six-asset bin this project actually has.
+# uses FULL_TIMING, the six-asset bin this project actually has, and feeds the planner a
+# synthetic energy envelope: constant speaking level with holes punched in it.
 #
-# At 60 fps the defaults land on: x2 at +60 frames needing 21 left (so a zoom shorter than 81
-# frames never promotes), x3 at +108 needing 30 left (so shorter than 138 never reaches x3).
+# Nothing here promotes because a burst is long. A burst of any length with a flat envelope
+# stays at x1, and a short burst with two clean breaks climbs to x3 — which is exactly the
+# behaviour Phase 8's duration rule could not produce (D049).
 # ---------------------------------------------------------------------------------------
 
 FULL_TIMING = AssetTiming(
@@ -499,8 +521,36 @@ FULL_TIMING = AssetTiming(
     }
 )
 
-X2_AT = 1060
-X3_AT = 1108
+SPEAKING_DB = -20.0
+QUIET_DB = -60.0
+
+
+def envelope(
+    *valleys: tuple[int, int],
+    span: FrameRange = TIMELINE,
+    frame_rate: Fraction = FPS60,
+    speaking: float = SPEAKING_DB,
+    quiet: float = QUIET_DB,
+    settings: EnergySettings | None = None,
+) -> EnergyEnvelope:
+    """A constant speaking level over `span`, with `valleys` punched out of it.
+
+    Written as frames rather than samples on purpose: these tests are about the planner's
+    reading of an envelope, and `speech/energy.py` is what turns PCM into one.
+    """
+
+    settings = settings or EnergySettings()
+    points: list[EnergyPoint] = []
+    step = Fraction(settings.hop_ms, 1000) * frame_rate
+    index = 0
+    while True:
+        frame = span.start + int(index * step)
+        if frame >= span.end:
+            break
+        inside = any(start <= frame < end for start, end in valleys)
+        points.append(EnergyPoint(frame, quiet if inside else speaking))
+        index += 1
+    return EnergyEnvelope(tuple(points), settings)
 
 
 def chain(result):
@@ -509,55 +559,141 @@ def chain(result):
     return [(p.asset_role, p.start_frame, p.end_frame) for p in result.placements]
 
 
-def test_a_short_burst_only_enters_and_leaves() -> None:
-    """80 frames is one frame short of earning x2, so nothing above x1 appears."""
+def test_a_burst_with_no_break_in_the_voice_never_promotes_however_long_it_is() -> None:
+    """The Phase 8 rule would have reached x3 here. Duration alone now earns nothing."""
 
-    result = plan((1000, 1080), timing=FULL_TIMING)
+    result = plan((1000, 4000), timing=FULL_TIMING, energy=envelope())
     assert chain(result) == [
-        (ROLE_X0_TO_FACE_X1, 1000, 1080),
-        (ROLE_FACE_X1_TO_X0, 1080, 1095),
+        (ROLE_X0_TO_FACE_X1, 1000, 4000),
+        (ROLE_FACE_X1_TO_X0, 4000, 4015),
+    ]
+    assert result.promotion_placements == ()
+
+
+def test_no_envelope_at_all_is_a_one_level_edit_and_says_so() -> None:
+    result = plan((1000, 4000), timing=FULL_TIMING)
+    assert result.promotion_placements == ()
+    assert "no energy envelope supplied" in " ".join(result.decisions)
+
+
+def test_one_valley_and_recovery_promotes_to_x2_on_the_recovery() -> None:
+    result = plan((1000, 1200), timing=FULL_TIMING, energy=envelope((1100, 1110)))
+    roles = [p.asset_role for p in result.placements]
+    assert roles == [ROLE_X0_TO_FACE_X1, ROLE_FACE_X1_TO_FACE_X2, ROLE_FACE_X2_TO_X0]
+    # The promotion is anchored on the RECOVERY, never on the floor or the start of the dip.
+    promotion = result.promotion_placements[0]
+    assert promotion.start_frame >= 1110
+    assert promotion.start_frame <= 1111
+    assert result.placements[0].end_frame == promotion.start_frame
+
+
+def test_two_valleys_climb_the_whole_ladder() -> None:
+    result = plan(
+        (1000, 1300), timing=FULL_TIMING, energy=envelope((1100, 1110), (1200, 1210))
+    )
+    assert [p.asset_role for p in result.placements] == [
+        ROLE_X0_TO_FACE_X1,
+        ROLE_FACE_X1_TO_FACE_X2,
+        ROLE_FACE_X2_TO_FACE_X3,
+        ROLE_FACE_X3_TO_X0,
     ]
 
 
-def test_a_sustained_burst_is_promoted_to_x2_and_resets_from_x2() -> None:
-    result = plan((1000, 1100), timing=FULL_TIMING)
-    assert chain(result) == [
-        (ROLE_X0_TO_FACE_X1, 1000, X2_AT),
-        (ROLE_FACE_X1_TO_FACE_X2, X2_AT, 1100),
-        (ROLE_FACE_X2_TO_X0, 1100, 1115),
+def test_a_short_burst_with_two_breaks_reaches_x3_where_a_long_flat_one_stays_at_x1() -> None:
+    """The whole point of Phase 8c, as one comparison."""
+
+    short = plan(
+        (1000, 1160), timing=FULL_TIMING, energy=envelope((1050, 1060), (1100, 1110))
+    )
+    long_flat = plan((1000, 2000), timing=FULL_TIMING, energy=envelope())
+    assert short.top_state_counts["face_x3"] == 1
+    assert long_flat.top_state_counts["face_x1"] == 1
+
+
+def test_a_fourth_valley_changes_nothing_because_the_ladder_tops_out() -> None:
+    result = plan(
+        (1000, 1500),
+        timing=FULL_TIMING,
+        energy=envelope((1100, 1110), (1200, 1210), (1300, 1310), (1400, 1410)),
+    )
+    assert [p.asset_role for p in result.zoom_placements] == [
+        ROLE_X0_TO_FACE_X1,
+        ROLE_FACE_X1_TO_FACE_X2,
+        ROLE_FACE_X2_TO_FACE_X3,
     ]
+    assert result.cue_outcomes.count(CUE_REJECTED_AT_TOP) == 2
 
 
-def test_a_very_long_burst_climbs_the_whole_ladder_and_resets_from_x3() -> None:
-    result = plan((1000, 1200), timing=FULL_TIMING)
-    assert chain(result) == [
-        (ROLE_X0_TO_FACE_X1, 1000, X2_AT),
-        (ROLE_FACE_X1_TO_FACE_X2, X2_AT, X3_AT),
-        (ROLE_FACE_X2_TO_FACE_X3, X3_AT, 1200),
-        (ROLE_FACE_X3_TO_X0, 1200, 1215),
+def test_a_valley_that_never_recovers_is_not_a_promotion() -> None:
+    """The creator stopped talking. That is a reset's business, not a promotion's."""
+
+    result = plan((1000, 1200), timing=FULL_TIMING, energy=envelope((1100, 1200)))
+    assert result.promotion_placements == ()
+    assert CUE_NO_RECOVERY in result.cue_outcomes
+
+
+def test_a_dip_too_shallow_to_be_a_break_is_ignored() -> None:
+    shallow = envelope((1100, 1110), quiet=SPEAKING_DB - 5.0)
+    result = plan((1000, 1200), timing=FULL_TIMING, energy=shallow)
+    assert result.promotion_placements == ()
+    assert result.valleys == ()
+
+
+def test_a_dip_too_brief_to_be_a_break_is_rejected_with_its_reason() -> None:
+    result = plan(
+        (1000, 1200),
+        timing=FULL_TIMING,
+        energy=envelope((1100, 1101)),
+        settings=PlannerSettings(promotion_min_valley_ms=100),
+    )
+    assert result.promotion_placements == ()
+    assert CUE_VALLEY_TOO_SHORT in result.cue_outcomes
+
+
+def test_a_dip_longer_than_the_upper_bound_is_rejected_with_its_reason() -> None:
+    result = plan(
+        (1000, 1300),
+        timing=FULL_TIMING,
+        energy=envelope((1100, 1160)),
+        settings=PlannerSettings(promotion_max_valley_ms=200),
+    )
+    assert result.promotion_placements == ()
+    assert CUE_VALLEY_TOO_LONG in result.cue_outcomes
+
+
+def test_a_cue_inside_the_previous_animation_is_refused_and_the_next_one_used() -> None:
+    """15 frames of animation are 15 frames of animation; the cue is skipped, not moved."""
+
+    result = plan(
+        (1000, 1200), timing=FULL_TIMING, energy=envelope((1004, 1008), (1100, 1110))
+    )
+    assert [p.asset_role for p in result.zoom_placements] == [
+        ROLE_X0_TO_FACE_X1,
+        ROLE_FACE_X1_TO_FACE_X2,
     ]
+    assert CUE_REJECTED_ANIMATION in result.cue_outcomes
+    assert result.promotion_placements[0].start_frame >= 1110
 
 
-@pytest.mark.parametrize(
-    ("end", "expected_top"),
-    [
-        # One frame below each threshold, then exactly on it. The rule is `>=`, and a
-        # boundary nobody pins down is a boundary that drifts.
-        (1080, ROLE_X0_TO_FACE_X1),
-        (1081, ROLE_FACE_X1_TO_FACE_X2),
-        (1137, ROLE_FACE_X1_TO_FACE_X2),
-        (1138, ROLE_FACE_X2_TO_FACE_X3),
-    ],
-)
-def test_a_promotion_needs_enough_burst_left_to_be_worth_it(
-    end: int, expected_top: str
-) -> None:
-    result = plan((1000, end), timing=FULL_TIMING)
-    assert result.zoom_placements[-1].asset_role == expected_top
+def test_a_second_cue_too_close_to_the_first_promotion_cannot_reach_x3() -> None:
+    result = plan(
+        (1000, 1200), timing=FULL_TIMING, energy=envelope((1100, 1110), (1114, 1118))
+    )
+    assert result.top_state_counts["face_x2"] == 1
+    assert CUE_REJECTED_ANIMATION in result.cue_outcomes
+
+
+def test_a_promotion_with_no_room_to_be_held_before_the_reset_is_refused() -> None:
+    """The level would flash for a few frames. `promotion_min_hold_ms` says no."""
+
+    result = plan((1000, 1200), timing=FULL_TIMING, energy=envelope((1170, 1180)))
+    assert result.promotion_placements == ()
+    assert CUE_REJECTED_NO_ROOM in result.cue_outcomes
+    assert result.reset_placements[0].asset_role == ROLE_FACE_X1_TO_X0
 
 
 def test_x3_is_never_reached_without_passing_through_x2() -> None:
-    """Even on a burst long enough for x3, with no x2 asset the chain stops at x1."""
+    """Even with two clean cues, with no x2 asset the chain stops at x1."""
 
     no_x2 = AssetTiming(
         {
@@ -567,65 +703,54 @@ def test_x3_is_never_reached_without_passing_through_x2() -> None:
             ROLE_FACE_X3_TO_X0: 15,
         }
     )
-    result = plan((1000, 1500), timing=no_x2)
+    result = plan(
+        (1000, 1300), timing=no_x2, energy=envelope((1100, 1110), (1200, 1210))
+    )
     assert chain(result) == [
-        (ROLE_X0_TO_FACE_X1, 1000, 1500),
-        (ROLE_FACE_X1_TO_X0, 1500, 1515),
+        (ROLE_X0_TO_FACE_X1, 1000, 1300),
+        (ROLE_FACE_X1_TO_X0, 1300, 1315),
     ]
 
 
 def test_unconfigured_levels_are_simply_never_planned() -> None:
-    """A user with no x2/x3 assets gets the Phase 7 edit, however long they talk."""
+    """A user with no x2/x3 assets gets the Phase 7 edit, however clean their delivery."""
 
-    result = plan((1000, 4000), timing=TIMING)
+    result = plan((1000, 4000), timing=TIMING, energy=envelope((1100, 1110)))
     assert chain(result) == [
         (ROLE_X0_TO_FACE_X1, 1000, 4000),
         (ROLE_FACE_X1_TO_X0, 4000, 4015),
     ]
-    assert result.promotion_placements == ()
     assert "no configured asset animation" in " ".join(result.decisions)
 
 
-def test_a_promotion_is_not_snapped_to_a_nearby_hard_cut() -> None:
-    """Resets snap, promotions do not (D047). Measured, not assumed."""
-
-    result = plan((1000, 1200), cuts=(1055, 1112), timing=FULL_TIMING)
-    assert [p.start_frame for p in result.promotion_placements] == [X2_AT, X3_AT]
-    assert all(p.cut_frame is None for p in result.promotion_placements)
-
-
-def test_a_reset_still_snaps_to_a_cut_from_any_level() -> None:
-    """The reset asset follows the level; the snapping rule does not change with it."""
-
-    # A cut 4 frames before the burst end, inside the 7-frame lookback.
-    result = plan((1000, 1200), cuts=(1196,), timing=FULL_TIMING)
-    reset = result.reset_placements[0]
-    assert (reset.asset_role, reset.start_frame, reset.cut_frame) == (
-        ROLE_FACE_X3_TO_X0,
-        1196,
-        1196,
-    )
-    assert reset.reason == REASON_RESET_SNAPPED_BACKWARD
-
-
 def test_the_level_a_burst_reaches_chooses_the_reset_asset() -> None:
-    result = plan((1000, 1050), (1200, 1300), (1500, 1700), timing=FULL_TIMING)
+    result = plan(
+        (1000, 1050),
+        (1200, 1400),
+        (1600, 1900),
+        timing=FULL_TIMING,
+        energy=envelope((1300, 1310), (1700, 1710), (1800, 1810)),
+    )
     assert [p.asset_role for p in result.reset_placements] == [
-        ROLE_FACE_X1_TO_X0,  # 50 frames: never promoted
-        ROLE_FACE_X2_TO_X0,  # 100 frames: x2 only
-        ROLE_FACE_X3_TO_X0,  # 200 frames: the whole ladder
+        ROLE_FACE_X1_TO_X0,  # no cue at all
+        ROLE_FACE_X2_TO_X0,  # one cue
+        ROLE_FACE_X3_TO_X0,  # two cues
     ]
     assert result.top_state_counts == {"face_x1": 1, "face_x2": 1, "face_x3": 1}
 
 
 def test_the_clips_of_a_cycle_are_contiguous_sorted_and_never_overlap() -> None:
-    result = plan((1000, 1200), (1500, 1900), (2400, 2450), timing=FULL_TIMING)
+    result = plan(
+        (1000, 1300),
+        (1500, 1900),
+        (2400, 2450),
+        timing=FULL_TIMING,
+        energy=envelope((1100, 1110), (1200, 1210), (1600, 1610)),
+    )
     assert result.valid
     assert result.overlaps == ()
     starts = [p.start_frame for p in result.placements]
     assert starts == sorted(starts)
-    # Within a cycle every clip hands over on the exact frame the next one starts: a
-    # promotion has no end frame of its own, it is ended by whatever follows.
     for earlier, later in zip(result.placements, result.placements[1:], strict=False):
         assert later.start_frame >= earlier.end_frame
         if earlier.asset_role in (ROLE_X0_TO_FACE_X1, ROLE_FACE_X1_TO_FACE_X2):
@@ -633,61 +758,163 @@ def test_the_clips_of_a_cycle_are_contiguous_sorted_and_never_overlap() -> None:
 
 
 def test_a_burst_held_to_the_timeline_end_still_earns_its_levels() -> None:
-    result = plan((4800, 5000), timeline=FrameRange(1000, 5000), timing=FULL_TIMING)
-    assert chain(result) == [
-        (ROLE_X0_TO_FACE_X1, 4800, 4860),
-        (ROLE_FACE_X1_TO_FACE_X2, 4860, 4908),
-        (ROLE_FACE_X2_TO_FACE_X3, 4908, 5000),
+    result = plan(
+        (4700, 5000),
+        timeline=FrameRange(1000, 5000),
+        timing=FULL_TIMING,
+        energy=envelope((4800, 4810), (4900, 4910)),
+    )
+    assert [p.asset_role for p in result.zoom_placements] == [
+        ROLE_X0_TO_FACE_X1,
+        ROLE_FACE_X1_TO_FACE_X2,
+        ROLE_FACE_X2_TO_FACE_X3,
     ]
     assert result.reset_placements == ()
     assert result.placements[-1].end_frame == 5000
 
 
-def test_thresholds_are_configurable_and_expressed_in_milliseconds() -> None:
-    """The defaults are a calibration, not a law: a user may move them."""
+def test_the_detector_thresholds_are_configurable() -> None:
+    """The defaults are a calibration, not a law."""
 
-    eager = PlannerSettings(
-        promote_to_face_x2_after_ms=300,
-        min_remaining_after_face_x2_ms=100,
-        promote_to_face_x3_after_ms=600,
-        min_remaining_after_face_x3_ms=100,
+    shallow = envelope((1100, 1110), quiet=SPEAKING_DB - 8.0)
+    assert plan((1000, 1200), timing=FULL_TIMING, energy=shallow).promotion_placements == ()
+    eager = PlannerSettings(promotion_min_drop_db=5, promotion_recovery_within_db=2)
+    promoted = plan((1000, 1200), timing=FULL_TIMING, energy=shallow, settings=eager)
+    assert promoted.top_state_counts["face_x2"] == 1
+
+
+def test_a_recovery_line_at_or_above_the_drop_line_is_refused_at_construction() -> None:
+    with pytest.raises(ValueError, match="climb back above"):
+        PlannerSettings(promotion_min_drop_db=6, promotion_recovery_within_db=6)
+
+
+def test_the_plan_reports_every_valley_it_saw_including_the_ones_it_refused() -> None:
+    result = plan(
+        (1000, 1200), timing=FULL_TIMING, energy=envelope((1004, 1008), (1100, 1110))
     )
-    result = plan((1000, 1100), settings=eager, timing=FULL_TIMING)
-    # 300 ms = 18 frames, 600 ms = 36 frames at 60 fps.
-    assert chain(result) == [
-        (ROLE_X0_TO_FACE_X1, 1000, 1018),
-        (ROLE_FACE_X1_TO_FACE_X2, 1018, 1036),
-        (ROLE_FACE_X2_TO_FACE_X3, 1036, 1100),
-        (ROLE_FACE_X3_TO_X0, 1100, 1115),
-    ]
+    assert len(result.valleys) == len(result.cue_outcomes) == 2
+    payload = result.to_dict()["voice_valleys"]
+    assert [row["outcome"] for row in payload] == [CUE_REJECTED_ANIMATION, "face_x2"]
+    assert payload[1]["drop_db"] == pytest.approx(40.0, abs=0.5)
+    assert payload[1]["recovery_frame"] == result.promotion_placements[0].start_frame
 
 
-def test_x3_cannot_be_configured_to_arrive_before_x2() -> None:
-    with pytest.raises(ValueError, match="one rung at a time"):
-        PlannerSettings(
-            promote_to_face_x2_after_ms=1000, promote_to_face_x3_after_ms=1000
-        )
+# --- cut snapping, now for every facecam transition (D052) -------------------------------
 
 
-def test_a_promotion_never_truncates_the_clip_it_replaces() -> None:
-    """Two thresholds 5 frames apart cannot both fire when the assets need 15."""
+def test_an_entry_snaps_backward_to_a_cut_just_before_the_burst() -> None:
+    """Allowed on purpose: the cut just before the first word is often the right edit (D052)."""
 
-    tight = PlannerSettings(
-        promote_to_face_x2_after_ms=300,  # 18 frames
-        min_remaining_after_face_x2_ms=0,
-        promote_to_face_x3_after_ms=383,  # 23 frames — only 5 after x2
-        min_remaining_after_face_x3_ms=0,
+    result = plan((1100, 1300), cuts=(1096,), timing=FULL_TIMING, energy=envelope())
+    entry = result.entry_placements[0]
+    assert (entry.start_frame, entry.cut_frame) == (1096, 1096)
+    assert entry.reason == REASON_ENTRY_SNAPPED_BACKWARD
+
+
+def test_an_entry_snaps_forward_to_a_cut_just_after_the_burst_start() -> None:
+    result = plan((1000, 1200), cuts=(1005,), timing=FULL_TIMING, energy=envelope())
+    entry = result.entry_placements[0]
+    assert (entry.start_frame, entry.cut_frame) == (1005, 1005)
+    assert entry.reason == REASON_ENTRY_SNAPPED_FORWARD
+
+
+def test_the_entry_takes_the_nearest_cut_and_prefers_the_later_one_on_a_tie() -> None:
+    nearest = plan((1000, 1200), cuts=(996, 1003), timing=FULL_TIMING, energy=envelope())
+    assert nearest.entry_placements[0].start_frame == 1003
+    tie = plan((1000, 1200), cuts=(997, 1003), timing=FULL_TIMING, energy=envelope())
+    assert tie.entry_placements[0].start_frame == 1003
+
+
+def test_a_cut_outside_the_zoom_window_never_moves_the_entry() -> None:
+    """7 frames at 60 fps. A cut 8 frames out is not this transition's cut."""
+
+    result = plan((1000, 1200), cuts=(992,), timing=FULL_TIMING, energy=envelope())
+    entry = result.entry_placements[0]
+    assert (entry.start_frame, entry.cut_frame) == (1000, None)
+    assert entry.reason == REASON_ENTRY_DIRECT
+
+
+def test_no_cut_at_all_leaves_every_anchor_exactly_where_the_audio_put_it() -> None:
+    with_cuts = plan(
+        (1000, 1200), cuts=(1104,), timing=FULL_TIMING, energy=envelope((1100, 1110))
     )
-    result = plan((1000, 1400), settings=tight, timing=FULL_TIMING)
-    assert [p.asset_role for p in result.zoom_placements] == [
-        ROLE_X0_TO_FACE_X1,
-        ROLE_FACE_X1_TO_FACE_X2,
-    ]
-    assert "shorter than its own" in " ".join(result.decisions)
+    without = plan((1000, 1200), timing=FULL_TIMING, energy=envelope((1100, 1110)))
+    assert with_cuts.promotion_placements[0].start_frame != 0
+    assert without.entry_placements[0].start_frame == 1000
+    assert all(p.cut_frame is None for p in without.placements)
+
+
+def test_a_promotion_snaps_to_a_cut_near_its_recovery_and_not_near_the_burst_start() -> None:
+    result = plan(
+        (1000, 1200),
+        cuts=(1002, 1113),
+        timing=FULL_TIMING,
+        energy=envelope((1100, 1110)),
+    )
+    promotion = result.promotion_placements[0]
+    assert (promotion.start_frame, promotion.cut_frame) == (1113, 1113)
+    assert promotion.reason == REASON_PROMOTED_SNAPPED_FORWARD
+
+
+def test_a_promotion_snaps_backward_too() -> None:
+    result = plan(
+        (1000, 1200), cuts=(1106,), timing=FULL_TIMING, energy=envelope((1100, 1110))
+    )
+    promotion = result.promotion_placements[0]
+    assert (promotion.start_frame, promotion.cut_frame) == (1106, 1106)
+    assert promotion.reason == REASON_PROMOTED_SNAPPED_BACKWARD
+
+
+def test_a_nearer_cut_that_would_truncate_an_animation_gives_way_to_a_valid_one() -> None:
+    """The recovery is a valid anchor at +15, but the nearest cut sits at +14."""
+
+    result = plan(
+        (1000, 1200),
+        cuts=(1014, 1019),
+        timing=FULL_TIMING,
+        energy=envelope((1010, 1015)),
+    )
+    promotion = result.promotion_placements[0]
+    assert (promotion.start_frame, promotion.cut_frame) == (1019, 1019)
+    assert "rejected for face_x2" in " ".join(result.decisions)
+
+
+def test_an_entry_is_never_snapped_outside_the_analysed_range() -> None:
+    """Same predicate that stops an entry overlapping the cycle before it: a floor."""
+
+    result = plan(
+        (1002, 1300),
+        timeline=FrameRange(1000, 5000),
+        cuts=(998,),
+        timing=FULL_TIMING,
+        energy=envelope(),
+    )
+    assert result.valid
+    assert result.entry_placements[0].start_frame == 1002
+    assert result.entry_placements[0].cut_frame is None
+
+
+def test_a_reset_still_snaps_to_a_cut_from_any_level() -> None:
+    """The reset asset follows the level; Phase 6's rule does not change with it."""
+
+    result = plan(
+        (1000, 1300),
+        cuts=(1296,),
+        timing=FULL_TIMING,
+        energy=envelope((1100, 1110), (1200, 1210)),
+    )
+    reset = result.reset_placements[0]
+    assert (reset.asset_role, reset.start_frame, reset.cut_frame) == (
+        ROLE_FACE_X3_TO_X0,
+        1296,
+        1296,
+    )
+    assert reset.reason == REASON_RESET_SNAPPED_BACKWARD
 
 
 def test_planning_the_same_material_twice_gives_the_identical_plan() -> None:
-    speech = ((1000, 1200), (1500, 1900), (2400, 2450))
-    first = plan(*speech, cuts=(1196, 1905), timing=FULL_TIMING)
-    second = plan(*speech, cuts=(1196, 1905), timing=FULL_TIMING)
+    speech = ((1000, 1300), (1500, 1900), (2400, 2450))
+    energy = envelope((1100, 1110), (1600, 1610))
+    first = plan(*speech, cuts=(1296, 1905), timing=FULL_TIMING, energy=energy)
+    second = plan(*speech, cuts=(1296, 1905), timing=FULL_TIMING, energy=energy)
     assert first.to_dict() == second.to_dict()

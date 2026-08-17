@@ -30,35 +30,43 @@ the move never completes. Symmetrically `FACE_X0_SMOOTH` only needs its animatio
 do its whole job; the Media Pool item's *native* length (42 frames for this user) is a
 property of the asset file, not a minimum the planner has to honour. Nothing here reads it.
 
-**A reset prefers a real cut, and the nearest one.** When the creator stops talking and the
-edit cuts around the same moment, returning to normal framing on that cut looks intentional.
-So a reset may move to a hard cut inside an *asymmetric* window around it:
-`[base_reset - cut_snap_lookback, base_reset + cut_snap_window]`. The lookback is small and
-exists because a VAD boundary is not an editorial one — `speech_pad_ms` alone puts the
-detected end slightly after the perceptual one, and measurement on real material (see
-`.agent/reports/phase-06-cut-offset-diagnostic.txt`) found the matching cut 4-7 frames
-*before* `burst.end` in 8 of 14 bursts and never after. Among the candidates the planner
-takes the one **closest** to `base_reset`, preferring the later cut on an exact tie — but
-only if the reset animation still fits entirely before the next zoom starts. With no candidate
-it resets directly at `base_reset`; the lookback never moves a reset on its own.
+**Every transition prefers a real cut, and the nearest one.** When the edit cuts around the
+same moment a transition happens, landing on that cut looks intentional. So every facecam
+transition has a *raw audio anchor* — burst start for the entry, a recovery cue for a
+promotion, burst end for the reset — and may move to a hard cut inside an asymmetric window
+around it. Among the candidates the planner takes the one **closest** to the anchor, preferring
+the later cut on an exact tie, and only if the whole chain still holds together (order,
+animations, no overlap). With no candidate the transition stays exactly on its raw anchor: a
+cut never creates a transition and never moves one on its own (D052).
 
-**Promotions are earned by sustained speech, not by cuts.** Once a burst is zoomed, the level
-climbs on elapsed talking time alone: `promote_to_face_x2_after_ms` into the burst, then
-`promote_to_face_x3_after_ms`. Each promotion additionally requires that enough burst *remains*
-(`min_remaining_after_face_x2_ms` / `..._x3_ms`), so a burst that stops a heartbeat after
-crossing a threshold does not flash a tighter level nobody can read. Promotions are deliberately
-**not** cut-snapped: measurement on `DAZ_OUTPUT_MVP2` found 1 of 6 manual promotions on a hard
-cut, which is chance, while 8 of 14 manual resets sit on one (D047). Snapping stays where the
-evidence is.
+The two windows are different because they were measured separately. The reset's
+`[-120 ms, +350 ms]` is Phase 6's (the cut an editor uses sits 4-7 frames *before* a VAD end,
+never after). The zoom-in window is symmetric and small, `[-120 ms, +120 ms]`: on
+`DAZ_OUTPUT_MVP2` four manual entries sit exactly on a cut with the burst start 0-2 frames
+away, and the nearest *non*-matching cut to any burst start is 62 frames away — an 8x margin.
+
+**Promotions are earned by voice dynamics, not by elapsed time.** Phase 8's
+`promote_to_face_x2_after_ms` / `..._x3_ms` are superseded (D049). Inside a burst the planner
+reads the energy envelope's valleys (`domain/dynamics.py`): a dip in the voice followed by a
+clear pick-up is a **promotion cue**, anchored on the pick-up. The first usable cue earns
+`face_x2`, the second `face_x3`, and any further cue is ignored — the ladder tops out and
+stays there until the reset. A cue is only usable if the previous transition has finished its
+animation, and if the level it opens can be held long enough to be read.
 """
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Mapping, Sequence
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from fractions import Fraction
 from typing import Any
 
+from davinci_auto_zoom.domain.dynamics import (
+    EnergyEnvelope,
+    EnergySettings,
+    VoiceValley,
+    voice_valleys,
+)
 from davinci_auto_zoom.domain.models import (
     Frame,
     FrameRange,
@@ -72,19 +80,30 @@ from davinci_auto_zoom.domain.transitions import (
     ROLE_X0_TO_FACE_X1,
     ROLES,
     STATE_FACE_X1,
-    Transition,
     promotion_from,
     reset_from,
 )
 
 #: Placement reasons. Short tokens: they are a table column and a JSON field, not prose.
-REASON_X1_UNTIL_DIRECT_RESET = "x1_until_direct_reset"
-REASON_X1_UNTIL_CUT_RESET = "x1_until_cut_snapped_reset"
+#: Each names what decided the placement's own START frame, so entry, promotion and reset all
+#: read the same way: direct on the audio anchor, or snapped to a cut in one direction.
+REASON_ENTRY_DIRECT = "entry_direct"
+REASON_ENTRY_SNAPPED_FORWARD = "entry_cut_snap_forward"
+REASON_ENTRY_SNAPPED_BACKWARD = "entry_cut_snap_backward"
 REASON_X1_HELD_TO_TIMELINE_END = "x1_held_to_timeline_end"
-REASON_PROMOTED_SUSTAINED = "promoted_sustained_speech"
+REASON_PROMOTED_DIRECT = "promoted_voice_recovery"
+REASON_PROMOTED_SNAPPED_FORWARD = "promoted_cut_snap_forward"
+REASON_PROMOTED_SNAPPED_BACKWARD = "promoted_cut_snap_backward"
 REASON_RESET_DIRECT = "reset_direct"
 REASON_RESET_SNAPPED_FORWARD = "reset_cut_snap_forward"
 REASON_RESET_SNAPPED_BACKWARD = "reset_cut_snap_backward"
+
+#: Why a valley that the *signal* qualified was still not used as a promotion. The signal's
+#: own rejection reasons live in `domain/dynamics.py`; these are the edit's.
+CUE_REJECTED_ANIMATION = "previous_animation_unfinished"
+CUE_REJECTED_NO_ROOM = "no_room_before_reset"
+CUE_REJECTED_AT_TOP = "already_at_face_x3"
+CUE_REJECTED_NO_ASSET = "no_asset_for_next_level"
 
 
 def frames_from_ms(milliseconds: int, frame_rate: Fraction) -> int:
@@ -115,46 +134,47 @@ class PlannerSettings:
     #: perceptual end of a phrase, so the cut an editor would use often sits just before it.
     #: Only ever used to snap onto a real cut — never to move a reset earlier by itself.
     cut_snap_lookback_ms: int = 120
+    #: The same idea for every zoom-IN anchor (entry and promotions), symmetric and small.
+    #: A zoom-in anchor has no systematic bias the way a VAD end does, so there is no reason
+    #: for the window to lean one way; 120 ms = 7 frames at 60 fps, measured in D052.
+    zoom_cut_snap_window_ms: int = 120
+    zoom_cut_snap_lookback_ms: int = 120
 
-    # --- facecam level promotions (Phase 8) --------------------------------------------
-    # Talking time, measured from the start of the burst's zoom, that earns the next rung of
-    # the ladder; and how much burst must still be left for that rung to be worth taking.
-    # Defaults are calibrated on DAZ_OUTPUT_MVP2, not invented — see
-    # .agent/reports/phase-08-mvp2-analysis.txt and D047.
-    promote_to_face_x2_after_ms: int = 1000
-    min_remaining_after_face_x2_ms: int = 350
-    promote_to_face_x3_after_ms: int = 1800
-    min_remaining_after_face_x3_ms: int = 500
+    # --- facecam level promotions (Phase 8c) -------------------------------------------
+    # A promotion is earned by a dip in the voice followed by a clear pick-up, never by
+    # elapsed time (D049). These four numbers describe what counts as such a dip; they are
+    # relative to the burst's own voice level, so a change of microphone gain does not move
+    # them. Calibrated on DAZ_OUTPUT_MVP2 — see .agent/reports/phase-08c-voice-dynamics-
+    # analysis.txt and D051.
+    promotion_min_drop_db: int = 20
+    promotion_recovery_within_db: int = 6
+    promotion_min_valley_ms: int = 30
+    promotion_max_valley_ms: int = 650
+    #: How long the level a promotion opens must survive, on top of its own animation. This
+    #: is editorial and measured: no manual promotion in `DAZ_OUTPUT_MVP2` is held for fewer
+    #: than 27 frames (450 ms), so 400 ms = 24 frames sits just below every hold the editor
+    #: actually made while still refusing a level that would flash and read as a glitch. It is
+    #: NOT Phase 8's `min_remaining_*`, which gated on time since the *burst* started.
+    promotion_min_hold_ms: int = 400
 
     def __post_init__(self) -> None:
         for name in PLANNER_SETTING_KEYS:
             if getattr(self, name) < 0:
                 raise ValueError(f"{name} must be >= 0")
-        if self.promote_to_face_x3_after_ms <= self.promote_to_face_x2_after_ms:
+        if self.promotion_max_valley_ms < self.promotion_min_valley_ms:
             raise ValueError(
-                "promote_to_face_x3_after_ms must be greater than "
-                "promote_to_face_x2_after_ms: the ladder is climbed one rung at a time, so "
-                "x3 cannot be earned before x2"
+                "promotion_max_valley_ms must be >= promotion_min_valley_ms, otherwise no "
+                "valley can ever qualify"
+            )
+        if self.promotion_recovery_within_db >= self.promotion_min_drop_db:
+            raise ValueError(
+                "promotion_recovery_within_db must be < promotion_min_drop_db: the voice has "
+                "to climb back above the line it fell under, or every valley recovers on its "
+                "own first sample"
             )
 
-    def to_dict(self) -> dict[str, int]:
-        return {name: int(getattr(self, name)) for name in PLANNER_SETTING_KEYS}
-
-    def promotion_after_ms(self, transition: Transition) -> int:
-        """Talking time that earns `transition`, by the state it leads to."""
-
-        return {
-            FACECAM_LADDER[1]: self.promote_to_face_x2_after_ms,
-            FACECAM_LADDER[2]: self.promote_to_face_x3_after_ms,
-        }[transition.to_state]
-
-    def min_remaining_ms(self, transition: Transition) -> int:
-        """Burst that must still be ahead for `transition` to be worth placing."""
-
-        return {
-            FACECAM_LADDER[1]: self.min_remaining_after_face_x2_ms,
-            FACECAM_LADDER[2]: self.min_remaining_after_face_x3_ms,
-        }[transition.to_state]
+    def to_dict(self) -> dict[str, float]:
+        return {name: getattr(self, name) for name in PLANNER_SETTING_KEYS}
 
 
 #: Field order is the config's key order, and the only list of them. Adding a setting in one
@@ -165,11 +185,24 @@ PLANNER_SETTING_KEYS: tuple[str, ...] = (
     "zoom_lead_out_ms",
     "cut_snap_window_ms",
     "cut_snap_lookback_ms",
-    "promote_to_face_x2_after_ms",
-    "min_remaining_after_face_x2_ms",
-    "promote_to_face_x3_after_ms",
-    "min_remaining_after_face_x3_ms",
+    "zoom_cut_snap_window_ms",
+    "zoom_cut_snap_lookback_ms",
+    "promotion_min_drop_db",
+    "promotion_recovery_within_db",
+    "promotion_min_valley_ms",
+    "promotion_max_valley_ms",
+    "promotion_min_hold_ms",
 )
+
+#: Phase 8's duration-based promotion knobs. They no longer decide anything and are not
+#: silently accepted: a config still carrying them gets an error naming what replaced them
+#: (D049), because ignoring them would leave a user believing they still tune the edit.
+SUPERSEDED_PLANNER_KEYS: dict[str, str] = {
+    "promote_to_face_x2_after_ms": "promotion_min_drop_db / promotion_min_valley_ms",
+    "min_remaining_after_face_x2_ms": "promotion_min_hold_ms",
+    "promote_to_face_x3_after_ms": "promotion_min_drop_db / promotion_min_valley_ms",
+    "min_remaining_after_face_x3_ms": "promotion_min_hold_ms",
+}
 
 
 @dataclass(frozen=True, slots=True, init=False)
@@ -328,6 +361,9 @@ class PlanSource:
     assets: tuple[tuple[str, str], ...] = ()
     asset_transition_frames: tuple[tuple[str, int], ...] = ()
     planner_settings: PlannerSettings = field(default_factory=PlannerSettings)
+    #: How the energy envelope was built. Part of the plan's identity because it changes the
+    #: promotion cues, and therefore the plan (D051).
+    energy_settings: EnergySettings = field(default_factory=EnergySettings)
     #: The Media Pool items the roles resolved to, with their stable ids.
     asset_identities: tuple[AssetIdentity, ...] = ()
     #: `domain.fingerprint.source_fingerprint` of the voice/cut structure that was read.
@@ -347,6 +383,7 @@ class PlanSource:
             "assets": dict(self.assets),
             "asset_transition_frames": dict(self.asset_transition_frames),
             "planner_settings": self.planner_settings.to_dict(),
+            "energy_settings": self.energy_settings.to_dict(),
             "asset_identities": [identity.to_dict() for identity in self.asset_identities],
             "structural_fingerprint": self.structural_fingerprint,
         }
@@ -364,6 +401,11 @@ class ZoomPlan:
     bursts: tuple[FrameRange, ...]
     placements: tuple[AssetPlacement, ...]
     decisions: tuple[str, ...]
+    #: Every valley the envelope produced inside a burst, used or not, with the reason.
+    valleys: tuple[VoiceValley, ...] = ()
+    #: One outcome per entry of `valleys`, in the same order: the state it opened
+    #: (`face_x2` / `face_x3`), the signal's own rejection, or the edit's.
+    cue_outcomes: tuple[str, ...] = ()
     merged_gaps: int = 0
     suppressed_resets: int = 0
     suppressed_cycles: int = 0
@@ -451,6 +493,32 @@ class ZoomPlan:
 
         return self.forward_snapped_resets + self.backward_snapped_resets
 
+    def _snap_counts(self, direct: str, backward: str, forward: str) -> dict[str, int]:
+        reasons = [p.reason for p in self.placements]
+        return {
+            "direct": reasons.count(direct),
+            "backward": reasons.count(backward),
+            "forward": reasons.count(forward),
+        }
+
+    @property
+    def entry_snaps(self) -> dict[str, int]:
+        """How the `x0 -> face_x1` starts were decided: raw anchor, or a cut either side."""
+
+        return self._snap_counts(
+            REASON_ENTRY_DIRECT, REASON_ENTRY_SNAPPED_BACKWARD, REASON_ENTRY_SNAPPED_FORWARD
+        )
+
+    @property
+    def promotion_snaps(self) -> dict[str, int]:
+        """The same, for every ladder climb."""
+
+        return self._snap_counts(
+            REASON_PROMOTED_DIRECT,
+            REASON_PROMOTED_SNAPPED_BACKWARD,
+            REASON_PROMOTED_SNAPPED_FORWARD,
+        )
+
     @property
     def zoomed_frames(self) -> int:
         """Frames spent away from X0. Entry and promotion clips are adjacent and cover the
@@ -509,6 +577,10 @@ class ZoomPlan:
                 for b in self.bursts
             ],
             "placements": [p.to_dict() for p in self.placements],
+            "voice_valleys": [
+                dict(valley.to_dict(), outcome=outcome)
+                for valley, outcome in zip(self.valleys, self.cue_outcomes, strict=False)
+            ],
             "decisions": list(self.decisions),
             "diagnostics": {
                 "speech_segment_count": len(self.speech_segments),
@@ -525,6 +597,10 @@ class ZoomPlan:
                 "suppressed_resets": self.suppressed_resets,
                 "suppressed_cycles": self.suppressed_cycles,
                 "rejected_cuts": self.rejected_cuts,
+                "entry_snaps": self.entry_snaps,
+                "promotion_snaps": self.promotion_snaps,
+                "valleys_found": len(self.valleys),
+                "cues_used": sum(1 for o in self.cue_outcomes if o in FACECAM_LADDER),
                 "zoomed_frames": self.zoomed_frames,
                 "zoom_coverage": self.zoom_coverage,
                 "overlaps": list(self.overlaps),
@@ -541,10 +617,12 @@ class ZoomPlan:
             f"lead_out={self.settings.zoom_lead_out_ms}ms "
             f"cut_snap=[-{self.settings.cut_snap_lookback_ms}ms, "
             f"+{self.settings.cut_snap_window_ms}ms] (nearest cut to the reset anchor wins)",
-            f"  promote   : x2 after {self.settings.promote_to_face_x2_after_ms}ms "
-            f"(>={self.settings.min_remaining_after_face_x2_ms}ms left), "
-            f"x3 after {self.settings.promote_to_face_x3_after_ms}ms "
-            f"(>={self.settings.min_remaining_after_face_x3_ms}ms left); never cut-snapped",
+            f"  zoom snap : [-{self.settings.zoom_cut_snap_lookback_ms}ms, "
+            f"+{self.settings.zoom_cut_snap_window_ms}ms] around every zoom-in anchor",
+            f"  promote   : voice valley >={self.settings.promotion_min_drop_db}dB deep, "
+            f"{self.settings.promotion_min_valley_ms}-{self.settings.promotion_max_valley_ms}ms "
+            f"long, recovering to within {self.settings.promotion_recovery_within_db}dB of the "
+            f"burst's voice level and held >={self.settings.promotion_min_hold_ms}ms",
             "  assets    : "
             + ", ".join(f"{role}={frames}f" for role, frames in self.timing.transition_frames)
             + " (native Media Pool lengths are irrelevant here)",
@@ -569,6 +647,15 @@ class ZoomPlan:
                 + ", ".join(f"peaking at {state}: {count}" for state, count in peaks.items()),
                 "  placements      : "
                 + ", ".join(f"{role}={count}" for role, count in self.role_counts.items()),
+                f"  entries         : {len(self.entry_placements)} "
+                f"({self.entry_snaps['direct']} direct, "
+                f"{self.entry_snaps['backward']} backward + "
+                f"{self.entry_snaps['forward']} forward cut-snapped)",
+                f"  promotions      : {len(self.promotion_placements)} from "
+                f"{len(self.valleys)} valley(s) "
+                f"({self.promotion_snaps['direct']} direct, "
+                f"{self.promotion_snaps['backward']} backward + "
+                f"{self.promotion_snaps['forward']} forward cut-snapped)",
                 f"  resets          : {len(self.reset_placements)} "
                 f"({self.direct_resets} direct, {self.snapped_resets} cut-snapped = "
                 f"{self.backward_snapped_resets} backward + "
@@ -581,6 +668,21 @@ class ZoomPlan:
                 f"  overlaps        : {', '.join(self.overlaps) or 'none'}",
             ]
         )
+        if self.valleys:
+            lines.append("")
+            lines.append(
+                "  voice dynamics — every valley found inside a zoom cycle, and what it did:"
+            )
+            lines.append(
+                "    burst    valley        low  drop   rec  ms  recovery  outcome"
+            )
+            for valley, outcome in zip(self.valleys, self.cue_outcomes, strict=False):
+                recovery = "-" if valley.recovery_frame is None else str(valley.recovery_frame)
+                lines.append(
+                    f"    {valley.burst_index:>5}  [{valley.low.start},{valley.low.end})"
+                    f" {valley.low_frame:>10} {valley.drop_db:5.1f} {valley.recovery_db:5.1f} "
+                    f"{valley.valley_ms:>3}  {recovery:>8}  {outcome}"
+                )
         lines.append("")
         lines.append("  decision trace:")
         lines.extend(f"    {decision}" for decision in self.decisions)
@@ -594,22 +696,58 @@ def hard_cuts_in_range(cuts: Iterable[Frame], timeline: FrameRange) -> tuple[Fra
 
 
 @dataclass(frozen=True, slots=True)
-class _ResetChoice:
-    frame: Frame | None
+class _Snap:
+    """The outcome of trying to put one transition's start on a hard cut."""
+
+    #: Where the transition actually starts: a cut, or the raw anchor when none was usable.
+    frame: Frame
+    #: The cut it landed on, or None when it stayed on its raw anchor.
     cut_frame: Frame | None
-    rejected_cuts: tuple[Frame, ...]
+    #: In-window cuts the chain constraints refused. Reported, never silently dropped.
+    rejected_cuts: tuple[Frame, ...] = ()
     #: Usable cuts that lost the proximity ranking, nearest first. Trace material only.
     runners_up: tuple[Frame, ...] = ()
 
 
-def _reset_reason(cut_frame: Frame | None, base_reset: Frame) -> str:
-    """Which of the three reset outcomes this placement is, as a trace token."""
+def _snap_to_cut(
+    anchor: Frame,
+    cuts: Sequence[Frame],
+    *,
+    lookback: int,
+    forward: int,
+    usable: Callable[[Frame], bool],
+    eligible: Callable[[Frame], bool] | None = None,
+) -> _Snap:
+    """Nearest usable hard cut to `anchor`, else `anchor` itself. One rule for every class.
+
+    Candidates live in `[anchor - lookback, anchor + forward]` and are ranked by
+    `abs(cut - anchor)`, a later cut winning an exact tie. `eligible` narrows the window
+    silently (a cut that was never a candidate is not a rejection); `usable` is the chain
+    constraint — order, animations, no overlap — and a cut it refuses is reported, so a nearer
+    but unusable cut gives way to the next valid one rather than to nothing (D052).
+    """
+
+    candidates = sorted(
+        (
+            c
+            for c in cuts
+            if anchor - lookback <= c <= anchor + forward and (eligible is None or eligible(c))
+        ),
+        key=lambda c: (abs(c - anchor), -c),
+    )
+    ok = [c for c in candidates if usable(c)]
+    rejected = tuple(sorted(c for c in candidates if c not in ok))
+    if ok:
+        return _Snap(ok[0], ok[0], rejected, tuple(ok[1:]))
+    return _Snap(anchor, None, rejected)
+
+
+def _snap_reason(cut_frame: Frame | None, anchor: Frame, direct: str, back: str, ahead: str) -> str:
+    """Which of the three snapping outcomes a placement is, as a trace token."""
 
     if cut_frame is None:
-        return REASON_RESET_DIRECT
-    if cut_frame < base_reset:
-        return REASON_RESET_SNAPPED_BACKWARD
-    return REASON_RESET_SNAPPED_FORWARD
+        return direct
+    return back if cut_frame < anchor else ahead
 
 
 def _choose_reset(
@@ -620,108 +758,204 @@ def _choose_reset(
     snap_window: int,
     lookback: int,
     x0_frames: int,
-) -> _ResetChoice:
+) -> _Snap | None:
     """Where the reset goes: the usable hard cut nearest `base_reset`, else the direct point.
 
-    Candidates live in the asymmetric window `[base_reset - lookback, base_reset + window]`
-    and are ranked by `abs(cut - base_reset)`, a later cut winning an exact tie so the bias
-    stays towards "after the speech". `floor` is where the x1 for this burst begins: a cut at
-    or before it would leave no room for the zoom-in itself.
-
-    `limit` is the frame the next zoom starts at (or the end of the timeline). A reset at `R`
-    is only usable when the whole x0 animation fits before it: `R + x0_frames <= limit`. That
-    is the *only* length rule — the asset's native Media Pool duration plays no part.
+    `floor` is the earliest frame this cycle's zoom could start at: a cut at or before it
+    would leave no room for the zoom-in itself. `limit` is the frame the next zoom starts at
+    (or the end of the timeline); a reset at `R` is only usable when the whole x0 animation
+    fits before it: `R + x0_frames <= limit`. That is the *only* length rule — the asset's
+    native Media Pool duration plays no part. `None` means no reset fits at all.
     """
 
-    candidates = sorted(
-        (c for c in cuts if base_reset - lookback <= c <= base_reset + snap_window and c > floor),
-        key=lambda c: (abs(c - base_reset), -c),
+    snap = _snap_to_cut(
+        base_reset,
+        cuts,
+        lookback=lookback,
+        forward=snap_window,
+        eligible=lambda c: c > floor,
+        usable=lambda c: c + x0_frames <= limit,
     )
-    usable = [c for c in candidates if c + x0_frames <= limit]
-    rejected = tuple(sorted(c for c in candidates if c not in usable))
-    if usable:
-        return _ResetChoice(usable[0], usable[0], rejected, tuple(usable[1:]))
+    if snap.cut_frame is not None:
+        return snap
     if base_reset + x0_frames <= limit:
-        return _ResetChoice(base_reset, None, rejected)
-    return _ResetChoice(None, None, rejected)
+        return snap
+    return None
 
 
 @dataclass(frozen=True, slots=True)
 class _ZoomChain:
     """The zoom-in side of one cycle: adjacent transition clips, and where they end up."""
 
-    #: `(role, start_frame)` in placement order, entry first. Never empty.
-    steps: tuple[tuple[str, Frame], ...]
+    #: `(role, start_frame, cut_frame, reason)` in placement order, entry first. Never empty.
+    #: The entry's reason is a placeholder the caller replaces once it knows how the entry
+    #: itself was snapped.
+    steps: tuple[tuple[str, Frame, Frame | None, str], ...]
     top_state: str
-    #: Trace lines explaining every promotion taken and the first one refused.
+    #: Trace lines explaining every promotion taken and every cue refused.
     decisions: tuple[str, ...]
+    #: One outcome token per valley given to the chain, in the same order.
+    outcomes: tuple[str, ...]
+    rejected_cuts: int = 0
 
 
 def _zoom_chain(
     *,
     burst_index: int,
     open_start: Frame,
+    open_cut: Frame | None,
     reset: Frame,
     timing: AssetTiming,
     settings: PlannerSettings,
     frame_rate: Fraction,
+    valleys: Sequence[VoiceValley],
+    cuts: Sequence[Frame],
 ) -> _ZoomChain:
-    """Climb the facecam ladder for one cycle, on elapsed talking time alone.
+    """Climb the facecam ladder for one cycle, one qualifying voice recovery at a time.
 
-    Deterministic and total: the chain always starts with the entry transition, and stops at
-    the first rung that fails any of four independent conditions — the user has no asset for
-    it, the burst has not lasted long enough to earn it, too little burst remains for it to be
-    readable, or placing it would leave a clip too short to finish its own animation. Because
-    it stops rather than skips, `FACE_X3` can never appear without `FACE_X2` before it.
+    Deterministic and total. The chain always starts with the entry transition. Each valley is
+    considered in time order, and a promotion happens only when all of these hold: the ladder
+    has a rung left, the user has an asset for it, the signal qualified the valley, the
+    previous transition has finished its animation by the recovery frame, and the new level
+    can be held for its own animation *and* `promotion_min_hold_ms` before the reset.
+
+    A cue that fails is skipped, not stretched — the next qualifying one may still promote.
+    A cue that fails because the ladder is at the top ends the loop. Because the ladder is
+    climbed rung by rung, `FACE_X3` can never appear without `FACE_X2` before it.
     """
 
-    steps: list[tuple[str, Frame]] = [(ROLE_X0_TO_FACE_X1, open_start)]
+    steps: list[tuple[str, Frame, Frame | None, str]] = [
+        (ROLE_X0_TO_FACE_X1, open_start, open_cut, REASON_ENTRY_DIRECT)
+    ]
     decisions: list[str] = []
+    outcomes: list[str] = []
     state = STATE_FACE_X1
+    hold = max(frames_from_ms(settings.promotion_min_hold_ms, frame_rate), 0)
+    lookback = frames_from_ms(settings.zoom_cut_snap_lookback_ms, frame_rate)
+    forward = frames_from_ms(settings.zoom_cut_snap_window_ms, frame_rate)
+    rejected_cuts = 0
 
-    while (step := promotion_from(state)) is not None:
+    for valley in valleys:
+        step = promotion_from(state)
+        if step is None:
+            outcomes.append(CUE_REJECTED_AT_TOP)
+            decisions.append(
+                f"burst {burst_index}: cue at {valley.recovery_frame} ignored — the ladder is "
+                f"already at {state} and there is no rung above it"
+            )
+            continue
         if step.role not in timing:
+            outcomes.append(CUE_REJECTED_NO_ASSET)
             decisions.append(
                 f"burst {burst_index}: no {step.to_state} — role {step.role!r} has no "
                 "configured asset animation, so this project cannot make that move"
             )
-            break
-        after = frames_from_ms(settings.promotion_after_ms(step), frame_rate)
-        remaining_needed = frames_from_ms(settings.min_remaining_ms(step), frame_rate)
-        start = open_start + after
-        remaining = reset - start
-        if remaining < remaining_needed:
+            continue
+        if not valley.qualified or valley.recovery_frame is None:
+            outcomes.append(valley.status)
             decisions.append(
-                f"burst {burst_index}: no {step.to_state} — the burst would reach the "
-                f"{after}-frame promotion point at {start} with only {remaining} frame(s) "
-                f"left before the reset at {reset}, and {remaining_needed} are required for "
-                "the tighter level to be worth reading"
+                f"burst {burst_index}: valley [{valley.low.start}, {valley.low.end}) rejected "
+                f"by the signal — {valley.status} (drop {valley.drop_db:.1f}dB, "
+                f"{valley.valley_ms}ms below the line)"
             )
-            break
-        previous_role, previous_start = steps[-1]
-        held = start - previous_start
-        if held < timing.frames_for(previous_role):
-            decisions.append(
-                f"burst {burst_index}: no {step.to_state} — it would cut {previous_role} "
-                f"down to {held} frame(s), shorter than its own "
-                f"{timing.frames_for(previous_role)}-frame animation"
-            )
-            break
-        if remaining < timing.frames_for(step.role):
-            decisions.append(
-                f"burst {burst_index}: no {step.to_state} — {remaining} frame(s) remain and "
-                f"{step.role} needs {timing.frames_for(step.role)} to finish its own move"
-            )
-            break
-        decisions.append(
-            f"burst {burst_index}: promoted to {step.to_state} at {start} "
-            f"({after} frames of sustained speech after the zoom opened at {open_start}), "
-            f"held for {remaining} frame(s) until the reset at {reset}"
+            continue
+
+        anchor = valley.recovery_frame
+        previous_role, previous_start = steps[-1][0], steps[-1][1]
+        needed_before = timing.frames_for(previous_role)
+        needed_after = max(timing.frames_for(step.role), hold)
+
+        def fits(
+            frame: Frame,
+            since: Frame = previous_start,
+            before: int = needed_before,
+            after: int = needed_after,
+        ) -> bool:
+            return frame - since >= before and reset - frame >= after
+
+        if not fits(anchor):
+            if anchor - previous_start < needed_before:
+                outcomes.append(CUE_REJECTED_ANIMATION)
+                decisions.append(
+                    f"burst {burst_index}: cue at {anchor} rejected — it would cut "
+                    f"{previous_role} down to {anchor - previous_start} frame(s), shorter than "
+                    f"its own {needed_before}-frame animation. The cue is not moved to make it "
+                    "fit; the next qualifying one may still promote"
+                )
+            else:
+                outcomes.append(CUE_REJECTED_NO_ROOM)
+                decisions.append(
+                    f"burst {burst_index}: cue at {anchor} rejected — only {reset - anchor} "
+                    f"frame(s) remain before the reset at {reset}, and {step.to_state} needs "
+                    f"{needed_after} to finish its move and be held long enough to read"
+                )
+            continue
+
+        snap = _snap_to_cut(
+            anchor, cuts, lookback=lookback, forward=forward, usable=fits
         )
-        steps.append((step.role, start))
+        rejected_cuts += len(snap.rejected_cuts)
+        for cut in snap.rejected_cuts:
+            decisions.append(
+                f"burst {burst_index}: hard cut at {cut} ({cut - anchor:+d}f from the cue) "
+                f"rejected for {step.to_state} — it does not leave both animations room"
+            )
+        start = snap.frame
+        outcomes.append(step.to_state)
+        where = (
+            f"directly on the recovery (no hard cut in [-{lookback}f, +{forward}f])"
+            if snap.cut_frame is None
+            else f"snapped to hard cut {snap.cut_frame} ({snap.cut_frame - anchor:+d}f)"
+        )
+        decisions.append(
+            f"burst {burst_index}: promoted to {step.to_state} at {start} — the voice dropped "
+            f"{valley.drop_db:.1f}dB for {valley.valley_ms}ms in "
+            f"[{valley.low.start}, {valley.low.end}) and came back at {anchor} "
+            f"(+{valley.recovery_db:.1f}dB); {where}; held for {reset - start} frame(s)"
+        )
+        steps.append(
+            (
+                step.role,
+                start,
+                snap.cut_frame,
+                _snap_reason(
+                    snap.cut_frame,
+                    anchor,
+                    REASON_PROMOTED_DIRECT,
+                    REASON_PROMOTED_SNAPPED_BACKWARD,
+                    REASON_PROMOTED_SNAPPED_FORWARD,
+                ),
+            )
+        )
         state = step.to_state
 
-    return _ZoomChain(tuple(steps), state, tuple(decisions))
+    return _ZoomChain(tuple(steps), state, tuple(decisions), tuple(outcomes), rejected_cuts)
+
+
+def _burst_valleys(
+    energy: EnergyEnvelope | None,
+    span: FrameRange,
+    burst_index: int,
+    settings: PlannerSettings,
+) -> tuple[VoiceValley, ...]:
+    """Voice valleys inside one zoom cycle, or none at all when there is no envelope.
+
+    The span searched is the *cycle* — from where the zoom opens to where it resets — not the
+    speech burst. A promotion is a change to a picture that is already zoomed, so a dip before
+    the zoom exists cannot earn one.
+    """
+
+    if energy is None:
+        return ()
+    return voice_valleys(
+        energy,
+        span,
+        burst_index=burst_index,
+        min_drop_db=settings.promotion_min_drop_db,
+        recovery_within_db=settings.promotion_recovery_within_db,
+        min_valley_ms=settings.promotion_min_valley_ms,
+        max_valley_ms=settings.promotion_max_valley_ms,
+    )
 
 
 def plan_zooms(
@@ -733,8 +967,14 @@ def plan_zooms(
     hard_cuts: Iterable[Frame] = (),
     settings: PlannerSettings | None = None,
     source: PlanSource | None = None,
+    energy: EnergyEnvelope | None = None,
 ) -> ZoomPlan:
-    """Turn speech facts into transition placements. Pure and deterministic."""
+    """Turn speech facts into transition placements. Pure and deterministic.
+
+    `energy` is the voice-dynamics envelope from `speech/energy.py`. Without it there are no
+    promotion cues and the plan is a one-level edit — which is a legitimate result (it is what
+    Phases 4-7 produced), not a silent degradation: the decision trace says so.
+    """
 
     settings = settings or PlannerSettings()
     reset_gate = frames_from_ms(settings.reset_after_silence_ms, frame_rate)
@@ -742,6 +982,8 @@ def plan_zooms(
     lead_out = frames_from_ms(settings.zoom_lead_out_ms, frame_rate)
     snap_window = frames_from_ms(settings.cut_snap_window_ms, frame_rate)
     lookback = frames_from_ms(settings.cut_snap_lookback_ms, frame_rate)
+    zoom_window = frames_from_ms(settings.zoom_cut_snap_window_ms, frame_rate)
+    zoom_lookback = frames_from_ms(settings.zoom_cut_snap_lookback_ms, frame_rate)
     x1_min = timing.frames_for(ROLE_X0_TO_FACE_X1)
     # Budgeted before the level is known; see `AssetTiming.max_reset_frames`.
     x0_frames = timing.max_reset_frames
@@ -752,17 +994,24 @@ def plan_zooms(
         f"@ {float(frame_rate):.6f} fps",
         f"gate reset_after_silence={settings.reset_after_silence_ms}ms = {reset_gate} frames; "
         f"lead_in={lead_in}f lead_out={lead_out}f "
-        f"cut snap window=[-{lookback}f, +{snap_window}f] around the reset anchor "
+        f"cut snap window=[-{lookback}f, +{snap_window}f] around a reset anchor and "
+        f"[-{zoom_lookback}f, +{zoom_window}f] around a zoom-in anchor "
         "(nearest cut wins, forward on a tie); "
         "transition animations "
         + " ".join(f"{role}={frames}f" for role, frames in timing.transition_frames),
         "promotion ladder: "
         + " -> ".join(FACECAM_LADDER)
-        + f"; x2 after {settings.promote_to_face_x2_after_ms}ms with "
-        f">={settings.min_remaining_after_face_x2_ms}ms left, "
-        f"x3 after {settings.promote_to_face_x3_after_ms}ms with "
-        f">={settings.min_remaining_after_face_x3_ms}ms left; promotions are never cut-snapped",
+        + "; each rung is earned by a voice valley of at least "
+        f"{settings.promotion_min_valley_ms}ms and {settings.promotion_min_drop_db}dB followed "
+        f"by a recovery to within {settings.promotion_recovery_within_db}dB of the burst's own "
+        f"voice level, held for at least {settings.promotion_min_hold_ms}ms",
         f"{len(cuts)} hard cut(s) on the reference video track inside the range",
+        (
+            f"energy envelope: {len(energy)} point(s), {energy.settings.to_dict()}"
+            if energy is not None
+            else "no energy envelope supplied: no promotion is possible, every cycle stays at "
+            "face_x1"
+        ),
     ]
 
     # 1. Speech regions, normalized and clipped to the range we are allowed to plan in.
@@ -806,29 +1055,42 @@ def plan_zooms(
     suppressed_resets = 0
     suppressed_cycles = 0
     rejected_cuts = 0
-    open_start: Frame | None = None
+    open_raw: Frame | None = None
     open_index = 0
+    floor = timeline.start
+    valleys: list[VoiceValley] = []
+    outcomes: list[str] = []
 
     for index, burst in enumerate(bursts):
-        if open_start is None:
-            open_start = max(timeline.start, burst.start - lead_in)
+        if open_raw is None:
+            open_raw = max(timeline.start, burst.start - lead_in)
             open_index = index
         is_last = index == len(bursts) - 1
         limit = timeline.end if is_last else max(timeline.start, bursts[index + 1].start - lead_in)
         base_reset = min(burst.end + lead_out, timeline.end)
+        # The reset is chosen first, against the *earliest* frame this cycle's entry could be
+        # snapped to: the entry's own snap then knows where the cycle ends, and can refuse a
+        # cut that would leave the entry animation no room (D052).
         choice = _choose_reset(
-            base_reset, open_start, limit, cuts, snap_window, lookback, x0_frames
+            base_reset,
+            max(floor, open_raw - zoom_lookback),
+            limit,
+            cuts,
+            snap_window,
+            lookback,
+            x0_frames,
         )
-        rejected_cuts += len(choice.rejected_cuts)
-        for cut in choice.rejected_cuts:
-            decisions.append(
-                f"burst {index}: hard cut at {cut} ({cut - base_reset:+d}f) rejected — only "
-                f"{limit - cut} frame(s) left before "
-                f"{'the timeline end' if is_last else f'the next zoom at {limit}'}, "
-                f"the x0 animation needs {x0_frames}"
-            )
+        if choice is not None:
+            rejected_cuts += len(choice.rejected_cuts)
+            for cut in choice.rejected_cuts:
+                decisions.append(
+                    f"burst {index}: hard cut at {cut} ({cut - base_reset:+d}f) rejected — only "
+                    f"{limit - cut} frame(s) left before "
+                    f"{'the timeline end' if is_last else f'the next zoom at {limit}'}, "
+                    f"the x0 animation needs {x0_frames}"
+                )
 
-        if choice.frame is None:
+        if choice is None:
             suppressed_resets += 1
             where = "the timeline end" if is_last else f"the next burst's zoom at {limit}"
             decisions.append(
@@ -862,6 +1124,35 @@ def plan_zooms(
                 f"[-{lookback}f, +{snap_window}f] window"
             )
 
+        def entry_fits(frame: Frame, since: Frame = floor, until: Frame = reset) -> bool:
+            """An entry may not overlap the previous cycle, nor lose its own animation."""
+
+            return frame >= since and until - frame >= x1_min
+
+        entry = _snap_to_cut(
+            open_raw, cuts, lookback=zoom_lookback, forward=zoom_window, usable=entry_fits
+        )
+        rejected_cuts += len(entry.rejected_cuts)
+        for cut in entry.rejected_cuts:
+            decisions.append(
+                f"burst {open_index}: hard cut at {cut} ({cut - open_raw:+d}f from the burst "
+                "start) rejected for the entry — it would overlap the previous cycle or leave "
+                f"the {x1_min}-frame entry animation no room before the reset at {reset}"
+            )
+        open_start = entry.frame
+        if entry.cut_frame is not None:
+            decisions.append(
+                f"burst {open_index}: entry snapped "
+                f"{'backward' if entry.cut_frame < open_raw else 'forward'} from {open_raw} to "
+                f"hard cut {entry.cut_frame} ({entry.cut_frame - open_raw:+d}f, window "
+                f"[-{zoom_lookback}f, +{zoom_window}f], nearest cut to the anchor)"
+            )
+        else:
+            decisions.append(
+                f"burst {open_index}: entry at the raw burst start {open_raw}; no usable hard "
+                f"cut in the [-{zoom_lookback}f, +{zoom_window}f] window"
+            )
+
         span = FrameRange(open_start, reset)
         if span.duration < x1_min:
             suppressed_cycles += 1
@@ -870,37 +1161,44 @@ def plan_zooms(
                 f"{span.duration} frame(s), shorter than its own {x1_min}-frame animation, so "
                 "the zoom would be cut off mid-move; no x1 and no x0 are placed"
             )
-            open_start = None
+            open_raw = None
             continue
 
+        cycle_valleys = _burst_valleys(energy, span, open_index, settings)
         chain = _zoom_chain(
             burst_index=open_index,
             open_start=open_start,
+            open_cut=entry.cut_frame,
             reset=reset,
             timing=timing,
             settings=settings,
             frame_rate=frame_rate,
+            valleys=cycle_valleys,
+            cuts=cuts,
         )
         decisions.extend(chain.decisions)
-        entry_reason = (
-            REASON_X1_UNTIL_CUT_RESET
-            if choice.cut_frame is not None
-            else REASON_X1_UNTIL_DIRECT_RESET
+        rejected_cuts += chain.rejected_cuts
+        valleys.extend(cycle_valleys)
+        outcomes.extend(chain.outcomes)
+        entry_reason = _snap_reason(
+            entry.cut_frame,
+            open_raw,
+            REASON_ENTRY_DIRECT,
+            REASON_ENTRY_SNAPPED_BACKWARD,
+            REASON_ENTRY_SNAPPED_FORWARD,
         )
         # Each clip holds its state until the next one takes over; the last one holds it to
         # the reset. This is the whole reason a promotion needs no explicit end frame.
-        boundaries = [start for _, start in chain.steps[1:]] + [reset]
-        for position, ((role, start), end) in enumerate(
+        boundaries = [begin for _r, begin, _c, _n in chain.steps[1:]] + [reset]
+        for position, ((role, begin, snapped, why), end) in enumerate(
             zip(chain.steps, boundaries, strict=True)
         ):
             placements.append(
                 AssetPlacement(
                     asset_role=role,
-                    frames=FrameRange(start, end),
-                    # Only the entry clip is the one the reset decision was about; a promotion
-                    # was earned by speech and carries no cut.
-                    reason=entry_reason if position == 0 else REASON_PROMOTED_SUSTAINED,
-                    cut_frame=choice.cut_frame if position == 0 else None,
+                    frames=FrameRange(begin, end),
+                    reason=entry_reason if position == 0 else why,
+                    cut_frame=snapped,
                     burst_index=open_index,
                     burst_count=index - open_index + 1,
                 )
@@ -910,7 +1208,13 @@ def plan_zooms(
             AssetPlacement(
                 asset_role=back.role,
                 frames=FrameRange(reset, reset + timing.frames_for(back.role)),
-                reason=_reset_reason(choice.cut_frame, base_reset),
+                reason=_snap_reason(
+                    choice.cut_frame,
+                    base_reset,
+                    REASON_RESET_DIRECT,
+                    REASON_RESET_SNAPPED_BACKWARD,
+                    REASON_RESET_SNAPPED_FORWARD,
+                ),
                 cut_frame=choice.cut_frame,
                 burst_index=index,
             )
@@ -919,9 +1223,14 @@ def plan_zooms(
             f"burst {index}: reset from {chain.top_state} uses {back.role} "
             f"({timing.frames_for(back.role)} frames)"
         )
-        open_start = None
+        floor = reset + timing.frames_for(back.role)
+        open_raw = None
 
-    if open_start is not None:
+    if open_raw is not None:
+        # No reset closes this one, so the entry stays on its raw anchor: there is no cycle
+        # end to validate a snapped entry against, and a cut may not shorten a zoom that the
+        # timeline itself already truncates.
+        open_start = open_raw
         span = FrameRange(open_start, timeline.end)
         if span.duration < x1_min:
             suppressed_cycles += 1
@@ -932,28 +1241,32 @@ def plan_zooms(
         else:
             # No reset here, so the chain simply holds to the end of the range. Promotions
             # still apply: a burst that runs out the timeline earned its levels like any other.
+            cycle_valleys = _burst_valleys(energy, span, open_index, settings)
             chain = _zoom_chain(
                 burst_index=open_index,
                 open_start=open_start,
+                open_cut=None,
                 reset=timeline.end,
                 timing=timing,
                 settings=settings,
                 frame_rate=frame_rate,
+                valleys=cycle_valleys,
+                cuts=cuts,
             )
             decisions.extend(chain.decisions)
-            boundaries = [start for _, start in chain.steps[1:]] + [timeline.end]
-            for position, ((role, start), end) in enumerate(
+            rejected_cuts += chain.rejected_cuts
+            valleys.extend(cycle_valleys)
+            outcomes.extend(chain.outcomes)
+            boundaries = [begin for _r, begin, _c, _n in chain.steps[1:]] + [timeline.end]
+            for position, ((role, begin, snapped, why), end) in enumerate(
                 zip(chain.steps, boundaries, strict=True)
             ):
                 placements.append(
                     AssetPlacement(
                         asset_role=role,
-                        frames=FrameRange(start, end),
-                        reason=(
-                            REASON_X1_HELD_TO_TIMELINE_END
-                            if position == 0
-                            else REASON_PROMOTED_SUSTAINED
-                        ),
+                        frames=FrameRange(begin, end),
+                        reason=REASON_X1_HELD_TO_TIMELINE_END if position == 0 else why,
+                        cut_frame=snapped,
                         burst_index=open_index,
                         burst_count=len(bursts) - open_index,
                     )
@@ -973,6 +1286,8 @@ def plan_zooms(
         bursts=tuple(bursts),
         placements=tuple(placements),
         decisions=tuple(decisions),
+        valleys=tuple(valleys),
+        cue_outcomes=tuple(outcomes),
         merged_gaps=merged_gaps,
         suppressed_resets=suppressed_resets,
         suppressed_cycles=suppressed_cycles,
@@ -983,13 +1298,17 @@ def plan_zooms(
 
 
 __all__ = [
-    "REASON_PROMOTED_SUSTAINED",
+    "REASON_ENTRY_DIRECT",
+    "REASON_ENTRY_SNAPPED_BACKWARD",
+    "REASON_ENTRY_SNAPPED_FORWARD",
+    "REASON_PROMOTED_DIRECT",
+    "REASON_PROMOTED_SNAPPED_BACKWARD",
+    "REASON_PROMOTED_SNAPPED_FORWARD",
     "REASON_RESET_DIRECT",
     "REASON_RESET_SNAPPED_BACKWARD",
     "REASON_RESET_SNAPPED_FORWARD",
     "REASON_X1_HELD_TO_TIMELINE_END",
-    "REASON_X1_UNTIL_CUT_RESET",
-    "REASON_X1_UNTIL_DIRECT_RESET",
+    "SUPERSEDED_PLANNER_KEYS",
     "AssetIdentity",
     "AssetPlacement",
     "AssetTiming",

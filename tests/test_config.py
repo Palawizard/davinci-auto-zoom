@@ -194,8 +194,15 @@ def test_the_example_config_carries_this_projects_asset_timing() -> None:
         "face_x2_to_x0": "X2_TO_X0",
         "face_x3_to_x0": "X3_TO_X0",
     }
-    # Calibrated on DAZ_OUTPUT_MVP2 (Phase 8); see .agent/reports/phase-08-mvp2-analysis.txt.
-    assert config.planner.promote_to_face_x2_after_ms == 1000
-    assert config.planner.min_remaining_after_face_x2_ms == 350
-    assert config.planner.promote_to_face_x3_after_ms == 1800
-    assert config.planner.min_remaining_after_face_x3_ms == 500
+    # Calibrated on DAZ_OUTPUT_MVP2 (Phase 8c); see
+    # .agent/reports/phase-08c-voice-dynamics-analysis.txt.
+    assert config.planner.promotion_min_drop_db == 20
+    assert config.planner.promotion_recovery_within_db == 6
+    assert config.planner.promotion_min_valley_ms == 30
+    assert config.planner.promotion_max_valley_ms == 650
+    assert config.planner.promotion_min_hold_ms == 400
+    assert config.planner.zoom_cut_snap_window_ms == 120
+    assert config.planner.zoom_cut_snap_lookback_ms == 120
+    assert config.energy.window_ms == 30
+    assert config.energy.hop_ms == 10
+    assert config.energy.smoothing_ms == 30

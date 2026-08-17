@@ -1001,7 +1001,12 @@ deliberately configured two roles, and then plan promotions they cannot perform.
 
 ## D046 — Promotions are earned by sustained speech; only resets snap to cuts
 
-**Status:** adopted, Phase 8. Measured on `DAZ_OUTPUT_MVP2`.
+**Status: SUPERSEDED by D049 and D052 (Phase 8c).** Kept for the history and for the
+measurement in its last paragraph, which still holds. Its rule does not: promotions are no
+longer earned by elapsed talking time, and every facecam transition may now snap to a cut. The
+four thresholds named below no longer exist.
+
+Original text, Phase 8, measured on `DAZ_OUTPUT_MVP2`:
 
 Once a burst is zoomed, the level climbs on elapsed talking time and nothing else:
 `promote_to_face_x2_after_ms` into the burst, then `promote_to_face_x3_after_ms`. Each
@@ -1022,7 +1027,13 @@ high is safe — the reset actually placed is never longer, so it always fits to
 
 ## D047 — The x2/x3 thresholds are calibrated on measured data, and the x3 pair is weak
 
-**Status:** adopted, Phase 8. Honest about its own evidence.
+**Status: SUPERSEDED by D049 and D051 (Phase 8c).** The four thresholds it calibrates were
+removed; the x3 pair it flagged as resting on n=1 is exactly what the voice-dynamics model
+replaced. The "known divergence that no simple rule can fix" paragraph is still true and now
+has a measured cause — see D049 and
+`.agent/reports/phase-08c-voice-dynamics-analysis.txt`.
+
+Original text, Phase 8:
 
     promote_to_face_x2_after_ms    = 1000   (60 frames at 60 fps)
     min_remaining_after_face_x2_ms =  350   (21 frames)
@@ -1062,3 +1073,135 @@ measurement behind it, rather than a half-built abstraction that constrains that
 advance.
 
 `state_after("x0_to_gameplay")` raises. It does not return `None` and it does not plan nothing.
+
+## D049 — Facecam levels are earned by intra-burst voice dynamics, not by elapsed time
+
+**Status:** adopted, Phase 8c. **Supersedes D046 and D047.**
+
+Phase 8 promoted the framing on how long the burst had been running:
+`promote_to_face_x2_after_ms` into it, then `promote_to_face_x3_after_ms`, each gated by a
+`min_remaining_after_*` term. Those four keys **no longer exist**. A config that still contains
+one is rejected with an error naming its replacement — not ignored with a warning, because a
+silently ignored key leaves a user believing they still tune the edit.
+
+The rule is now:
+
+    burst start                            -> x0 -> face_x1
+    1st qualifying voice recovery inside it -> face_x1 -> face_x2
+    2nd qualifying voice recovery           -> face_x2 -> face_x3
+    any further recovery                    -> ignored, face_x3 holds
+    burst end                               -> current state -> x0
+
+A **qualifying recovery** is the moment the voice comes back after a real dip: the short-time
+energy fell at least `promotion_min_drop_db` below the cycle's own voice level for between
+`promotion_min_valley_ms` and `promotion_max_valley_ms`, then returned to within
+`promotion_recovery_within_db` of it. The transition is anchored on the *recovery*, never on
+the floor of the dip and never on its start.
+
+**Why the change.** The duration rule predicted the level from the length of a burst, which is
+why D047 had to record a divergence it could not fix: a 204-frame cycle the editor kept at x2
+while a 138-frame one went to x3. No monotonic function of duration produces both. Measurement
+on `DAZ_OUTPUT_MVP2` (`.agent/reports/phase-08c-voice-dynamics-analysis.txt`) shows what the
+editor was actually reacting to: **all seven manual promotions sit within 8 frames of a detected
+voice recovery, six of them within 3, median +1.**
+
+**What the new rule is honest about.** It scores 9 of 14 peak levels against the human, where
+the duration rule scored 11 — and every one of the 5 misses is a cycle whose *burst extent*
+disagrees with the human's. On the 9 cycles where the burst matches, the level matches 9 times
+out of 9; on the 5 where it does not, 0 of 5. The correlation is total, which converts a bag of
+unexplained divergences into one named, already-planned problem (Phase 8b). A higher score with
+no mechanism was the worse deal.
+
+Also recorded, because it constrains any successor: **no local feature of a single valley
+separates the 7 used from the 56 unused.** Depth and duration overlap completely. The
+separation comes from the chain — two rungs, taken by the first two usable cues — not from a
+better classifier.
+
+## D050 — The energy envelope is a second reader of the SAME normalized PCM
+
+**Status:** adopted, Phase 8c.
+
+Phase 3 renders the voice track through a scratch timeline, normalizes it to 16 kHz mono PCM
+with ffmpeg and decodes it once. Phase 8c's loudness envelope is computed from **that same
+in-memory array**, in `speech/energy.py`, immediately after the VAD run.
+
+No second render, no second ffmpeg pass, no second decode. A `plan-probe` still costs exactly
+one render of A1. Two independent extractions of the same audio could disagree by a resampling
+rounding — and a speech segment and an energy valley that disagree about where a frame is would
+be undebuggable.
+
+The layering rule from D021 is unchanged and now covers three layers rather than two:
+
+    speech/   PCM -> speech probabilities, PCM -> dBFS envelope     objective facts
+    domain/   envelope -> valleys -> promotion cues                 editorial reading
+    planner   cues + bursts + cuts -> AssetPlacements               the edit
+
+`speech/` never decides that a dip deserves a level, and `domain/` never imports numpy,
+onnxruntime or a file path. `EnergyEnvelope` crosses that boundary as plain
+`(frame, dB)` pairs.
+
+## D051 — Voice-dynamics thresholds are relative, few, and part of the plan's identity
+
+**Status:** adopted, Phase 8c. Calibrated on `DAZ_OUTPUT_MVP2`.
+
+    [speech.energy]  window_ms = 30   hop_ms = 10   smoothing_ms = 30
+    [planner]        promotion_min_drop_db        = 20
+                     promotion_recovery_within_db =  6
+                     promotion_min_valley_ms      = 30
+                     promotion_max_valley_ms      = 650
+                     promotion_min_hold_ms        = 400
+
+**Every editorial threshold is a dB difference against the cycle's own voice level** (its
+75th-percentile envelope point), never an absolute amplitude. Multiplying the whole waveform by
+any constant shifts every point equally and cancels out of every comparison, so a change of
+microphone gain or a compressor cannot change the edit. Tested at ±12 dB in the unit tests and
+at gains ×0.25 to ×4 on the full 14-cycle live plan: identical anchors, all four times.
+
+Justification per number is in `.agent/reports/phase-08c-voice-dynamics-analysis.txt`. The
+shape of it matters more than the values: 20 dB sits in the **middle of a plateau** (19-21 dB
+score identically), the recovery threshold is deliberately insensitive (3-12 dB all identical),
+`promotion_max_valley_ms` is a guard that never fires on this material, and
+`promotion_min_hold_ms = 400` is the only genuinely new editorial minimum — measured, because
+no manual promotion is held for fewer than 27 frames (450 ms), and 500 ms would have rejected
+the real `FACE_X3`.
+
+Because they change the plan, `[speech.energy]` is recorded in `PlanSource.energy_settings` and
+compared field-by-field by `plan_source_mismatches`, exactly like `[planner]`. A preview built
+with one drop threshold is not the same desired state as one built with another, and
+`rebuild-preview` must refuse a plan whose settings have moved (D029).
+
+## D052 — Every facecam transition may snap to a cut; a cut never creates one
+
+**Status:** adopted, Phase 8c. Extends D034, supersedes D046's "promotions are never
+cut-snapped".
+
+Every transition now has a **raw audio anchor**: burst start for the entry, a recovery cue for
+a promotion, burst end for the reset. Each may move onto a hard cut inside a window around that
+anchor, through one shared helper (`_snap_to_cut`), with the nearest candidate winning and the
+later cut preferred on an exact tie.
+
+The windows are **per class, because they were measured per class**:
+
+    reset       [-120 ms, +350 ms]   asymmetric (D034, Phase 6, unchanged)
+    entry       [-120 ms, +120 ms]   symmetric
+    promotion   [-120 ms, +120 ms]   symmetric
+
+The zoom-in window is not the reset's window reused. On `DAZ_OUTPUT_MVP2` four manual x1 starts
+sit exactly on a hard cut, and in all four the detected burst start is 0-2 frames away, while
+the nearest *non*-matching cut to any burst start is 61 frames away — 120 ms = 7 frames catches
+every real one with an 8x margin. It is symmetric because a zoom-in anchor has no systematic
+bias, unlike a VAD end, which `speech_pad_ms` puts a few frames late by construction.
+
+Snapping an entry slightly **before** the first word is allowed and correct: the cut just
+before someone starts talking is often the edit point a human would use.
+
+Three properties hold for every class, and are tested:
+
+1. **A cut never creates a transition.** Snapping only moves a transition the audio already
+   decided on. Promotions confirm this empirically — only 1 of the 14 cues in the live plan
+   found a cut within its window at all.
+2. **No cut, no movement.** With nothing in the window the transition stays exactly on its raw
+   anchor. The lookback never pulls anything earlier on its own.
+3. **A nearer but invalid cut gives way to the next valid candidate**, never to nothing.
+   Validity is the chain: transitions stay ordered, the previous animation finishes, the new
+   one fits, nothing overlaps, nothing leaves the timeline.

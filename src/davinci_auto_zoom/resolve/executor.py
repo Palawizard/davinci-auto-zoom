@@ -867,6 +867,7 @@ def apply_preview(
         assets=config.assets,
         asset_transition_frames=config.asset_timing.to_dict(),
         planner_settings=config.planner,
+        energy_settings=config.energy,
         found_assets=snapshot.assets,
     )
     report.plan_fingerprint = plan.source.structural_fingerprint if plan.source else None

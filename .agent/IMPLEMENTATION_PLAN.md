@@ -389,8 +389,9 @@ Delivered, and proven live on Studio 21.0.4.5 (see
   promotions, one reset whose asset depends on the level reached. `AssetTiming` became a
   role->frames map and doubles as the capability list — an unconfigured role is a move this
   project cannot make (D045).
-- **promotions are earned by sustained speech**, never cut-snapped (D046). Four configurable
-  thresholds, calibrated on `DAZ_OUTPUT_MVP2` (D047).
+- ~~**promotions are earned by sustained speech**, never cut-snapped (D046). Four configurable
+  thresholds, calibrated on `DAZ_OUTPUT_MVP2` (D047).~~ **Superseded by Phase 8c** (D049,
+  D052): the four duration thresholds are gone and every transition may snap to a cut.
 - **the executor did not change shape**: resolve role -> asset name, append at the planned
   frames, verify, tag. It never learned what a level is, which is the property that keeps
   gameplay a table change later.
@@ -409,11 +410,48 @@ disagreements inherited from Phase 6 and 1 is human nuance no duration rule can 
 **Explicitly out of scope, and still is:** gameplay states (D048, not even stubbed), demotions
 (`x3 -> x2`, `x2 -> x1` — closed by D045, not deferred), apply in place, collision resolution.
 
-## Phase 8b — Burst extent [RECOMMENDED NEXT]
+## Phase 8c — Intra-burst voice dynamics + cut snapping for every transition [DONE]
 
-The highest-value measured target the Phase 8 comparison produced. Two of the three level
-divergences against `DAZ_OUTPUT_MVP2` are not promotion errors at all — the planner and the
-human disagree about where the *burst* starts or ends:
+Goal: stop predicting the level from the *length* of a burst, and read what the voice actually
+does inside it. Delivered, and proven live on Studio 21.0.4.5 (see
+`.agent/reports/phase-08c-voice-dynamics-analysis.txt`,
+`.agent/reports/phase-08c-plan-comparison.txt` and
+`.agent/reports/phase-08c-live-workflow-report.txt`):
+
+- **`speech/energy.py`** — short-time RMS -> dBFS envelope, built from the same normalized
+  16 kHz PCM the VAD already decoded. One render, one ffmpeg pass, two readers (D050).
+- **`domain/dynamics.py`** — `EnergyEnvelope` / `VoiceValley` and the valley + recovery
+  detector. Pure, numpy-free, and entirely relative in dB against the cycle's own voice level,
+  so a gain change cannot change the edit (D051).
+- **the planner climbs the ladder on cues, not clocks** (D049): first qualifying recovery ->
+  `face_x2`, second -> `face_x3`, further cues ignored. A cue is skipped, never moved, when the
+  previous animation has not finished or the new level could not be held 400 ms.
+- **one cut-snapping helper for every transition class** (D052), with per-class windows:
+  `[-120, +350]` ms for a reset (Phase 6's, unchanged), `[-120, +120]` ms for entries and
+  promotions. A cut never creates a transition, and a nearer invalid cut gives way to the next
+  valid one.
+- **`[speech.energy]` is part of `PlanSource`** and is compared before any write.
+
+Live proof on `DAZ_INPUT`: 15 speech segments -> 14 bursts -> **43 placements**, 63 valleys of
+which 14 became promotions. Peak level matches the human on 9 of 14 — **9 of 9 where the burst
+extent matches the human's cycle, 0 of 5 where it does not.** All 14 resets are frame-identical
+to Phases 6, 7 and 8; the source fingerprint is unchanged.
+
+**Explicitly out of scope, and still is:** gameplay (D048), demotions (D045), burst-extent
+changes (Phase 8b — deliberately not touched to keep this phase's measurement clean), apply in
+place, collision resolution.
+
+## Phase 8b — Burst extent [NEXT, and now the only thing between the planner and the human edit]
+
+**Phase 8c raised the value of this phase from "highest available" to "the single remaining
+cause of every level divergence".** Every one of the 5 cycles where Phase 8c disagrees with
+`DAZ_OUTPUT_MVP2` about a level is a cycle whose burst extent disagrees first; every one of the
+9 where the extent matches, the level matches too. The 8c report's section 4 is the table.
+
+The offsets to explain, from that table: burst 12 opens 123 frames early, burst 7 opens 41
+early, burst 8 opens 18 early, burst 6 opens 14 early, burst 1 closes 77 late.
+
+Two of the three level divergences of Phase 8 were already this problem:
 
 1. cycle 1: the automatic reset lands **77 frames** after the human's, turning a 74-frame
    manual cycle into a 149-frame automatic one, which then promotes twice;

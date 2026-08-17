@@ -1,0 +1,107 @@
+PHASE 8 (DURATION) vs PHASE 8c (VOICE DYNAMICS) — PER CYCLE
+===========================================================
+
+Run: 2026-08-18, DaVinci Resolve Studio 21.0.4.5, project `davinci-auto-zoom-test`.
+Both plans are live `plan-probe` runs against `DAZ_INPUT`, reference `DAZ_OUTPUT_MVP2`.
+
+    old = Phase 8, preview DAZ_AUTO_PREVIEW_20260817_233130_203670b0 (duration-based)
+    new = Phase 8c, this phase (intra-burst valley + recovery, all anchors cut-snapped)
+
+Source fingerprint is `sha256:a1d107e1…d46a5483` in BOTH runs — identical to Phases 5-8. The
+material has not moved; every difference below is the editorial rule changing, and nothing
+else. Speech segments (15), editorial bursts (14) and burst boundaries are byte-identical:
+`reset_after_silence_ms` and the VAD were not touched (§23 of the assignment).
+
+
+1. PER-CYCLE TABLE
+------------------
+
+`man` = the human's cycle in DAZ_OUTPUT_MVP2. Frames are absolute.
+
+  #  burst              manual cycle       peak m/old/new   x2  man/old/new       x3  man/old/new       reset m/old/new
+  0  [216046,216139)  [216045,216132)      x2 / x2 / x2     216088/216106/216094   -   /  -   /  -      216132/216132/216132
+  1  [216293,216442)  [216291,216365)      x1 / x3 / x3      -    /216353/216306   -   /216401/216366   216365/216442/216442
+  2  [216489,216519)  [216489,216529)      x1 / x1 / x1      -    /  -   /  -      -   /  -   /  -      216529/216519/216519
+  3  [216679,216797)  [216680,216793)      x2 / x2 / x2     216735/216739/216743   -   /  -   /  -      216793/216793/216793
+  4  [216900,216930)  [216900,216923)      x1 / x1 / x1      -    /  -   /  -      -   /  -   /  -      216923/216930/216930
+  5  [216983,217039)  [216987,217035)      x1 / x1 / x1      -    /  -   /  -      -   /  -   /  -      217035/217039/217039
+  6  [217250,217316)  [217264,217312)      x1 / x1 / x2      -    /  -   /217265   -   /  -   /  -      217312/217312/217312
+  7  [217499,217749)  [217540,217744)      x2 / x3 / x3     217628/217559/217525   -   /217607/217601   217744/217749/217749
+  8  [217877,218003)  [217895,217999)      x2 / x2 / x3     217958/217937/217898   -   /  -   /217959   217999/217999/217999
+  9  [218094,218189)  [218095,218183)      x2 / x2 / x2     218156/218154/218130   -   /  -   /  -      218183/218183/218183
+ 10  [218244,218297)  [218244,218288)      x1 / x1 / x1      -    /  -   /  -      -   /  -   /  -      218288/218297/218297
+ 11  [218394,218473)  [218394,218469)      x1 / x1 / x1      -    /  -   /  -      -   /  -   /  -      218469/218469/218469
+ 12  [218599,218767)  [218722,218762)      x1 / x3 / x3      -    /218659/218630   -   /218707/218668   218762/218762/218762
+ 13  [218989,219134)  [218989,219127)      x3 / x3 / x3     219038/219049/219041  219098/219097/219099  219127/219127/219127
+
+  peak matches vs the human:  old 11/14   new 9/14
+  RESETS ARE IDENTICAL IN ALL 14 CYCLES, old and new, and 8 of 14 are cut-snapped backward in
+  both. Phase 6's rule (D034) is untouched and its output is unchanged for a fourth phase.
+
+
+2. WHAT THE TWO MODELS DISAGREE ABOUT
+--------------------------------------
+
+Level totals:
+
+    manual        x1 x8   x2 x5   x3 x1        (14 cycles)
+    Phase 8       x1 x6   x2 x4   x3 x4
+    Phase 8c      x1 x5   x2 x4   x3 x5
+
+Placement counts: Phase 8 40 clips, Phase 8c **43** (14 entries, 9 x1->x2, 5 x2->x3, 5+4+5
+resets). Zoomed frames 1417 -> 1418 (39.9% coverage in both): the extra frame is burst 1's
+entry snapping backward onto a cut, not a change in how much of the video is zoomed.
+
+The two models disagree about a promotion FRAME in every promoted cycle. Median |old - new| is
+about 30 frames, and the new anchors are consistently EARLIER, because the first qualifying
+breath usually arrives before the fixed 1000 ms threshold.
+
+Against the human, the new anchors are better where the burst is right (see the analysis
+report: median +1 frame from a manual promotion to the nearest detected recovery) and worse
+where the burst is wrong.
+
+
+3. THE TWO QUESTIONS THIS COMPARISON EXISTED TO ANSWER
+------------------------------------------------------
+
+> Does the new logic explain why some long phrases must NOT go to x3?
+
+Partly, and honestly: **not through length**. Burst 7 is the case Phase 8 flagged as
+unexplainable — 204 manual frames deliberately kept at x2 while a 138-frame cycle went to x3.
+The dynamics model also promotes it to x3, so the divergence survives. What changed is the
+CAUSE, and the cause is now measurable: burst 7 opens 41 frames before the human's cycle, and
+the extra 41 frames contain a qualifying recovery at 217525 that the human's cycle does not
+contain at all. The same is true of bursts 6 (-14), 8 (-18), 12 (-123) and 1 (+77 at the end).
+
+Fix the extent, and the level follows: **on the 9 cycles whose burst matches the human's, the
+new model matches the human's peak level 9 times out of 9. On the 5 where it does not, 0 of
+5.** No cycle disagrees for any other reason. Phase 8 had no such split — its 3 errors were 2
+extent problems plus 1 genuine "no monotonic duration rule can do this".
+
+> Does a shorter phrase reach x3 when it contains two real breaks?
+
+Yes, and burst 13 is the clean demonstration. It spans 138 frames, the human took it to x3, and
+the new model reaches x3 at 219099 — **one frame** from the human's 219098 — because the
+delivery contains exactly two qualifying breaks (at 219041 and 219099). Phase 8 also reached x3
+here, but only because 138 frames happened to equal the threshold it was calibrated on: it had
+one observation and fitted it. The new model gets there from the audio, and would still get
+there if the same delivery were 90 frames long.
+
+The converse holds too: the longest flat stretch in the material — a burst with no qualifying
+valley — now stays at x1 no matter how long it runs. The duration model could not express that
+at all.
+
+
+4. WHAT DID NOT CHANGE
+----------------------
+
+  - 15 speech segments, 14 editorial bursts, identical boundaries;
+  - all 14 resets, to the frame, including the 8 backward cut snaps;
+  - the source structural fingerprint;
+  - zoom coverage (39.9%);
+  - the ownership, executor, clean and rebuild machinery — it never knew what a level was and
+    still does not.
+
+New in this run: entry cut snapping fires 4 times (1 backward onto 216291, 3 forward onto
+216680 / 216900 / 218394). All four land on the exact frame the human's x1 starts. That is 4
+of the 4 manual entries that sit on a cut at all, with no false positive.
