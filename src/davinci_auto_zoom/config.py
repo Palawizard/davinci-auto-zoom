@@ -152,6 +152,7 @@ def _planner_settings(data: dict[str, Any]) -> PlannerSettings:
         "zoom_lead_in_ms",
         "zoom_lead_out_ms",
         "cut_snap_window_ms",
+        "cut_snap_lookback_ms",
     }
     unknown = sorted(set(data) - known)
     if unknown:
@@ -167,6 +168,9 @@ def _planner_settings(data: dict[str, Any]) -> PlannerSettings:
         zoom_lead_out_ms=int(data.get("zoom_lead_out_ms", defaults.zoom_lead_out_ms)),
         cut_snap_window_ms=int(
             data.get("cut_snap_window_ms", defaults.cut_snap_window_ms)
+        ),
+        cut_snap_lookback_ms=int(
+            data.get("cut_snap_lookback_ms", defaults.cut_snap_lookback_ms)
         ),
     )
 

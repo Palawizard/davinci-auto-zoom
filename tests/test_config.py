@@ -105,13 +105,15 @@ def test_planner_and_asset_timing_are_parsed(tmp_path) -> None:  # type: ignore[
     path.write_text(
         "[resolve]\ncut_reference_video_track = 2\n"
         "[assets.transition_frames]\nfacecam_x1 = 15\nreset_x0 = 15\n"
-        "[planner]\nreset_after_silence_ms = 800\nzoom_lead_in_ms = 0\n",
+        "[planner]\nreset_after_silence_ms = 800\nzoom_lead_in_ms = 0\n"
+        "cut_snap_lookback_ms = 60\n",
         encoding="utf-8",
     )
     config = Config.load(path)
     assert config.cut_reference_video_track == 2
     assert config.planner.reset_after_silence_ms == 800
     assert config.planner.zoom_lead_in_ms == 0
+    assert config.planner.cut_snap_lookback_ms == 60
     assert config.asset_timing is not None
     assert config.asset_timing.facecam_x1_transition_frames == 15
     assert config.asset_timing.reset_x0_transition_frames == 15
@@ -127,6 +129,8 @@ def test_the_planner_baseline_has_no_lead_in_or_lead_out() -> None:
     planner = Config.load(None).planner
     assert (planner.zoom_lead_in_ms, planner.zoom_lead_out_ms) == (0, 0)
     assert planner.reset_after_silence_ms == 650
+    # Asymmetric on purpose, and measured (Phase 6): 350 ms forward, 120 ms = 7 frames back.
+    assert (planner.cut_snap_window_ms, planner.cut_snap_lookback_ms) == (350, 120)
 
 
 def test_the_removed_min_zoom_assumption_is_now_an_error(tmp_path) -> None:  # type: ignore[no-untyped-def]

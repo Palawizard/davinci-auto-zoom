@@ -96,11 +96,31 @@ reset_after_silence_ms = 650
 zoom_lead_in_ms = 0
 zoom_lead_out_ms = 0
 
-# When the creator stops talking and the edit cuts shortly after, the reset looks better on
-# that cut. The planner looks this far past the reset point for hard cuts on
-# [resolve].cut_reference_video_track and takes the LAST one that still leaves room for the
-# whole reset_x0 animation before the next zoom.
+# When the creator stops talking and the edit cuts around the same moment, the reset looks
+# better exactly ON that cut. The planner searches an ASYMMETRIC window around the reset
+# anchor (burst end + lead-out) for hard cuts on [resolve].cut_reference_video_track, and
+# takes the one CLOSEST to the anchor — not the last one — preferring the later cut on an
+# exact tie. A candidate is only used if the whole reset_x0 animation still fits before the
+# next zoom.
+#
+# Maximum search distance AFTER the detected end of speech.
 cut_snap_window_ms = 350
+
+# Small tolerance BEFORE the detected end of speech, used only to catch a real video cut that
+# likely corresponds to the perceptual end of the phrase. The two settings are not symmetric
+# and do not mean the same thing: the forward window follows the edit's own rhythm after a
+# sentence, while this one compensates for the fact that a VAD boundary lands a few frames
+# late — [speech.vad].speech_pad_ms deliberately pads the segment so no phoneme is clipped,
+# and that padding must stay in the detector.
+#
+# It is ONLY a snap mechanism. It never moves a reset earlier on its own: with no hard cut in
+# the window the reset stays exactly at the burst end. Keep it small — the point is not to
+# start the reset noticeably before the phrase is over.
+#
+# 120 ms = 7 frames at 60 fps. Measured, not guessed: on the reference material every cut an
+# editor aligned to sits 4-7 frames before the detected speech end, and the nearest unrelated
+# cut is 30 frames away (see .agent/reports/phase-06-cut-offset-diagnostic.txt).
+cut_snap_lookback_ms = 120
 
 # There is no min_zoom_ms. The only minimum a FACE_X1 instance has is its own animation
 # length, which is [assets.transition_frames].facecam_x1 — an instance shorter than that is

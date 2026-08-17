@@ -108,6 +108,12 @@ def test_a_plan_without_a_source_is_refused() -> None:
             {"planner_settings": PlannerSettings(reset_after_silence_ms=900)},
             "planner_settings",
         ),
+        # Phase 6: this one changes where every reset lands, so a plan built with a
+        # different lookback must never be applied under the current config.
+        (
+            {"planner_settings": PlannerSettings(cut_snap_lookback_ms=0)},
+            "planner_settings",
+        ),
     ],
 )
 def test_a_changed_scalar_field_is_reported(

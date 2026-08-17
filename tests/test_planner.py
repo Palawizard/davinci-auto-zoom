@@ -12,7 +12,8 @@ import pytest
 from davinci_auto_zoom.domain.models import FrameRange, SpeechSegment
 from davinci_auto_zoom.domain.planner import (
     REASON_RESET_DIRECT,
-    REASON_RESET_SNAPPED,
+    REASON_RESET_SNAPPED_BACKWARD,
+    REASON_RESET_SNAPPED_FORWARD,
     REASON_X1_HELD_TO_TIMELINE_END,
     ROLE_FACECAM_X1,
     ROLE_RESET_X0,
@@ -190,14 +191,17 @@ def test_a_pause_one_frame_too_short_holds_the_zoom_instead() -> None:
 def test_a_hard_cut_in_the_window_moves_the_reset() -> None:
     result = plan((1000, 1200), cuts=(1210,))
     assert ranges(result, ROLE_RESET_X0) == [(1210, 1225)]
-    assert result.x0_placements[0].reason == REASON_RESET_SNAPPED
+    assert result.x0_placements[0].reason == REASON_RESET_SNAPPED_FORWARD
     assert result.x0_placements[0].cut_frame == 1210
     assert ranges(result, ROLE_FACECAM_X1) == [(1000, 1210)]
 
 
-def test_the_last_valid_cut_in_the_window_wins() -> None:
+def test_the_nearest_valid_cut_in_the_window_wins_not_the_last() -> None:
+    """The Phase 6 rule. The old planner took 1215 here; proximity to the anchor decides."""
+
     result = plan((1000, 1200), cuts=(1205, 1210, 1215))
-    assert result.x0_placements[0].cut_frame == 1215
+    assert result.x0_placements[0].cut_frame == 1205
+    assert ranges(result, ROLE_RESET_X0) == [(1205, 1220)]
 
 
 def test_a_cut_outside_the_window_is_ignored() -> None:
@@ -217,7 +221,7 @@ def test_a_cut_leaving_only_fourteen_frames_is_rejected() -> None:
     assert ranges(result, ROLE_RESET_X0) == [(1200, 1215), (1400, 1415)]
 
 
-def test_an_earlier_cut_is_used_when_the_last_one_is_too_late() -> None:
+def test_a_cut_that_does_not_fit_is_rejected_and_the_nearest_fitting_one_wins() -> None:
     result = plan((1000, 1200), (1224, 1400), cuts=(1205, 1210),
                   settings=PlannerSettings(reset_after_silence_ms=0))
     assert result.x0_placements[0].cut_frame == 1205
@@ -225,10 +229,124 @@ def test_an_earlier_cut_is_used_when_the_last_one_is_too_late() -> None:
     assert result.rejected_cuts == 1
 
 
-def test_no_cut_is_ever_snapped_before_the_end_of_speech() -> None:
-    result = plan((1000, 1200), cuts=(1100, 1199))
+def test_the_second_nearest_cut_wins_when_the_nearest_leaves_no_room() -> None:
+    """1204 is nearer (tie broken forward) but 1204 + 15 > 1218; 1196 fits and is used."""
+
+    result = plan((1000, 1200), (1218, 1400), cuts=(1196, 1204),
+                  settings=PlannerSettings(reset_after_silence_ms=0))
+    assert result.x0_placements[0].cut_frame == 1196
+    assert result.x0_placements[0].reason == REASON_RESET_SNAPPED_BACKWARD
+    assert ranges(result, ROLE_RESET_X0) == [(1196, 1211), (1400, 1415)]
+    assert result.rejected_cuts == 1
+
+
+def test_a_cut_beyond_the_lookback_is_never_snapped_to() -> None:
+    """120 ms at 60 fps = 7 frames, so 1192 and 1100 are both out of reach of a reset at 1200."""
+
+    result = plan((1000, 1200), cuts=(1100, 1192))
     assert result.x0_placements[0].cut_frame is None
+    assert result.x0_placements[0].reason == REASON_RESET_DIRECT
     assert ranges(result, ROLE_RESET_X0) == [(1200, 1215)]
+
+
+# --- cut snap ranking: nearest to the anchor wins, forward on a tie (Phase 6) ------------
+#
+# The reset anchor is the burst end (lead_out = 0). Default window is [-7f, +21f] at 60 fps.
+
+
+def snapped_cut(*cuts: int, speech: tuple[int, int] = (1000, 1200)) -> int | None:
+    """The cut a single-burst plan snapped its reset to, or None for a direct reset."""
+
+    return plan(speech, cuts=cuts).x0_placements[0].cut_frame
+
+
+def test_a_cut_one_frame_after_the_anchor_is_snapped_to() -> None:
+    assert snapped_cut(1201) == 1201
+
+
+def test_the_nearer_of_two_forward_cuts_wins() -> None:
+    assert snapped_cut(1205, 1212) == 1205
+
+
+def test_a_cut_one_frame_before_the_anchor_is_snapped_to() -> None:
+    result = plan((1000, 1200), cuts=(1199,))
+    assert result.x0_placements[0].cut_frame == 1199
+    assert result.x0_placements[0].reason == REASON_RESET_SNAPPED_BACKWARD
+    assert result.backward_snapped_resets == 1
+    assert result.forward_snapped_resets == 0
+    assert result.snapped_resets == 1
+
+
+def test_a_cut_exactly_on_the_lookback_boundary_is_snapped_to() -> None:
+    """7 frames back from 1200 is 1193, the last frame still inside the tolerance."""
+
+    assert snapped_cut(1193) == 1193
+
+
+def test_a_cut_one_frame_past_the_lookback_boundary_is_ignored() -> None:
+    assert snapped_cut(1192) is None
+
+
+def test_a_near_backward_cut_beats_a_far_forward_one() -> None:
+    assert snapped_cut(1198, 1210) == 1198
+
+
+def test_a_near_forward_cut_beats_a_far_backward_one() -> None:
+    assert snapped_cut(1194, 1202) == 1202
+
+
+def test_an_exact_tie_is_broken_towards_the_later_cut() -> None:
+    result = plan((1000, 1200), cuts=(1195, 1205))
+    assert result.x0_placements[0].cut_frame == 1205
+    assert result.x0_placements[0].reason == REASON_RESET_SNAPPED_FORWARD
+
+
+def test_the_lookback_never_moves_a_reset_without_a_cut() -> None:
+    """The tolerance is a snap mechanism, never `burst.end - lookback` on its own."""
+
+    result = plan((1000, 1200), settings=PlannerSettings(cut_snap_lookback_ms=5000))
+    assert ranges(result, ROLE_RESET_X0) == [(1200, 1215)]
+    assert result.x0_placements[0].reason == REASON_RESET_DIRECT
+
+
+def test_a_backward_snap_makes_x1_end_exactly_where_x0_starts() -> None:
+    result = plan((1000, 1200), cuts=(1196,))
+    assert ranges(result, ROLE_FACECAM_X1) == [(1000, 1196)]
+    assert ranges(result, ROLE_RESET_X0) == [(1196, 1211)]
+    assert result.valid
+
+
+def test_a_backward_snap_can_never_reach_back_past_the_zoom_it_ends() -> None:
+    """A cut at or before the x1 start is not a candidate: the zoom-in needs its own room."""
+
+    result = plan((1000, 1004), settings=PlannerSettings(cut_snap_lookback_ms=200), cuts=(1000,))
+    assert result.x0_placements == ()
+    assert result.suppressed_cycles == 1
+
+
+def test_the_backward_snap_trace_names_the_cut_the_delta_and_the_window() -> None:
+    trace = "\n".join(plan((1000, 1200), cuts=(1196, 1215)).decisions)
+    assert "snapped backward from 1200 to hard cut 1196" in trace
+    assert "delta=-4f" in trace
+    assert "[-7f, +21f]" in trace
+    assert "farther candidate(s) 1215 (+15f)" in trace
+
+
+def test_the_regression_case_observed_in_the_phase_5_preview() -> None:
+    """The bug, as measured on DAZ_INPUT burst 3: cut 4 frames before the VAD end.
+
+    The old forward-only planner produced `reset_direct` at the burst end, leaving the x0 a
+    few frames after a cut the human editor had aligned to exactly. There is deliberately no
+    usable cut after the burst end here, so only the lookback can find this one.
+    """
+
+    result = plan((216679, 216797), timeline=FrameRange(216000, 219555), cuts=(216793, 216851))
+    x0 = result.x0_placements[0]
+    assert x0.reason == REASON_RESET_SNAPPED_BACKWARD
+    assert x0.cut_frame == 216793
+    assert x0.start_frame == 216793
+    assert result.x1_placements[0].end_frame == 216793
+    assert ranges(result, ROLE_RESET_X0) == [(216793, 216808)]
 
 
 def test_a_boundary_with_empty_space_is_not_a_hard_cut() -> None:

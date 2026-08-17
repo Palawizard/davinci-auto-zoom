@@ -25,10 +25,17 @@ the move never completes. Symmetrically `FACE_X0_SMOOTH` only needs its animatio
 do its whole job; the Media Pool item's *native* length (42 frames for this user) is a
 property of the asset file, not a minimum the planner has to honour. Nothing here reads it.
 
-**A reset prefers a real cut.** When the creator stops talking and the edit cuts shortly
-after, returning to normal framing on that cut looks intentional. So a reset may be pushed
-forward to the last hard cut inside the snap window — but only if the x0 animation still fits
-entirely before the next zoom starts.
+**A reset prefers a real cut, and the nearest one.** When the creator stops talking and the
+edit cuts around the same moment, returning to normal framing on that cut looks intentional.
+So a reset may move to a hard cut inside an *asymmetric* window around it:
+`[base_reset - cut_snap_lookback, base_reset + cut_snap_window]`. The lookback is small and
+exists because a VAD boundary is not an editorial one — `speech_pad_ms` alone puts the
+detected end slightly after the perceptual one, and measurement on real material (see
+`.agent/reports/phase-06-cut-offset-diagnostic.txt`) found the matching cut 4-7 frames
+*before* `burst.end` in 8 of 14 bursts and never after. Among the candidates the planner
+takes the one **closest** to `base_reset`, preferring the later cut on an exact tie — but
+only if the x0 animation still fits entirely before the next zoom starts. With no candidate
+it resets directly at `base_reset`; the lookback never moves a reset on its own.
 """
 
 from __future__ import annotations
@@ -54,7 +61,8 @@ REASON_X1_UNTIL_DIRECT_RESET = "x1_until_direct_reset"
 REASON_X1_UNTIL_CUT_RESET = "x1_until_cut_snapped_reset"
 REASON_X1_HELD_TO_TIMELINE_END = "x1_held_to_timeline_end"
 REASON_RESET_DIRECT = "reset_direct"
-REASON_RESET_SNAPPED = "reset_snapped_to_cut"
+REASON_RESET_SNAPPED_FORWARD = "reset_cut_snap_forward"
+REASON_RESET_SNAPPED_BACKWARD = "reset_cut_snap_backward"
 
 
 def frames_from_ms(milliseconds: int, frame_rate: Fraction) -> int:
@@ -81,6 +89,10 @@ class PlannerSettings:
     zoom_lead_out_ms: int = 0
     #: How far past the reset point the planner may look for a hard cut to land on.
     cut_snap_window_ms: int = 350
+    #: How far *before* it. Small on purpose: a VAD end is a few frames late relative to the
+    #: perceptual end of a phrase, so the cut an editor would use often sits just before it.
+    #: Only ever used to snap onto a real cut — never to move a reset earlier by itself.
+    cut_snap_lookback_ms: int = 120
 
     def __post_init__(self) -> None:
         for name in (
@@ -88,6 +100,7 @@ class PlannerSettings:
             "zoom_lead_in_ms",
             "zoom_lead_out_ms",
             "cut_snap_window_ms",
+            "cut_snap_lookback_ms",
         ):
             if getattr(self, name) < 0:
                 raise ValueError(f"{name} must be >= 0")
@@ -98,6 +111,7 @@ class PlannerSettings:
             "zoom_lead_in_ms": self.zoom_lead_in_ms,
             "zoom_lead_out_ms": self.zoom_lead_out_ms,
             "cut_snap_window_ms": self.cut_snap_window_ms,
+            "cut_snap_lookback_ms": self.cut_snap_lookback_ms,
         }
 
 
@@ -272,8 +286,18 @@ class ZoomPlan:
         return sum(1 for p in self.x0_placements if p.reason == REASON_RESET_DIRECT)
 
     @property
+    def forward_snapped_resets(self) -> int:
+        return sum(1 for p in self.x0_placements if p.reason == REASON_RESET_SNAPPED_FORWARD)
+
+    @property
+    def backward_snapped_resets(self) -> int:
+        return sum(1 for p in self.x0_placements if p.reason == REASON_RESET_SNAPPED_BACKWARD)
+
+    @property
     def snapped_resets(self) -> int:
-        return sum(1 for p in self.x0_placements if p.reason == REASON_RESET_SNAPPED)
+        """Total cut-snapped resets, kept as the sum of the two directions."""
+
+        return self.forward_snapped_resets + self.backward_snapped_resets
 
     @property
     def zoomed_frames(self) -> int:
@@ -339,6 +363,8 @@ class ZoomPlan:
                 "reset_x0_count": len(self.x0_placements),
                 "direct_resets": self.direct_resets,
                 "cut_snapped_resets": self.snapped_resets,
+                "forward_snapped_resets": self.forward_snapped_resets,
+                "backward_snapped_resets": self.backward_snapped_resets,
                 "suppressed_resets": self.suppressed_resets,
                 "suppressed_cycles": self.suppressed_cycles,
                 "rejected_cuts": self.rejected_cuts,
@@ -356,7 +382,8 @@ class ZoomPlan:
             f"  gate      : reset_after_silence={self.settings.reset_after_silence_ms}ms "
             f"lead_in={self.settings.zoom_lead_in_ms}ms "
             f"lead_out={self.settings.zoom_lead_out_ms}ms "
-            f"cut_snap_window={self.settings.cut_snap_window_ms}ms",
+            f"cut_snap=[-{self.settings.cut_snap_lookback_ms}ms, "
+            f"+{self.settings.cut_snap_window_ms}ms] (nearest cut to the reset anchor wins)",
             f"  assets    : x1 animation={self.timing.facecam_x1_transition_frames} frames, "
             f"x0 animation={self.timing.reset_x0_transition_frames} frames "
             "(native Media Pool lengths are irrelevant here)",
@@ -378,7 +405,9 @@ class ZoomPlan:
                 f"({self.merged_gaps} pause(s) bridged)",
                 f"  facecam_x1      : {len(self.x1_placements)}",
                 f"  reset_x0        : {len(self.x0_placements)} "
-                f"({self.direct_resets} direct, {self.snapped_resets} cut-snapped)",
+                f"({self.direct_resets} direct, {self.snapped_resets} cut-snapped = "
+                f"{self.backward_snapped_resets} backward + "
+                f"{self.forward_snapped_resets} forward)",
                 f"  suppressed      : {self.suppressed_resets} reset(s) with no room, "
                 f"{self.suppressed_cycles} cycle(s) shorter than the x1 animation, "
                 f"{self.rejected_cuts} cut(s) rejected as too late",
@@ -404,29 +433,49 @@ class _ResetChoice:
     frame: Frame | None
     cut_frame: Frame | None
     rejected_cuts: tuple[Frame, ...]
+    #: Usable cuts that lost the proximity ranking, nearest first. Trace material only.
+    runners_up: tuple[Frame, ...] = ()
+
+
+def _reset_reason(cut_frame: Frame | None, base_reset: Frame) -> str:
+    """Which of the three reset outcomes this placement is, as a trace token."""
+
+    if cut_frame is None:
+        return REASON_RESET_DIRECT
+    if cut_frame < base_reset:
+        return REASON_RESET_SNAPPED_BACKWARD
+    return REASON_RESET_SNAPPED_FORWARD
 
 
 def _choose_reset(
     base_reset: Frame,
+    floor: Frame,
     limit: Frame,
     cuts: Sequence[Frame],
     snap_window: int,
+    lookback: int,
     x0_frames: int,
 ) -> _ResetChoice:
-    """Where the reset goes: the last usable hard cut in the window, else the direct point.
+    """Where the reset goes: the usable hard cut nearest `base_reset`, else the direct point.
+
+    Candidates live in the asymmetric window `[base_reset - lookback, base_reset + window]`
+    and are ranked by `abs(cut - base_reset)`, a later cut winning an exact tie so the bias
+    stays towards "after the speech". `floor` is where the x1 for this burst begins: a cut at
+    or before it would leave no room for the zoom-in itself.
 
     `limit` is the frame the next zoom starts at (or the end of the timeline). A reset at `R`
     is only usable when the whole x0 animation fits before it: `R + x0_frames <= limit`. That
     is the *only* length rule — the asset's native Media Pool duration plays no part.
     """
 
-    candidates = [c for c in cuts if base_reset <= c <= base_reset + snap_window and c < limit]
+    candidates = sorted(
+        (c for c in cuts if base_reset - lookback <= c <= base_reset + snap_window and c > floor),
+        key=lambda c: (abs(c - base_reset), -c),
+    )
     usable = [c for c in candidates if c + x0_frames <= limit]
-    rejected = tuple(c for c in candidates if c not in usable)
+    rejected = tuple(sorted(c for c in candidates if c not in usable))
     if usable:
-        # The last one: the reset should land on the final cut of the little flurry that
-        # follows the sentence, not the first.
-        return _ResetChoice(usable[-1], usable[-1], rejected)
+        return _ResetChoice(usable[0], usable[0], rejected, tuple(usable[1:]))
     if base_reset + x0_frames <= limit:
         return _ResetChoice(base_reset, None, rejected)
     return _ResetChoice(None, None, rejected)
@@ -449,6 +498,7 @@ def plan_zooms(
     lead_in = frames_from_ms(settings.zoom_lead_in_ms, frame_rate)
     lead_out = frames_from_ms(settings.zoom_lead_out_ms, frame_rate)
     snap_window = frames_from_ms(settings.cut_snap_window_ms, frame_rate)
+    lookback = frames_from_ms(settings.cut_snap_lookback_ms, frame_rate)
     x1_min = timing.facecam_x1_transition_frames
     x0_frames = timing.reset_x0_transition_frames
     cuts = hard_cuts_in_range(hard_cuts, timeline)
@@ -457,7 +507,9 @@ def plan_zooms(
         f"timeline [{timeline.start}, {timeline.end}) = {timeline.duration} frames "
         f"@ {float(frame_rate):.6f} fps",
         f"gate reset_after_silence={settings.reset_after_silence_ms}ms = {reset_gate} frames; "
-        f"lead_in={lead_in}f lead_out={lead_out}f snap_window={snap_window}f; "
+        f"lead_in={lead_in}f lead_out={lead_out}f "
+        f"cut snap window=[-{lookback}f, +{snap_window}f] around the reset anchor "
+        "(nearest cut wins, forward on a tie); "
         f"x1 animation={x1_min}f x0 animation={x0_frames}f",
         f"{len(cuts)} hard cut(s) on the reference video track inside the range",
     ]
@@ -513,12 +565,15 @@ def plan_zooms(
         is_last = index == len(bursts) - 1
         limit = timeline.end if is_last else max(timeline.start, bursts[index + 1].start - lead_in)
         base_reset = min(burst.end + lead_out, timeline.end)
-        choice = _choose_reset(base_reset, limit, cuts, snap_window, x0_frames)
+        choice = _choose_reset(
+            base_reset, open_start, limit, cuts, snap_window, lookback, x0_frames
+        )
         rejected_cuts += len(choice.rejected_cuts)
         for cut in choice.rejected_cuts:
             decisions.append(
-                f"burst {index}: hard cut at {cut} rejected — only {limit - cut} frame(s) left "
-                f"before {'the timeline end' if is_last else f'the next zoom at {limit}'}, "
+                f"burst {index}: hard cut at {cut} ({cut - base_reset:+d}f) rejected — only "
+                f"{limit - cut} frame(s) left before "
+                f"{'the timeline end' if is_last else f'the next zoom at {limit}'}, "
                 f"the x0 animation needs {x0_frames}"
             )
 
@@ -534,16 +589,26 @@ def plan_zooms(
 
         reset = choice.frame
         if choice.cut_frame is not None:
+            delta = choice.cut_frame - base_reset
+            others = (
+                ""
+                if not choice.runners_up
+                else "; farther candidate(s) "
+                + ", ".join(
+                    f"{c} ({c - base_reset:+d}f)" for c in choice.runners_up
+                )
+            )
             decisions.append(
-                f"burst {index}: reset snapped forward from {base_reset} to hard cut "
-                f"{choice.cut_frame} (+{choice.cut_frame - base_reset} frames, window "
-                f"{snap_window})"
+                f"burst {index}: reset snapped "
+                f"{'backward' if delta < 0 else 'forward'} from {base_reset} to hard cut "
+                f"{choice.cut_frame} (delta={delta:+d}f, burst end {burst.end}, window "
+                f"[-{lookback}f, +{snap_window}f], nearest cut to the anchor){others}"
             )
         else:
             decisions.append(
                 f"burst {index}: direct reset at {base_reset} "
                 f"(burst end {burst.end} + lead-out {lead_out}); no usable hard cut in the "
-                f"{snap_window}-frame window"
+                f"[-{lookback}f, +{snap_window}f] window"
             )
 
         span = FrameRange(open_start, reset)
@@ -575,11 +640,7 @@ def plan_zooms(
             AssetPlacement(
                 asset_role=ROLE_RESET_X0,
                 frames=FrameRange(reset, reset + x0_frames),
-                reason=(
-                    REASON_RESET_SNAPPED
-                    if choice.cut_frame is not None
-                    else REASON_RESET_DIRECT
-                ),
+                reason=_reset_reason(choice.cut_frame, base_reset),
                 cut_frame=choice.cut_frame,
                 burst_index=index,
             )
@@ -629,7 +690,8 @@ def plan_zooms(
 
 __all__ = [
     "REASON_RESET_DIRECT",
-    "REASON_RESET_SNAPPED",
+    "REASON_RESET_SNAPPED_BACKWARD",
+    "REASON_RESET_SNAPPED_FORWARD",
     "REASON_X1_HELD_TO_TIMELINE_END",
     "REASON_X1_UNTIL_CUT_RESET",
     "REASON_X1_UNTIL_DIRECT_RESET",
