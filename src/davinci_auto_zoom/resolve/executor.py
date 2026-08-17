@@ -414,16 +414,15 @@ def _strip_item_ids(signature: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def _prepare_target_track(
-    preview: Any, target_index: int, report: ApplyReport
-) -> None:
+def prepare_target_track(preview: Any, target_index: int) -> int:
     """Append empty video tracks until the configured index exists, and prove it is empty.
 
-    Only ever *adds* tracks. V1/V2 keep their clips, their names and their order; nothing is
-    moved, re-enabled or deleted, so the preview stays a faithful copy of the source plus the
-    empty tracks DAZ needs to reach its own.
+    Returns how many tracks were added. Only ever *adds* tracks: V1/V2 keep their clips, their
+    names and their order; nothing is moved, re-enabled or deleted, so the preview stays a
+    faithful copy of the source plus the empty tracks DAZ needs to reach its own.
     """
 
+    added = 0
     while int(preview.GetTrackCount("video") or 0) < target_index:
         before = int(preview.GetTrackCount("video") or 0)
         if not preview.AddTrack("video"):
@@ -437,7 +436,7 @@ def _prepare_target_track(
                 f"AddTrack('video') reported success but the video track count went "
                 f"{before} -> {after}"
             )
-        report.tracks_added += 1
+        added += 1
 
     count = int(preview.GetTrackCount("video") or 0)
     if count < target_index:  # pragma: no cover - the loop above cannot exit early
@@ -448,6 +447,7 @@ def _prepare_target_track(
             f"preview target track V{target_index} is not empty ({len(existing)} item(s)) "
             "after preparation; refusing to insert"
         )
+    return added
 
 
 def _insert(
@@ -531,46 +531,58 @@ def _claim(
     record.ownership_problems = result.problems
 
 
-def _verify_target_track(
-    preview: Any, expected: tuple[ExpectedItem, ...], track_index: int, report: ApplyReport
-) -> None:
+def verify_target_track(
+    preview: Any, expected: tuple[ExpectedItem, ...], track_index: int
+) -> tuple[str, ...]:
     """Re-read the finished track and compare it with the whole plan, as data."""
 
     snapshot = snapshot_timeline(preview, is_current=True)
     track = snapshot.track("video", track_index)
     actual = track.items if track is not None else ()
-    report.verification_differences = placement_differences(expected, actual)
-    report.verified = not report.verification_differences
+    return placement_differences(expected, actual)
 
 
-def _verify_ownership(
+@dataclass(frozen=True, slots=True)
+class OwnershipVerification:
+    """What the whole target track looks like once re-read through the classifier."""
+
+    created: int = 0
+    owned: int = 0
+    unowned: int = 0
+    ambiguous: int = 0
+    stale: int = 0
+    differences: tuple[str, ...] = ()
+
+    @property
+    def verified(self) -> bool:
+        return not self.differences
+
+
+def verify_ownership(
     preview: Any,
     track_index: int,
     expectations: OwnershipExpectations,
-    report: ApplyReport,
-) -> None:
+    expected_placement_ids: set[str],
+) -> OwnershipVerification:
     """Re-read the finished track's markers and require **every** item to classify as owned.
 
     Deliberately independent of what the tagging step believed. `_claim` checks one item at a
     time, through the object Resolve handed back; this reads the track fresh, from the
-    timeline, through the same classifier a later `clean-preview` will use. If the two ever
-    disagree, the run fails — the classifier's opinion is the one that will matter later.
+    timeline, through the same classifier `clean-preview` will use. If the two ever disagree,
+    the run fails — the classifier's opinion is the one that will matter later.
+
+    Shared by `apply-preview` and `rebuild-preview`, which is also what makes idempotence
+    checkable: both end by asserting the same track holds exactly the same placement ids.
     """
 
     ownership = classify_track(
         track_index, snapshot_owned_track(preview, track_index), expectations
     )
-    report.items_created = len(ownership.items)
-    report.items_owned = len(ownership.owned)
-    report.items_unowned = len(ownership.unowned)
-    report.items_ambiguous = len(ownership.ambiguous)
-    report.items_stale = len(ownership.stale)
-
     differences: list[str] = []
-    if report.items_created != len(report.insertions):
+    if len(ownership.items) != len(expected_placement_ids):
         differences.append(
-            f"the target track holds {report.items_created} item(s) but this run inserted "
-            f"{len(report.insertions)}"
+            f"the target track holds {len(ownership.items)} item(s) but the plan has "
+            f"{len(expected_placement_ids)}"
         )
     for verdict in ownership.items:
         if verdict.state != OWNED:
@@ -578,21 +590,23 @@ def _verify_ownership(
                 f"{verdict.item.label} classifies as {verdict.state}: "
                 + ("; ".join(verdict.problems) or "no DAZ ownership metadata")
             )
-    written = {
-        record.placement_id
-        for record in report.insertions
-        if record.placement_id is not None
-    }
     read_back = {
         verdict.record.placement_id for verdict in ownership.owned if verdict.record
     }
-    if written != read_back:
+    if expected_placement_ids != read_back:
         differences.append(
-            f"the placement ids read back from the timeline do not match the ones written: "
-            f"missing {sorted(written - read_back)}, unexpected {sorted(read_back - written)}"
+            "the placement ids read back from the timeline do not match the ones written: "
+            f"missing {sorted(expected_placement_ids - read_back)}, "
+            f"unexpected {sorted(read_back - expected_placement_ids)}"
         )
-    report.ownership_differences = tuple(differences)
-    report.ownership_verified = not differences
+    return OwnershipVerification(
+        created=len(ownership.items),
+        owned=len(ownership.owned),
+        unowned=len(ownership.unowned),
+        ambiguous=len(ownership.ambiguous),
+        stale=len(ownership.stale),
+        differences=tuple(differences),
+    )
 
 
 def _timeline_identity(timeline: Any) -> tuple[str | None, str | None]:
@@ -945,7 +959,7 @@ def apply_preview(
                 "insert zooms into material that does not match the plan"
             )
 
-        _prepare_target_track(preview, config.zoom_video_track, report)
+        report.tracks_added = prepare_target_track(preview, config.zoom_video_track)
 
         # AppendToTimeline is documented to act on "the current timeline", so the preview
         # must be made current. Restored in the finally block below.
@@ -984,14 +998,17 @@ def apply_preview(
                     + "; ".join(record.ownership_problems)
                 )
 
-        _verify_target_track(preview, expected, config.zoom_video_track, report)
+        report.verification_differences = verify_target_track(
+            preview, expected, config.zoom_video_track
+        )
+        report.verified = not report.verification_differences
         if not report.verified:
             raise RuntimeError(
                 "the finished track does not match the plan: "
                 + "; ".join(report.verification_differences)
             )
 
-        _verify_ownership(
+        ownership = verify_ownership(
             preview,
             config.zoom_video_track,
             OwnershipExpectations(
@@ -999,8 +1016,15 @@ def apply_preview(
                 source_fingerprint=report.ownership_fingerprint,
                 assets=dict(target.assets),
             ),
-            report,
+            {r.placement_id for r in report.insertions if r.placement_id is not None},
         )
+        report.items_created = ownership.created
+        report.items_owned = ownership.owned
+        report.items_unowned = ownership.unowned
+        report.items_ambiguous = ownership.ambiguous
+        report.items_stale = ownership.stale
+        report.ownership_differences = ownership.differences
+        report.ownership_verified = ownership.verified
         if not report.ownership_verified:
             raise RuntimeError(
                 "the finished track is not fully owned by DAZ: "

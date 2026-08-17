@@ -54,12 +54,9 @@ from davinci_auto_zoom.domain.probe import (
     signature_differences,
 )
 from davinci_auto_zoom.resolve.executor import (
-    ApplyReport as _ApplyReport,
-)
-from davinci_auto_zoom.resolve.executor import (
-    _prepare_target_track,
     _protected_signatures,
     _timeline_identity,
+    prepare_target_track,
     restore_previous_timeline,
 )
 from davinci_auto_zoom.resolve.ownership import (
@@ -508,7 +505,7 @@ def run_ownership_probe(
 
         # Reuses the executor's own preparation, so the probe tests the code path that will
         # actually run rather than a lookalike.
-        _prepare_target_track(scratch, config.zoom_video_track, _ApplyReport())
+        prepare_target_track(scratch, config.zoom_video_track)
         if not project.SetCurrentTimeline(scratch):
             raise RuntimeError("SetCurrentTimeline(scratch) failed")
 

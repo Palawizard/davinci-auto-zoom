@@ -36,6 +36,15 @@ from davinci_auto_zoom.resolve.executor import (
     ApplyReport,
     apply_preview,
 )
+from davinci_auto_zoom.resolve.owned_preview import (
+    CLEAN,
+    CLEAN_CONFIRM_FLAG,
+    REBUILD,
+    REBUILD_CONFIRM_FLAG,
+    OwnedPreviewRefused,
+    OwnedPreviewReport,
+    run_owned_preview,
+)
 from davinci_auto_zoom.resolve.ownership_probe import (
     CONFIRM_FLAG as OWNERSHIP_CONFIRM_FLAG,
 )
@@ -266,6 +275,80 @@ def _build_parser() -> argparse.ArgumentParser:
         default=None,
         help="Optional. Audited for changes alongside the source; never written to.",
     )
+
+    clean = add(
+        "clean-preview",
+        "DESTRUCTIVE. Phase 7: removes from ONE named DAZ_AUTO_PREVIEW_* timeline exactly "
+        "the clips DAZ can prove it created, and nothing else. Foreign clips are left "
+        "untouched and reported. Refuses protected timelines, legacy previews with no "
+        "ownership metadata, and any track whose ownership is not fully classifiable. A "
+        "DAZ_RECOVERY_* copy is made before the first deletion.",
+    )
+    clean.add_argument(
+        CLEAN_CONFIRM_FLAG,
+        action="store_true",
+        dest="confirmed_clean",
+        help="Required. Without it nothing is deleted and nothing is created.",
+    )
+    clean.add_argument("--project", required=True, help="Exact expected project name.")
+    clean.add_argument(
+        "--source-timeline",
+        required=True,
+        help="The timeline the preview was built from. Protected: never written to.",
+    )
+    clean.add_argument(
+        "--reference-timeline",
+        default=None,
+        help="Optional human-edited timeline. Protected: never written to.",
+    )
+    clean.add_argument(
+        "--preview-timeline",
+        required=True,
+        help="Exact name of the DAZ_AUTO_PREVIEW_* timeline to clean. No wildcards, no "
+        "'latest': the one timeline you name is the only one that can be touched.",
+    )
+
+    rebuild = add(
+        "rebuild-preview",
+        "DESTRUCTIVE. Phase 7: recomputes the plan from the source, removes the DAZ-owned "
+        "clips from ONE named DAZ_AUTO_PREVIEW_* timeline and re-applies the fresh plan onto "
+        "it. Repeating it produces the same structural result with no duplicates. Refuses if "
+        "the target track holds anything DAZ did not create.",
+    )
+    rebuild.add_argument(
+        REBUILD_CONFIRM_FLAG,
+        action="store_true",
+        dest="confirmed_rebuild",
+        help="Required. Without it nothing is deleted and nothing is created.",
+    )
+    rebuild.add_argument(
+        VOICE_CONFIRM_FLAG,
+        action="store_true",
+        dest="confirmed",
+        help="Required as well: recomputing the plan needs the same temporary voice render "
+        "as plan-probe.",
+    )
+    rebuild.add_argument("--project", required=True, help="Exact expected project name.")
+    rebuild.add_argument(
+        "--source-timeline",
+        required=True,
+        help="Timeline to re-plan against. Protected: never written to.",
+    )
+    rebuild.add_argument(
+        "--reference-timeline",
+        default=None,
+        help="Optional human-edited timeline. Diagnostics only; never written to.",
+    )
+    rebuild.add_argument(
+        "--preview-timeline",
+        required=True,
+        help="Exact name of the DAZ_AUTO_PREVIEW_* timeline to rebuild.",
+    )
+    rebuild.add_argument(
+        "--keep-temp-audio",
+        action="store_true",
+        help="Keep the rendered and normalized audio and print exactly where they are.",
+    )
     return parser
 
 
@@ -470,8 +553,46 @@ def _apply_preview(
     return report.to_dict(), report.to_text(), report.succeeded
 
 
+def _owned_preview(
+    args: Any,
+    config: Config,
+    resolve: Any,
+    project: Any,
+    *,
+    operation: str,
+    confirmed: bool,
+    zoom_plan: ZoomPlan | None = None,
+) -> tuple[dict[str, Any], str, bool]:
+    """Hand a named preview to `clean-preview` / `rebuild-preview`. Returns (payload, text, ok).
+
+    A refusal is a normal, reportable outcome — the guards are the whole point of these two
+    commands — so it becomes text here rather than a traceback. Nothing was deleted when it
+    happens.
+    """
+
+    try:
+        report: OwnedPreviewReport = run_owned_preview(
+            resolve,
+            project,
+            config,
+            _apply_target(args, config),
+            args.preview_timeline,
+            operation=operation,
+            confirmed=confirmed,
+            plan=zoom_plan,
+        )
+    except OwnedPreviewRefused as exc:
+        return {"refused": str(exc)}, f"refused: {exc}", False
+    return report.to_dict(), report.to_text(), report.succeeded
+
+
 def _speech_probe(
-    args: Any, config: Config, *, plan: bool = False, apply_plan: bool = False
+    args: Any,
+    config: Config,
+    *,
+    plan: bool = False,
+    apply_plan: bool = False,
+    rebuild: bool = False,
 ) -> int:
     try:
         resolve = connect()
@@ -537,10 +658,23 @@ def _speech_probe(
                     payload["apply"] = apply_payload
                     text += "\n\n" + apply_text
                     succeeded = applied
-                elif apply_plan:
+                elif rebuild and succeeded:
+                    rebuild_payload, rebuild_text, rebuilt = _owned_preview(
+                        args,
+                        config,
+                        resolve,
+                        project,
+                        operation=REBUILD,
+                        confirmed=args.confirmed_rebuild,
+                        zoom_plan=zoom_plan,
+                    )
+                    payload["rebuild"] = rebuild_payload
+                    text += "\n\n" + rebuild_text
+                    succeeded = rebuilt
+                elif apply_plan or rebuild:
                     text += (
-                        "\n\nrefused: the pipeline did not produce a usable plan, so no "
-                        "preview timeline was created"
+                        "\n\nrefused: the pipeline did not produce a usable plan, so nothing "
+                        "was created and nothing was deleted"
                     )
         _emit(payload, text, args.as_json)
     return EXIT_OK if succeeded else EXIT_PROBE_FAILED
@@ -621,7 +755,27 @@ def main(argv: Sequence[str] | None = None) -> int:
     if args.command == "speech-probe":
         return _speech_probe(args, config)
 
-    if args.command in ("plan-probe", "apply-preview"):
+    if args.command == "clean-preview":
+        try:
+            resolve = connect()
+            project = current_project(resolve)
+        except ResolveUnavailableError as exc:
+            print(f"error: {exc}")
+            return EXIT_RESOLVE_UNAVAILABLE
+        if not args.confirmed_clean:
+            # Checked before Resolve is touched further: the flag is the whole opt-in.
+            print(
+                f"refused: clean-preview deletes clips from an existing timeline and "
+                f"requires {CLEAN_CONFIRM_FLAG}. Nothing was modified."
+            )
+            return EXIT_BAD_REQUEST
+        clean_payload, clean_text, cleaned = _owned_preview(
+            args, config, resolve, project, operation=CLEAN, confirmed=True
+        )
+        _emit(clean_payload, clean_text, args.as_json)
+        return EXIT_OK if cleaned else EXIT_PROBE_FAILED
+
+    if args.command in ("plan-probe", "apply-preview", "rebuild-preview"):
         if config.asset_timing is None:
             print(
                 "error: the planner needs to know how long your zoom assets take to animate. "
@@ -631,6 +785,14 @@ def main(argv: Sequence[str] | None = None) -> int:
             return EXIT_BAD_REQUEST
         if args.command == "plan-probe":
             return _speech_probe(args, config, plan=True)
+        if args.command == "rebuild-preview":
+            if not args.confirmed_rebuild:
+                print(
+                    f"refused: rebuild-preview deletes clips from an existing timeline and "
+                    f"requires {REBUILD_CONFIRM_FLAG}. Nothing was modified."
+                )
+                return EXIT_BAD_REQUEST
+            return _speech_probe(args, config, plan=True, rebuild=True)
         if not args.confirmed_apply:
             # Checked before Resolve is even contacted: the flag is the whole opt-in.
             print(

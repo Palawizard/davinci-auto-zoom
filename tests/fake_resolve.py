@@ -274,7 +274,10 @@ class FakeTimeline:
         return self._tracks[(track_type, index)][1]
 
     def GetItemListInTrack(self, track_type: str, index: int) -> list[FakeTimelineItem]:
-        return self._tracks[(track_type, index)][2]
+        # The README documents 1 <= index <= GetTrackCount; asking beyond that yields
+        # nothing rather than raising, which is what callers guard against.
+        track = self._tracks.get((track_type, index))
+        return track[2] if track is not None else []
 
     def GetIsTrackEnabled(self, track_type: str, index: int) -> bool:
         # Matches the real API quirk: False for any non-current timeline.
