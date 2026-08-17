@@ -104,6 +104,7 @@ class FakeTimelineItem:
         fusion_comp_count: int = 0,
         track: tuple[str, int] = ("video", 1),
         comp: str | None = None,
+        log: MutationLog | None = None,
     ) -> None:
         self._name = name
         self._start = start
@@ -113,9 +114,71 @@ class FakeTimelineItem:
         self._fusion_comp_count = fusion_comp_count
         self._track = track
         self._comp = comp
+        self._log = log if log is not None else MutationLog()
+        #: local frame -> marker information, exactly the shape GetMarkers() returns.
+        self._markers: dict[int, dict[str, Any]] = {}
+
+        # Failure switches for the ownership unhappy paths.
+        self.add_marker_outcome: bool | None = True  # None = raise
+        self.markers_readable = True
+        #: Rewrites the customData a re-read reports, to simulate Resolve storing something
+        #: other than what was handed to AddMarker.
+        self.corrupt_readback: str | None = None
 
     def GetName(self) -> str:
         return self._name
+
+    # --- markers -----------------------------------------------------------------------
+
+    def GetMarkers(self) -> dict[float, dict[str, Any]]:
+        if not self.markers_readable:
+            raise RuntimeError("GetMarkers() failed")
+        return {
+            float(frame): {
+                **info,
+                "customData": self.corrupt_readback
+                if self.corrupt_readback is not None and info.get("customData")
+                else info.get("customData", ""),
+            }
+            for frame, info in sorted(self._markers.items())
+        }
+
+    def AddMarker(
+        self,
+        frame_id: float,
+        color: str,
+        name: str,
+        note: str,
+        duration: float,
+        custom_data: str = "",
+    ) -> bool:
+        if self.add_marker_outcome is None:
+            raise RuntimeError("AddMarker() failed")
+        if not self.add_marker_outcome:
+            return False
+        frame = int(frame_id)
+        if frame in self._markers or not 0 <= frame < self.GetDuration():
+            return False  # Resolve refuses a second marker on an occupied frame
+        self._log.record(f"AddMarker({self._name!r} @{self._start} local={frame})")
+        self._markers[frame] = {
+            "color": color,
+            "name": name,
+            "note": note,
+            "duration": float(duration),
+            "customData": custom_data,
+        }
+        return True
+
+    def add_user_marker(self, frame: int, custom_data: str = "", duration: int = 1) -> None:
+        """Test helper: a marker that was already there before DAZ ever saw the item."""
+
+        self._markers[frame] = {
+            "color": "Blue",
+            "name": f"Marker {frame}",
+            "note": "",
+            "duration": float(duration),
+            "customData": custom_data,
+        }
 
     def GetStart(self) -> int:
         return self._start
@@ -176,6 +239,8 @@ class FakeTimeline:
         #: Per-track enable state. Real Resolve only reports this truthfully for the current
         #: timeline (D009), which `GetIsTrackEnabled` below reproduces.
         self.track_enabled: dict[tuple[str, int], bool] = dict.fromkeys(tracks, True)
+        #: Failure switch for the destructive path. None = raise.
+        self.delete_clips_outcome: bool | None = True
 
     def GetName(self) -> str:
         return self._name
@@ -267,6 +332,11 @@ class FakeTimeline:
         )
         duplicate.sample_rate = self.sample_rate
         duplicate.track_enabled = dict(self.track_enabled)
+        # deepcopy would give every copied item a detached mutation log; re-link them so the
+        # shared log stays the single record of everything that was written.
+        for _, _, contents in duplicate._tracks.values():
+            for item in contents:
+                item._log = self._log
         if self.project is not None:
             self.project.add_timeline(duplicate)  # Resolve registers it in the project
         return duplicate
@@ -277,6 +347,25 @@ class FakeTimeline:
         label = {"video": "Video", "audio": "Audio", "subtitle": "Subtitle"}[track_type]
         self._tracks[(track_type, index)] = (f"{label} {index}", "", [])
         self.track_enabled[(track_type, index)] = True
+        return True
+
+    def DeleteClips(self, items: list[FakeTimelineItem], ripple: bool = False) -> bool:
+        """The exact call signature the README documents: `DeleteClips([items], Bool)`.
+
+        The ripple flag is recorded verbatim so a test can assert DAZ never lets Resolve
+        ripple a timeline while removing adjustment-layer-style clips.
+        """
+
+        if self.delete_clips_outcome is None:
+            raise RuntimeError("DeleteClips() failed")
+        names = ", ".join(f"{i.GetName()}@{i.GetStart()}" for i in items)
+        self._log.record(f"DeleteClips([{names}], ripple={ripple}) on {self._name!r}")
+        if not self.delete_clips_outcome:
+            return False
+        for item in items:
+            for _, _, contents in self._tracks.values():
+                if item in contents:
+                    contents.remove(item)
         return True
 
     def add_item(self, track_type: str, index: int, item: FakeTimelineItem) -> None:
@@ -362,6 +451,7 @@ class FakeMediaPool:
                     duration,
                     ("1.5", "1") if "X0" in name else ("1", "1.5"),
                 ),
+                log=self._log,
             )
             timeline.add_item("video", index, item)
             appended.append(item)

@@ -23,6 +23,11 @@ Safety model, in order:
    (D032);
 5. every insertion is verified immediately, and the finished track is compared with the whole
    plan afterwards. Any difference fails the run;
+5b. **(Phase 7)** every created item is then claimed with a DAZ ownership marker and read back
+   through the classifier a later `clean-preview` will use. 100% or nothing: if item N cannot
+   be claimed, or the finished track does not classify as fully owned, the whole preview is
+   rolled back. A partially owned preview is not a lesser success — it is a preview no future
+   destructive command could ever safely touch, so it must not be allowed to exist (D035);
 6. the preview timeline is the transaction boundary. On failure `try/finally` restores the
    timeline the user had open and deletes the preview this run created — only that one, never
    an older `DAZ_AUTO_PREVIEW_*` (D031);
@@ -67,6 +72,12 @@ from davinci_auto_zoom.domain.apply import (
     placement_differences,
     plan_target_track,
 )
+from davinci_auto_zoom.domain.ownership import (
+    OWNED,
+    OwnershipExpectations,
+    build_record,
+    classify_track,
+)
 from davinci_auto_zoom.domain.plan_validation import (
     build_plan_source,
     timeline_frame_rate,
@@ -80,6 +91,7 @@ from davinci_auto_zoom.domain.probe import (
     signature_differences,
     structural_signature,
 )
+from davinci_auto_zoom.resolve.ownership import snapshot_owned_track, tag_item
 from davinci_auto_zoom.resolve.session import (
     find_asset_items,
     find_timeline,
@@ -110,7 +122,7 @@ def preview_timeline_name(now: datetime | None = None, token: str | None = None)
 
 @dataclass
 class InsertionRecord:
-    """What one placement asked for and what Resolve actually produced."""
+    """What one placement asked for, what Resolve produced, and how it was claimed."""
 
     index: int
     role: str
@@ -128,6 +140,13 @@ class InsertionRecord:
     end: int | None = None
     duration: int | None = None
     fusion_comp_count: int | None = None
+
+    # --- Phase 7 ownership -------------------------------------------------------------
+    #: Tri-state: None means the item was never reached by the tagging step.
+    owned: bool | None = None
+    marker_frame: int | None = None
+    placement_id: str | None = None
+    ownership_problems: tuple[str, ...] = ()
 
 
 @dataclass
@@ -169,6 +188,20 @@ class ApplyReport:
     insertions: list[InsertionRecord] = field(default_factory=list)
     verification_differences: tuple[str, ...] = ()
     verified: bool | None = None
+
+    # --- Phase 7 ownership -------------------------------------------------------------
+    #: The identity every record on this preview names. Recorded so a later `clean-preview`
+    #: or `rebuild-preview` run can be checked against what this run actually wrote.
+    ownership_preview_id: str | None = None
+    ownership_fingerprint: str | None = None
+    items_created: int = 0
+    items_owned: int = 0
+    items_unowned: int = 0
+    items_ambiguous: int = 0
+    items_stale: int = 0
+    ownership_differences: tuple[str, ...] = ()
+    #: Tri-state on purpose: None means "the run never got as far as verifying ownership".
+    ownership_verified: bool | None = None
 
     audit_checked: tuple[str, ...] = ()
     audit_differences: tuple[str, ...] = ()
@@ -216,6 +249,13 @@ class ApplyReport:
             and all(record.ok for record in self.insertions)
             and self.verified is True
             and not self.verification_differences
+            # Phase 7: a preview is not successful unless DAZ can prove it made every single
+            # item on it. A partially owned preview would be worse than none at all — a later
+            # clean would be forced to fail closed on it forever (D035).
+            and self.ownership_verified is True
+            and not self.ownership_differences
+            and self.items_owned == self.items_created == len(self.insertions)
+            and all(record.owned for record in self.insertions)
             and self.current_timeline_restored is True
             and not self.audit_differences
             and not self.cleanup_failures
@@ -266,17 +306,35 @@ class ApplyReport:
                 f"rec={record.clip_info['recordFrame']} "
                 f"end={record.clip_info['endFrame']:>4} -> start={record.start} "
                 f"end={record.end} dur={record.duration} V{record.track_index} "
-                f"comps={record.fusion_comp_count}"
+                f"comps={record.fusion_comp_count} "
+                f"owned={record.owned} marker@{record.marker_frame} "
+                f"pid={record.placement_id}"
             )
             if record.error:
                 lines.append(f"           error: {record.error}")
             for problem in record.problems:
                 lines.append(f"           {problem}")
+            for problem in record.ownership_problems:
+                lines.append(f"           ownership: {problem}")
         if self.verified is not None:
             lines.append(f"  verified  : {self.verified}")
         if self.verification_differences:
             lines.append("  PLAN vs TIMELINE DIFFERENCES:")
             lines.extend(f"    - {item}" for item in self.verification_differences)
+        if self.ownership_verified is not None or self.items_created:
+            lines.extend(
+                [
+                    f"  ownership : preview_id={self.ownership_preview_id} "
+                    f"fingerprint={self.ownership_fingerprint}",
+                    f"              items created {self.items_created}, "
+                    f"owned {self.items_owned}, unowned {self.items_unowned}, "
+                    f"stale {self.items_stale}, ambiguous {self.items_ambiguous}",
+                    f"              verification: {self.ownership_verified}",
+                ]
+            )
+        if self.ownership_differences:
+            lines.append("  OWNERSHIP DIFFERENCES:")
+            lines.extend(f"    - {item}" for item in self.ownership_differences)
         lines.extend(
             [
                 f"  restored  : {self.restored_current_timeline} "
@@ -399,11 +457,15 @@ def _insert(
     expected: ExpectedItem,
     media_pool_item: Any,
     track_index: int,
-) -> InsertionRecord:
+) -> tuple[InsertionRecord, Any]:
     """One placement, one `AppendToTimeline` call, checked immediately.
 
     Sequential rather than batched on purpose: with one clipInfo per call, a failure names
     the placement that caused it instead of leaving 28 insertions to be attributed.
+
+    Returns the live TimelineItem alongside the record, because the very next thing that has
+    to happen to it is being claimed (`_claim`), and re-finding it by name and frame would be
+    precisely the name-based identification this phase exists to abolish.
     """
 
     clip_info = clip_info_for(placement, media_pool_item, track_index)
@@ -420,13 +482,13 @@ def _insert(
         returned = media_pool.AppendToTimeline([clip_info])
     except Exception as exc:  # the Blackmagic wrapper raises bare exceptions
         record.error = f"AppendToTimeline raised {exc!r}"
-        return record
+        return record, None
 
     items = list(returned or [])
     record.returned_items = len(items)
     if len(items) != 1:
         record.error = f"expected exactly 1 returned TimelineItem, got {len(items)}"
-        return record
+        return record, None
 
     facts = _item_facts(items[0])
     for key, value in facts.items():
@@ -435,7 +497,38 @@ def _insert(
     record.ok = not record.problems
     if not record.ok:
         record.error = "the created item does not match the placement"
-    return record
+    return record, items[0]
+
+
+def _claim(
+    item: Any,
+    record: InsertionRecord,
+    expected: ExpectedItem,
+    *,
+    preview_id: str,
+    source_fingerprint: str,
+) -> None:
+    """Write DAZ's ownership onto an item this run just created, and prove it stuck.
+
+    Called immediately after the insertion was verified, on the very object
+    `AppendToTimeline` returned. Anything short of a clean round-trip leaves `record.owned`
+    False, and the caller turns that into a whole-preview rollback: a half-owned preview is
+    not a lesser success, it is a preview no future `clean-preview` could ever safely touch.
+    """
+
+    ownership = build_record(
+        preview_id=preview_id,
+        role=expected.role,
+        asset=expected.name,
+        start=expected.start,
+        end=expected.end,
+        source_fingerprint=source_fingerprint,
+    )
+    record.placement_id = ownership.placement_id
+    result = tag_item(item, ownership)
+    record.owned = result.ok
+    record.marker_frame = result.marker_frame
+    record.ownership_problems = result.problems
 
 
 def _verify_target_track(
@@ -450,6 +543,58 @@ def _verify_target_track(
     report.verified = not report.verification_differences
 
 
+def _verify_ownership(
+    preview: Any,
+    track_index: int,
+    expectations: OwnershipExpectations,
+    report: ApplyReport,
+) -> None:
+    """Re-read the finished track's markers and require **every** item to classify as owned.
+
+    Deliberately independent of what the tagging step believed. `_claim` checks one item at a
+    time, through the object Resolve handed back; this reads the track fresh, from the
+    timeline, through the same classifier a later `clean-preview` will use. If the two ever
+    disagree, the run fails — the classifier's opinion is the one that will matter later.
+    """
+
+    ownership = classify_track(
+        track_index, snapshot_owned_track(preview, track_index), expectations
+    )
+    report.items_created = len(ownership.items)
+    report.items_owned = len(ownership.owned)
+    report.items_unowned = len(ownership.unowned)
+    report.items_ambiguous = len(ownership.ambiguous)
+    report.items_stale = len(ownership.stale)
+
+    differences: list[str] = []
+    if report.items_created != len(report.insertions):
+        differences.append(
+            f"the target track holds {report.items_created} item(s) but this run inserted "
+            f"{len(report.insertions)}"
+        )
+    for verdict in ownership.items:
+        if verdict.state != OWNED:
+            differences.append(
+                f"{verdict.item.label} classifies as {verdict.state}: "
+                + ("; ".join(verdict.problems) or "no DAZ ownership metadata")
+            )
+    written = {
+        record.placement_id
+        for record in report.insertions
+        if record.placement_id is not None
+    }
+    read_back = {
+        verdict.record.placement_id for verdict in ownership.owned if verdict.record
+    }
+    if written != read_back:
+        differences.append(
+            f"the placement ids read back from the timeline do not match the ones written: "
+            f"missing {sorted(written - read_back)}, unexpected {sorted(read_back - written)}"
+        )
+    report.ownership_differences = tuple(differences)
+    report.ownership_verified = not differences
+
+
 def _timeline_identity(timeline: Any) -> tuple[str | None, str | None]:
     """`(name, unique_id)` for a live timeline. The id is optional, the name is not."""
 
@@ -461,38 +606,49 @@ def _timeline_identity(timeline: Any) -> tuple[str | None, str | None]:
     return str(timeline.GetName()), str(unique_id) if unique_id is not None else None
 
 
-def _restore_previous_timeline(
-    project: Any, previous_timeline: Any, report: ApplyReport
-) -> bool:
-    """Put the user's timeline back, and *prove* it. Returns False unless proven.
+@dataclass(frozen=True, slots=True)
+class RestoreOutcome:
+    """What restoring the user's active timeline attempted, and what it proved."""
+
+    name: str | None
+    unique_id: str | None
+    restored: bool
+    failures: tuple[str, ...] = ()
+
+
+def restore_previous_timeline(
+    project: Any,
+    previous_timeline: Any,
+    *,
+    expected_name: str | None,
+    expected_unique_id: str | None,
+) -> RestoreOutcome:
+    """Put the user's timeline back, and *prove* it. `restored` is False unless proven.
 
     Fail-closed by design: restoring what the user had open is part of the transaction's
     success, not a best-effort courtesy (D033). Three things must hold — the call must not
     raise, it must not report failure, and the re-read must land on the same timeline —
     because each of them has a plausible failure mode that the others would not catch.
+
+    Shared with the probes and the owned-preview commands on purpose. Restoration is a safety
+    property, and two implementations of a safety property eventually disagree.
     """
 
     if previous_timeline is None:
         # No timeline was open before the run, so there is nothing to restore. Whatever is
         # current now is recorded, not asserted.
         name, unique_id = _timeline_identity(project.GetCurrentTimeline())
-        report.restored_current_timeline = name
-        report.restored_current_timeline_unique_id = unique_id
-        report.current_timeline_restored = True
-        return True
+        return RestoreOutcome(name, unique_id, True)
 
     failures: list[str] = []
     try:
         returned = project.SetCurrentTimeline(previous_timeline)
     except Exception as exc:
-        failures.append(
-            f"SetCurrentTimeline({report.previous_current_timeline!r}) raised {exc!r}"
-        )
+        failures.append(f"SetCurrentTimeline({expected_name!r}) raised {exc!r}")
     else:
         if not returned:
             failures.append(
-                f"SetCurrentTimeline({report.previous_current_timeline!r}) returned "
-                f"{returned!r}"
+                f"SetCurrentTimeline({expected_name!r}) returned {returned!r}"
             )
 
     try:
@@ -501,27 +657,41 @@ def _restore_previous_timeline(
         # Runs inside a `finally`; an unreadable Resolve must fail the run, not crash it.
         failures.append(f"GetCurrentTimeline() could not be re-read: {exc!r}")
         name, unique_id = None, None
-    report.restored_current_timeline = name
-    report.restored_current_timeline_unique_id = unique_id
 
-    want_id = report.previous_current_timeline_unique_id
-    if name != report.previous_current_timeline:
-        failures.append(
-            f"the active timeline is {name!r}, expected {report.previous_current_timeline!r}"
-        )
-    elif want_id is not None and unique_id is not None and unique_id != want_id:
+    if name != expected_name:
+        failures.append(f"the active timeline is {name!r}, expected {expected_name!r}")
+    elif (
+        expected_unique_id is not None
+        and unique_id is not None
+        and unique_id != expected_unique_id
+    ):
         failures.append(
             f"the active timeline is named {name!r} but its unique id is {unique_id!r}, "
-            f"expected {want_id!r}"
+            f"expected {expected_unique_id!r}"
         )
 
-    report.current_timeline_restored = not failures
-    if failures:
-        report.cleanup_failures += tuple(
-            f"could not restore the previously active timeline: {failure}"
-            for failure in failures
-        )
-    return not failures
+    return RestoreOutcome(name, unique_id, not failures, tuple(failures))
+
+
+def _restore_previous_timeline(
+    project: Any, previous_timeline: Any, report: ApplyReport
+) -> bool:
+    """`restore_previous_timeline`, folded into an `ApplyReport`."""
+
+    outcome = restore_previous_timeline(
+        project,
+        previous_timeline,
+        expected_name=report.previous_current_timeline,
+        expected_unique_id=report.previous_current_timeline_unique_id,
+    )
+    report.restored_current_timeline = outcome.name
+    report.restored_current_timeline_unique_id = outcome.unique_id
+    report.current_timeline_restored = outcome.restored
+    report.cleanup_failures += tuple(
+        f"could not restore the previously active timeline: {failure}"
+        for failure in outcome.failures
+    )
+    return outcome.restored
 
 
 def _dispose_preview(
@@ -782,8 +952,11 @@ def apply_preview(
         if not project.SetCurrentTimeline(preview):
             raise RuntimeError("SetCurrentTimeline(preview) failed")
 
+        report.ownership_preview_id = str(preview.GetUniqueId())
+        report.ownership_fingerprint = current_source.structural_fingerprint
+
         for index, (placement, want) in enumerate(zip(plan.placements, expected, strict=True)):
-            record = _insert(
+            record, created = _insert(
                 media_pool,
                 index,
                 placement,
@@ -797,12 +970,41 @@ def apply_preview(
                     f"placement {index} ({record.role} at {want.start}) failed: "
                     f"{record.error}; " + "; ".join(record.problems)
                 )
+            _claim(
+                created,
+                record,
+                want,
+                preview_id=report.ownership_preview_id,
+                source_fingerprint=report.ownership_fingerprint,
+            )
+            if not record.owned:
+                raise RuntimeError(
+                    f"placement {index} ({record.role} at {want.start}) was created but "
+                    "could not be claimed as DAZ's: "
+                    + "; ".join(record.ownership_problems)
+                )
 
         _verify_target_track(preview, expected, config.zoom_video_track, report)
         if not report.verified:
             raise RuntimeError(
                 "the finished track does not match the plan: "
                 + "; ".join(report.verification_differences)
+            )
+
+        _verify_ownership(
+            preview,
+            config.zoom_video_track,
+            OwnershipExpectations(
+                preview_id=report.ownership_preview_id,
+                source_fingerprint=report.ownership_fingerprint,
+                assets=dict(target.assets),
+            ),
+            report,
+        )
+        if not report.ownership_verified:
+            raise RuntimeError(
+                "the finished track is not fully owned by DAZ: "
+                + "; ".join(report.ownership_differences)
             )
         verified = True
     except Exception as exc:

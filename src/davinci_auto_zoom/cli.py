@@ -36,6 +36,13 @@ from davinci_auto_zoom.resolve.executor import (
     ApplyReport,
     apply_preview,
 )
+from davinci_auto_zoom.resolve.ownership_probe import (
+    CONFIRM_FLAG as OWNERSHIP_CONFIRM_FLAG,
+)
+from davinci_auto_zoom.resolve.ownership_probe import (
+    OwnershipProbeRefused,
+    run_ownership_probe,
+)
 from davinci_auto_zoom.resolve.session import (
     ResolveUnavailableError,
     connect,
@@ -237,6 +244,28 @@ def _build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Keep the rendered and normalized audio and print exactly where they are.",
     )
+
+    ownership_probe = add(
+        "probe-ownership",
+        "DEVELOPMENT ONLY. Phase 7 spike: proves that TimelineItem markers work as "
+        "persistent DAZ ownership on real generator clips. WRITES to scratch timelines it "
+        "creates and deletes, restoring every piece of project state it touched.",
+    )
+    ownership_probe.add_argument(
+        OWNERSHIP_CONFIRM_FLAG,
+        action="store_true",
+        dest="confirmed_ownership",
+        help="Required. Without it the probe refuses to run and nothing is modified.",
+    )
+    ownership_probe.add_argument("--project", required=True, help="Exact expected project name.")
+    ownership_probe.add_argument(
+        "--source-timeline", required=True, help="Timeline to duplicate. Never modified."
+    )
+    ownership_probe.add_argument(
+        "--reference-timeline",
+        default=None,
+        help="Optional. Audited for changes alongside the source; never written to.",
+    )
     return parser
 
 
@@ -407,6 +436,21 @@ def _plan_reference_text(diagnostics: PlanReferenceDiagnostics) -> str:
     )
 
 
+def _apply_target(args: Any, config: Config) -> ApplyPreviewTarget:
+    """The explicit expectations every write-capable command states rather than infers (D015)."""
+
+    return ApplyPreviewTarget(
+        project=args.project,
+        source_timeline=args.source_timeline,
+        reference_timeline=getattr(args, "reference_timeline", None),
+        voice_audio_track=config.voice_audio_track,
+        cut_reference_video_track=config.cut_reference_video_track,
+        zoom_video_track=config.zoom_video_track,
+        asset_bin=config.asset_bin,
+        assets=tuple(sorted(config.assets.items())),
+    )
+
+
 def _apply_preview(
     args: Any, config: Config, resolve: Any, project: Any, zoom_plan: ZoomPlan
 ) -> tuple[dict[str, Any], str, bool]:
@@ -416,16 +460,7 @@ def _apply_preview(
     it is turned into text here instead of a traceback. Nothing was created when it happens.
     """
 
-    target = ApplyPreviewTarget(
-        project=args.project,
-        source_timeline=args.source_timeline,
-        reference_timeline=args.reference_timeline,
-        voice_audio_track=config.voice_audio_track,
-        cut_reference_video_track=config.cut_reference_video_track,
-        zoom_video_track=config.zoom_video_track,
-        asset_bin=config.asset_bin,
-        assets=tuple(sorted(config.assets.items())),
-    )
+    target = _apply_target(args, config)
     try:
         report: ApplyReport = apply_preview(
             resolve, project, config, target, zoom_plan, confirmed=args.confirmed_apply
@@ -604,6 +639,27 @@ def main(argv: Sequence[str] | None = None) -> int:
             )
             return EXIT_BAD_REQUEST
         return _speech_probe(args, config, plan=True, apply_plan=True)
+
+    if args.command == "probe-ownership":
+        try:
+            resolve = connect()
+            project = current_project(resolve)
+        except ResolveUnavailableError as exc:
+            print(f"error: {exc}")
+            return EXIT_RESOLVE_UNAVAILABLE
+        try:
+            ownership = run_ownership_probe(
+                resolve,
+                project,
+                config,
+                _apply_target(args, config),
+                confirmed=args.confirmed_ownership,
+            )
+        except OwnershipProbeRefused as exc:
+            print(f"refused: {exc}")
+            return EXIT_BAD_REQUEST
+        _emit(ownership.to_dict(), ownership.to_text(), args.as_json)
+        return EXIT_OK if ownership.succeeded else EXIT_PROBE_FAILED
 
     if args.command == "probe-write":
         try:

@@ -21,6 +21,11 @@ import pytest
 
 from davinci_auto_zoom.config import Config
 from davinci_auto_zoom.domain.models import FrameRange
+from davinci_auto_zoom.domain.ownership import (
+    OWNED,
+    OwnershipExpectations,
+    classify_item,
+)
 from davinci_auto_zoom.domain.plan_validation import build_plan_source, timeline_frame_rate
 from davinci_auto_zoom.domain.planner import (
     ROLE_FACECAM_X1,
@@ -38,6 +43,7 @@ from davinci_auto_zoom.resolve.executor import (
     apply_preview,
     preview_timeline_name,
 )
+from davinci_auto_zoom.resolve.ownership import snapshot_owned_item
 from davinci_auto_zoom.resolve.session import snapshot_project
 from tests.fake_resolve import (
     FakeTimeline,
@@ -726,6 +732,23 @@ def _passing_report() -> Any:
         pytest.param(
             lambda r: setattr(r, "preview_absent_after_rollback", False), id="leaked-preview"
         ),
+        # Phase 7: ownership is a promise of the same rank as the frames themselves.
+        pytest.param(
+            lambda r: setattr(r, "ownership_verified", False), id="ownership-unverified"
+        ),
+        pytest.param(
+            lambda r: setattr(r, "ownership_verified", None), id="ownership-unknown"
+        ),
+        pytest.param(
+            lambda r: setattr(r, "ownership_differences", ("item 0 is unowned",)),
+            id="ownership-difference",
+        ),
+        pytest.param(
+            lambda r: setattr(r, "items_owned", r.items_owned - 1), id="one-item-unowned"
+        ),
+        pytest.param(
+            lambda r: setattr(r.insertions[0], "owned", False), id="one-unclaimed-item"
+        ),
     ],
 )
 def test_every_promised_property_can_veto_success(break_it: Any) -> None:
@@ -752,4 +775,186 @@ def test_a_track_that_cannot_be_created_rolls_back_before_any_insertion() -> Non
 
     assert report.insertions == []
     assert not any("AppendToTimeline" in call for call in project.mutations)
+    _assert_rolled_back(report, project)
+
+
+# --- Phase 7: ownership is part of the transaction ---------------------------------------
+
+
+def _created_items(project: Any, name: str) -> list[Any]:
+    """Every item on the preview's zoom track, as live fake objects."""
+
+    preview = next(
+        project.GetTimelineByIndex(i)
+        for i in range(1, project.GetTimelineCount() + 1)
+        if project.GetTimelineByIndex(i).GetName() == name
+    )
+    return preview.GetItemListInTrack("video", 3)
+
+
+def _break_tagging(project: Any, **attributes: Any) -> None:
+    """Sabotage the ownership write on every item the run is about to create.
+
+    Hooked into AppendToTimeline rather than applied afterwards, because the failure has to
+    happen *during* the transaction for the rollback to be the thing under test.
+    """
+
+    media_pool = project.GetMediaPool()
+    original = media_pool.AppendToTimeline
+
+    def append(clip_infos: list[dict[str, Any]]) -> list[Any]:
+        items = original(clip_infos)
+        for item in items:
+            for key, value in attributes.items():
+                setattr(item, key, value)
+        return items
+
+    media_pool.AppendToTimeline = append  # type: ignore[method-assign]
+
+
+def test_a_successful_run_tags_every_item_and_proves_it() -> None:
+    resolve, project, source = _live()
+    report = apply_preview(resolve, project, CONFIG, TARGET, _plan(source), confirmed=True)
+
+    assert report.succeeded is True
+    assert report.ownership_verified is True
+    assert report.items_created == report.items_owned == len(PLACEMENTS)
+    assert report.items_unowned == report.items_ambiguous == report.items_stale == 0
+    assert all(record.owned is True for record in report.insertions)
+    assert all(record.placement_id for record in report.insertions)
+    # Distinct placements get distinct identities.
+    assert len({r.placement_id for r in report.insertions}) == len(PLACEMENTS)
+    assert "owned 4" in report.to_text()
+
+
+def test_the_recorded_ownership_matches_the_markers_actually_on_the_timeline() -> None:
+    resolve, project, source = _live()
+    report = apply_preview(resolve, project, CONFIG, TARGET, _plan(source), confirmed=True)
+    assert report.preview_name is not None
+
+    items = _created_items(project, report.preview_name)
+    verdicts = [
+        classify_item(
+            snapshot_owned_item(item),
+            OwnershipExpectations(
+                preview_id=report.ownership_preview_id,
+                source_fingerprint=report.ownership_fingerprint,
+                assets=dict(TARGET.assets),
+            ),
+        )
+        for item in items
+    ]
+    assert [v.state for v in verdicts] == [OWNED] * len(PLACEMENTS)
+    assert [v.record.placement_id for v in verdicts if v.record] == [
+        record.placement_id for record in report.insertions
+    ]
+
+
+def test_an_addmarker_that_reports_failure_rolls_the_whole_preview_back() -> None:
+    resolve, project, source = _live()
+    _old_preview(project)
+    _break_tagging(project, add_marker_outcome=False)
+    report = apply_preview(resolve, project, CONFIG, TARGET, _plan(source), confirmed=True)
+
+    assert report.insertions[0].owned is False
+    assert report.insertions[0].ownership_problems
+    _assert_rolled_back(report, project)
+
+
+def test_an_addmarker_that_raises_rolls_the_whole_preview_back() -> None:
+    resolve, project, source = _live()
+    _old_preview(project)
+    _break_tagging(project, add_marker_outcome=None)
+    report = apply_preview(resolve, project, CONFIG, TARGET, _plan(source), confirmed=True)
+
+    assert report.insertions[0].owned is False
+    _assert_rolled_back(report, project)
+
+
+def test_a_marker_that_cannot_be_re_read_rolls_the_whole_preview_back() -> None:
+    resolve, project, source = _live()
+    _old_preview(project)
+    _break_tagging(project, markers_readable=False)
+    report = apply_preview(resolve, project, CONFIG, TARGET, _plan(source), confirmed=True)
+
+    assert report.insertions[0].owned is False
+    _assert_rolled_back(report, project)
+
+
+def test_custom_data_that_comes_back_wrong_rolls_the_whole_preview_back() -> None:
+    resolve, project, source = _live()
+    _old_preview(project)
+    _break_tagging(project, corrupt_readback='{"namespace":"davinci-auto-zoom","schema":99}')
+    report = apply_preview(resolve, project, CONFIG, TARGET, _plan(source), confirmed=True)
+
+    assert report.insertions[0].owned is False
+    assert any("customData came back" in p for p in report.insertions[0].ownership_problems)
+    _assert_rolled_back(report, project)
+
+
+def test_tagging_fails_at_placement_n_and_the_earlier_ones_go_away_too() -> None:
+    resolve, project, source = _live()
+    _old_preview(project)
+    media_pool = project.GetMediaPool()
+    original = media_pool.AppendToTimeline
+    seen: list[Any] = []
+
+    def append(clip_infos: list[dict[str, Any]]) -> list[Any]:
+        items = original(clip_infos)
+        seen.extend(items)
+        if len(seen) == 3:  # the third item refuses to be claimed
+            items[0].add_marker_outcome = False
+        return items
+
+    media_pool.AppendToTimeline = append  # type: ignore[method-assign]
+    report = apply_preview(resolve, project, CONFIG, TARGET, _plan(source), confirmed=True)
+
+    assert [record.owned for record in report.insertions] == [True, True, False]
+    _assert_rolled_back(report, project)
+
+
+def test_a_user_marker_already_on_a_created_item_is_stepped_around_not_over() -> None:
+    """DAZ never assumes local frame 0 is free (D036)."""
+
+    resolve, project, source = _live()
+    media_pool = project.GetMediaPool()
+    original = media_pool.AppendToTimeline
+
+    def append(clip_infos: list[dict[str, Any]]) -> list[Any]:
+        items = original(clip_infos)
+        for item in items:
+            item.add_user_marker(0, "the user was here")
+        return items
+
+    media_pool.AppendToTimeline = append  # type: ignore[method-assign]
+    report = apply_preview(resolve, project, CONFIG, TARGET, _plan(source), confirmed=True)
+
+    assert report.succeeded is True
+    assert all(record.marker_frame == 1 for record in report.insertions)
+    assert report.preview_name is not None
+    for item in _created_items(project, report.preview_name):
+        markers = snapshot_owned_item(item).markers
+        assert markers[0].frame == 0 and markers[0].custom_data == "the user was here"
+
+
+def test_an_item_with_no_free_marker_frame_fails_closed_instead_of_overwriting() -> None:
+    resolve, project, source = _live()
+    _old_preview(project)
+    media_pool = project.GetMediaPool()
+    original = media_pool.AppendToTimeline
+
+    def append(clip_infos: list[dict[str, Any]]) -> list[Any]:
+        items = original(clip_infos)
+        for item in items:
+            for frame in range(item.GetDuration()):
+                item.add_user_marker(frame, f"user {frame}")
+        return items
+
+    media_pool.AppendToTimeline = append  # type: ignore[method-assign]
+    report = apply_preview(resolve, project, CONFIG, TARGET, _plan(source), confirmed=True)
+
+    assert report.insertions[0].owned is False
+    assert any(
+        "refusing to overwrite" in p for p in report.insertions[0].ownership_problems
+    )
     _assert_rolled_back(report, project)
