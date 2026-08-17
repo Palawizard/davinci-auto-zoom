@@ -1,0 +1,68 @@
+davinci-auto-zoom — Phase 2 write probe, saved run
+Resolve Studio 21.0.4.5 / project davinci-auto-zoom-test / 2026-08-16
+Command:
+  python -m davinci_auto_zoom probe-write --confirm-resolve-write-test \
+    --project davinci-auto-zoom-test --source-timeline DAZ_INPUT \
+    --reference-timeline DAZ_OUTPUT_MVP --config config.example.toml
+
+davinci-auto-zoom write probe (Phase 2 spike)
+  product   : DaVinci Resolve Studio 21.0.4.5
+  project   : davinci-auto-zoom-test
+  scratch   : DAZ_SCRATCH_20260816_025839_95179d74 (track V3)
+  wrote     : True
+  [ok  ] x1_native                req rec=216200 dur= 132 -> start=216200 end=216332 dur=132 V3 comps=1
+           fusion: equivalent-modulo-duration (carries_user_effect=True, keyframe_times_equal=True)
+  [ok  ] x1_endframe_semantics    req rec=216600 dur= 131 -> start=216600 end=216731 dur=131 V3 comps=1
+           fusion: equivalent-modulo-duration (carries_user_effect=True, keyframe_times_equal=True)
+  [ok  ] x1_short_87              req rec=217000 dur=  87 -> start=217000 end=217087 dur=87 V3 comps=1
+           fusion: equivalent-modulo-duration (carries_user_effect=True, keyframe_times_equal=True)
+  [ok  ] x1_extended_141          req rec=217400 dur= 141 -> start=217400 end=217541 dur=141 V3 comps=1
+           fusion: equivalent-modulo-duration (carries_user_effect=True, keyframe_times_equal=True)
+  [ok  ] x1_shorter_than_animation req rec=217800 dur=  10 -> start=217800 end=217810 dur=10 V3 comps=1
+           fusion: equivalent-modulo-duration (carries_user_effect=True, keyframe_times_equal=True)
+  [ok  ] x0_native                req rec=218200 dur=  42 -> start=218200 end=218242 dur=42 V3 comps=1
+           fusion: equivalent-modulo-duration (carries_user_effect=True, keyframe_times_equal=True)
+  cleanup   : restored=DAZ_OUTPUT_MVP deleted=True absent=True
+  audit     : DAZ_INPUT, DAZ_OUTPUT_MVP, assets
+  audit differences: none
+  note: reference comp for 'FACE_X1' exported from DAZ_OUTPUT_MVP item [216045,216132) (87 frames)
+  note: reference comp for 'FACE_X0_SMOOTH' exported from DAZ_OUTPUT_MVP item [216132,216174) (42 frames)
+  RESULT: PASS
+
+=== per-insertion Fusion evidence (from --json) ===
+x1_native: clipInfo={'endFrame': 132, 'mediaPoolItem': 'FACE_X1', 'recordFrame': 216200, 'startFrame': 0, 'trackIndex': 3}
+  -> start=216200 end=216332 duration=132 track=V3 name='FACE_X1' comps=1 ['Composition 1']
+  -> recordFrame absolute=True duration_as_requested=True selection_workaround=False
+  -> fusion verdict=equivalent-modulo-duration carries_user_effect=True tools=True links=True keyframes=True keyframe_times=True media_names=['FACE_X1', 'FACE_X1']
+  -> keyframes on the new instance: [['Transform1Size', [[0.0, '1, RH = { 5, 1 }'], [15.0, '1.5, LH = { -0.15151515151515, 1.5 }']]], ['Path1Displacement', [[0.0, '0, RH = { 5, 0 }, Flags = { LockedY = true }'], [15.0, '1, LH = { -0.15151515151515, 1 }, Flags = { LockedY = true }']]]]
+  -> duration-dependent diffs=11 unexplained=0
+x1_endframe_semantics: clipInfo={'endFrame': 131, 'mediaPoolItem': 'FACE_X1', 'recordFrame': 216600, 'startFrame': 0, 'trackIndex': 3}
+  -> start=216600 end=216731 duration=131 track=V3 name='FACE_X1' comps=1 ['Composition 1']
+  -> recordFrame absolute=True duration_as_requested=True selection_workaround=False
+  -> fusion verdict=equivalent-modulo-duration carries_user_effect=True tools=True links=True keyframes=True keyframe_times=True media_names=['FACE_X1', 'FACE_X1']
+  -> keyframes on the new instance: [['Transform1Size', [[0.0, '1, RH = { 5, 1 }'], [15.0, '1.5, LH = { -0.15151515151515, 1.5 }']]], ['Path1Displacement', [[0.0, '0, RH = { 5, 0 }, Flags = { LockedY = true }'], [15.0, '1, LH = { -0.15151515151515, 1 }, Flags = { LockedY = true }']]]]
+  -> duration-dependent diffs=10 unexplained=0
+x1_short_87: clipInfo={'endFrame': 87, 'mediaPoolItem': 'FACE_X1', 'recordFrame': 217000, 'startFrame': 0, 'trackIndex': 3}
+  -> start=217000 end=217087 duration=87 track=V3 name='FACE_X1' comps=1 ['Composition 1']
+  -> recordFrame absolute=True duration_as_requested=True selection_workaround=False
+  -> fusion verdict=equivalent-modulo-duration carries_user_effect=True tools=True links=True keyframes=True keyframe_times=True media_names=['FACE_X1', 'FACE_X1']
+  -> keyframes on the new instance: [['Transform1Size', [[0.0, '1, RH = { 5, 1 }'], [15.0, '1.5, LH = { -0.15151515151515, 1.5 }']]], ['Path1Displacement', [[0.0, '0, RH = { 5, 0 }, Flags = { LockedY = true }'], [15.0, '1, LH = { -0.15151515151515, 1 }, Flags = { LockedY = true }']]]]
+  -> duration-dependent diffs=2 unexplained=0
+x1_extended_141: clipInfo={'endFrame': 141, 'mediaPoolItem': 'FACE_X1', 'recordFrame': 217400, 'startFrame': 0, 'trackIndex': 3}
+  -> start=217400 end=217541 duration=141 track=V3 name='FACE_X1' comps=1 ['Composition 1']
+  -> recordFrame absolute=True duration_as_requested=True selection_workaround=False
+  -> fusion verdict=equivalent-modulo-duration carries_user_effect=True tools=True links=True keyframes=True keyframe_times=True media_names=['FACE_X1', 'FACE_X1']
+  -> keyframes on the new instance: [['Transform1Size', [[0.0, '1, RH = { 5, 1 }'], [15.0, '1.5, LH = { -0.15151515151515, 1.5 }']]], ['Path1Displacement', [[0.0, '0, RH = { 5, 0 }, Flags = { LockedY = true }'], [15.0, '1, LH = { -0.15151515151515, 1 }, Flags = { LockedY = true }']]]]
+  -> duration-dependent diffs=10 unexplained=0
+x1_shorter_than_animation: clipInfo={'endFrame': 10, 'mediaPoolItem': 'FACE_X1', 'recordFrame': 217800, 'startFrame': 0, 'trackIndex': 3}
+  -> start=217800 end=217810 duration=10 track=V3 name='FACE_X1' comps=1 ['Composition 1']
+  -> recordFrame absolute=True duration_as_requested=True selection_workaround=False
+  -> fusion verdict=equivalent-modulo-duration carries_user_effect=True tools=True links=True keyframes=True keyframe_times=True media_names=['FACE_X1', 'FACE_X1']
+  -> keyframes on the new instance: [['Transform1Size', [[0.0, '1, RH = { 5, 1 }'], [15.0, '1.5, LH = { -0.15151515151515, 1.5 }']]], ['Path1Displacement', [[0.0, '0, RH = { 5, 0 }, Flags = { LockedY = true }'], [15.0, '1, LH = { -0.15151515151515, 1 }, Flags = { LockedY = true }']]]]
+  -> duration-dependent diffs=10 unexplained=0
+x0_native: clipInfo={'endFrame': 42, 'mediaPoolItem': 'FACE_X0_SMOOTH', 'recordFrame': 218200, 'startFrame': 0, 'trackIndex': 3}
+  -> start=218200 end=218242 duration=42 track=V3 name='FACE_X0_SMOOTH' comps=1 ['Composition 1']
+  -> recordFrame absolute=True duration_as_requested=True selection_workaround=False
+  -> fusion verdict=equivalent-modulo-duration carries_user_effect=True tools=True links=True keyframes=True keyframe_times=True media_names=['FACE_X0_SMOOTH', 'FACE_X0_SMOOTH']
+  -> keyframes on the new instance: [['Transform1Size', [[0.0, '1.5, RH = { 5, 1.5 }'], [15.0, '1, LH = { -0.1, 1 }']]], ['Path1Displacement', [[0.0, '0, RH = { 5, 0 }, Flags = { LockedY = true }'], [15.0, '1, LH = { 0.02, 1 }, Flags = { LockedY = true }']]]]
+  -> duration-dependent diffs=3 unexplained=0

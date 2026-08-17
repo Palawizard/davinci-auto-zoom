@@ -1,0 +1,100 @@
+Phase 6 — cut / burst-end offset diagnostic (measurement BEFORE any algorithm change)
+====================================================================================
+
+Purpose
+-------
+The Phase 5 preview (DAZ_AUTO_PREVIEW_20260816_211026_c676d5af) placed 14 FACE_X0_SMOOTH,
+all of them "reset_direct" — the forward-only cut snapping never fired once on real
+material. Human inspection reported x0 landing a few frames AFTER a relevant video cut.
+Before touching the selection rule, this measures the actual offsets.
+
+Inputs (all read-only, live DaVinci Resolve Studio 21.0.4.5)
+-----------------------------------------------------------
+project           : davinci-auto-zoom-test
+source timeline   : DAZ_INPUT [216000, 219555) @ 60.0 fps
+cut reference     : V1, 21 items -> 20 hard cuts (clip ends where the next begins)
+bursts            : the 14 editorial bursts of the Phase 4/5 baseline plan (unchanged;
+                    lead_out = 0, so base_reset == burst.end)
+manual reference  : DAZ_OUTPUT_MVP V3, 12 FACE_X0_SMOOTH (diagnostic only)
+
+V1 hard cuts (20)
+-----------------
+216132 216174 216291 216641 216680 216735 216793 216851 216900 217312
+217413 217601 217802 217999 218183 218394 218469 218762 219127 219486
+
+Manual FACE_X0_SMOOTH starts in DAZ_OUTPUT_MVP (12)
+---------------------------------------------------
+216132 216432 216793 217036 217312 217743 217999 218183 218288 218469 218762 219127
+
+Of these 12 manual resets, 9 sit EXACTLY on a V1 hard cut
+(216132, 216793, 217312, 217999, 218183, 218469, 218762, 219127 = 8 distinct, plus none
+of 216432 / 217036 / 217743 / 218288 are on a cut). Exact-on-cut rate: 8/12 = 67%.
+
+Per-burst table
+---------------
+base_reset = burst.end + lead_out, lead_out = 0.
+"fwd win" = cuts in the CURRENT forward window [base, base+21f] (cut_snap_window_ms=350).
+"back win" = cuts in the PROPOSED lookback window [base-7f, base).
+manual = nearest DAZ_OUTPUT_MVP x0 start when an unambiguous pairing exists.
+
+ b  burst start  burst end  x0 now  prev cut   d_prev  next cut   d_next  fwd win  back win  manual   manual on cut?
+ 0       216046     216139  216139    216132       -7    216174      +35   216174    216132  216132   yes (216132)
+ 1       216293     216442  216442    216291     -151    216641     +199        -         -  216432   no
+ 2       216489     216519  216519    216291     -228    216641     +122        -         -       -   -
+ 3       216679     216797  216797    216793       -4    216851      +54        -    216793  216793   yes (216793)
+ 4       216900     216930  216930    216900      -30    217312     +382        -         -       -   -
+ 5       216983     217039  217039    216900     -139    217312     +273        -         -  217036   no
+ 6       217250     217316  217316    217312       -4    217413      +97        -    217312  217312   yes (217312)
+ 7       217499     217749  217749    217601     -148    217802      +53        -         -  217743   no
+ 8       217877     218003  218003    217999       -4    218183     +180        -    217999  217999   yes (217999)
+ 9       218094     218189  218189    218183       -6    218394     +205        -    218183  218183   yes (218183)
+10       218244     218297  218297    218183     -114    218394      +97        -         -  218288   no
+11       218394     218473  218473    218469       -4    218762     +289        -    218469  218469   yes (218469)
+12       218599     218767  218767    218762       -5    219127     +360        -    218762  218762   yes (218762)
+13       218989     219134  219134    219127       -7    219486     +352        -    219127  219127   yes (219127)
+
+Findings
+--------
+1. ROOT CAUSE, measured. The forward-only search found a candidate in exactly ONE burst
+   (b0, cut 216174 at +35f) and even that one is outside the 21-frame window, so it never
+   snapped. Every relevant cut in this material sits a few frames BEFORE the detected
+   speech end, never after. A forward-only window is structurally blind to it.
+
+2. The offsets cluster tightly: -4, -4, -4, -5, -6, -7, -7 frames (7 bursts, 8 counting
+   the two -7s separately: b0 -7, b3 -4, b6 -4, b8 -4, b9 -6, b11 -4, b12 -5, b13 -7).
+   Eight of the fourteen bursts have a hard cut within 7 frames before base_reset.
+
+3. Those eight are exactly the cases the human edit aligned on. In every burst where a cut
+   sits within 7 frames before burst.end, the manual DAZ_OUTPUT_MVP x0 starts EXACTLY on
+   that cut. Where no such cut exists (b1, b5, b7, b10), the manual x0 is near burst.end
+   and NOT on a cut (deltas -10, -3, -6, -9 from burst.end). The rule "snap to a very close
+   cut, otherwise reset directly" reproduces the human behaviour without being tuned to it.
+
+4. The gap between signal and noise is enormous. Relevant backward offsets: 4-7 frames.
+   The next-nearest backward cut in any other burst is 30 frames (b4), then 114 (b10),
+   139 (b5), 148 (b7), 151 (b1), 228 (b2). A lookback anywhere in [7f, 29f] gives the
+   identical result on this material.
+
+Chosen value
+------------
+cut_snap_lookback_ms = 120  ->  7 frames at 60 fps.
+
+  - 100 ms (the suggested conservative baseline) is 6 frames and would MISS b0 and b13,
+    both at -7. It is measurably too small for this material.
+  - 120 ms is the smallest round value that covers every observed case (max |delta| = 7).
+  - The margin to the first false positive is ~4x (next candidate at 30 frames = 500 ms)
+    and ~16x to the first genuinely unrelated cut (114 frames = 1900 ms).
+  - It stays far below the 350 ms forward window, so the rule keeps its conservative bias
+    towards "after the speech".
+
+This value was chosen from the cut/burst-end offsets alone. It was NOT tuned to maximise
+any similarity score against DAZ_OUTPUT_MVP; the manual column is reported only to show
+that the measured rule agrees with a human editor, which is corroboration, not the target.
+
+Expected effect on the plan (predicted before implementing)
+-----------------------------------------------------------
+14 reset_x0 total: 8 become reset_cut_snap_backward (b0, b3, b6, b8, b9, b11, b12, b13),
+6 remain reset_direct (b1, b2, b4, b5, b7, b10), 0 forward snaps. Every one of the 8
+candidate cuts leaves far more than the 15 frames the x0 animation needs before the next
+burst's zoom, and every shortened x1 stays well above its own 15-frame animation, so no
+suppression is expected.

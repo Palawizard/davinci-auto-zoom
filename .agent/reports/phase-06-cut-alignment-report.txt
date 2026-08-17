@@ -1,0 +1,357 @@
+Phase 6 — reset cut alignment: live plan-probe + apply-preview, 2026-08-17
+=======================================================================
+
+Commands (both against DaVinci Resolve Studio 21.0.4.5, project davinci-auto-zoom-test):
+  plan-probe   --project davinci-auto-zoom-test --source-timeline DAZ_INPUT \
+               --reference-timeline DAZ_OUTPUT_MVP --config config.example.toml
+  apply-preview  (same, plus --confirm-create-preview-timeline)
+
+--- DRY RUN: plan-probe ------------------------------------------------
+
+davinci-auto-zoom voice render (Phase 3 spike)
+  product   : DaVinci Resolve Studio 21.0.4.5
+  project   : davinci-auto-zoom-test
+  timeline  : DAZ_INPUT [216000, 219555) @ 60.0 fps
+  voice     : A1 (configured, not detected)
+  scratch   : DAZ_AUDIO_SCRATCH_20260817_131804_f2f480db
+  ffmpeg    : ffmpeg version n9.0.1 Copyright (c) 2000-2026 the FFmpeg developers
+  isolation : scratch audio tracks 3 -> 1, deleted [A2, A3], kept 'Audio 1'
+  render    : job=2c195eb7-b0fb-44f2-9d0d-a244bbd0aa7a status=Complete in 6.9s
+  rendered  : /tmp/daz-speech-jb3on6ye/daz_voice.wav (17065588 bytes)
+  normalized: 16000 Hz x1 948000 samples = 59.250s
+  expected  : 3555 frames = 59.250s  delta=+0.0000s (+0.000 frames, tolerance 2.0) -> ok
+  cleanup   : restored_timeline=DAZ_AUTO_PREVIEW_20260816_211026_c676d5af scratch_deleted=True absent=True render_dir_removed=True
+  queue     : before=0 after=0 our_job_deleted=True preexisting_preserved=True
+  delivery  : preset_saved=True restored=True deleted=True format_restored=True mode_restored=True
+  audit     : DAZ_INPUT, DAZ_OUTPUT_MVP
+  audit differences: none
+  RESULT: PASS
+
+speech analysis of voice_16k.wav
+  audio     : 948000 samples @ 16000 Hz mono = 59.250s
+  timebase  : 60.000000 fps, timeline starts at frame 216000 (segment start=floor, end=ceil, half-open)
+  model     : silero-vad v6.2.1 (opset 16) via onnxruntime 1.28.0
+  settings  : threshold=0.5 neg=0.35 min_speech=250ms min_silence=100ms pad=30ms
+  timings   : ffmpeg=0.06s model_load=0.03s inference=0.15s
+  duration  : expected 3555 frames (59.250s), rendered 948000 samples (59.250s), delta +0.0000s (+0.000 frames) -> ok
+
+  idx  start_frame    end_frame  frames   start_tc     end_tc      start_s    end_s
+    0       216046       216139      93   01:00:00:46  01:00:02:19      0.77     2.32
+    1       216293       216442     149   01:00:04:53  01:00:07:22      4.88     7.37
+    2       216489       216519      30   01:00:08:09  01:00:08:39      8.15     8.65
+    3       216679       216797     118   01:00:11:19  01:00:13:17     11.32    13.28
+    4       216900       216930      30   01:00:15:00  01:00:15:30     15.00    15.50
+    5       216983       217039      56   01:00:16:23  01:00:17:19     16.38    17.32
+    6       217250       217316      66   01:00:20:50  01:00:21:56     20.83    21.93
+    7       217499       217749     250   01:00:24:59  01:00:29:09     24.98    29.15
+    8       217877       218003     126   01:00:31:17  01:00:33:23     31.28    33.38
+    9       218094       218189      95   01:00:34:54  01:00:36:29     34.90    36.48
+   10       218244       218297      53   01:00:37:24  01:00:38:17     37.40    38.28
+   11       218394       218473      79   01:00:39:54  01:00:41:13     39.90    41.22
+   12       218599       218648      49   01:00:43:19  01:00:44:08     43.32    44.13
+   13       218665       218767     102   01:00:44:25  01:00:46:07     44.42    46.12
+   14       218989       219134     145   01:00:49:49  01:00:52:14     49.82    52.23
+
+  segments      : 15
+  speech        : 1441 frames (24.02s), 40.5% of the analysed range
+  durations     : min=30 median=93 max=250 frames
+  gaps          : min=17 median=114 max=222 frames
+
+  threshold stability (same probabilities, post-processing re-run):
+    thr   segments  speech_ratio  matched  boundary shift min/med/max (samples)
+    0.40        15         40.7%       15  0/0/2048
+    0.50        15         40.1%       15  0/0/0
+    0.60        15         39.8%       15  0/0/512
+
+  editing-reference diagnostics vs DAZ_OUTPUT_MVP (NOT VAD accuracy — the human edit is taste, not ground truth):
+    zoom-in clips              : 12
+    overlapping a speech region: 12
+    with no speech at all      : 0
+    speech regions with no zoom: 3
+    speech start -> zoom start : min/med/max = -2/0/129 frames
+    speech end -> reset start  : min/med/max = 99/250/427 frames
+
+zoom plan for [216000, 219555) @ 60.000000 fps
+  gate      : reset_after_silence=650ms lead_in=0ms lead_out=0ms cut_snap=[-120ms, +350ms] (nearest cut to the reset anchor wins)
+  assets    : x1 animation=15 frames, x0 animation=15 frames (native Media Pool lengths are irrelevant here)
+
+  role         start        end   frames  reason                      cut
+  facecam_x1     216046     216132       86  x1_until_cut_snapped_reset 216132
+  reset_x0       216132     216147       15  reset_cut_snap_backward    216132
+  facecam_x1     216293     216442      149  x1_until_direct_reset      -
+  reset_x0       216442     216457       15  reset_direct               -
+  facecam_x1     216489     216519       30  x1_until_direct_reset      -
+  reset_x0       216519     216534       15  reset_direct               -
+  facecam_x1     216679     216793      114  x1_until_cut_snapped_reset 216793
+  reset_x0       216793     216808       15  reset_cut_snap_backward    216793
+  facecam_x1     216900     216930       30  x1_until_direct_reset      -
+  reset_x0       216930     216945       15  reset_direct               -
+  facecam_x1     216983     217039       56  x1_until_direct_reset      -
+  reset_x0       217039     217054       15  reset_direct               -
+  facecam_x1     217250     217312       62  x1_until_cut_snapped_reset 217312
+  reset_x0       217312     217327       15  reset_cut_snap_backward    217312
+  facecam_x1     217499     217749      250  x1_until_direct_reset      -
+  reset_x0       217749     217764       15  reset_direct               -
+  facecam_x1     217877     217999      122  x1_until_cut_snapped_reset 217999
+  reset_x0       217999     218014       15  reset_cut_snap_backward    217999
+  facecam_x1     218094     218183       89  x1_until_cut_snapped_reset 218183
+  reset_x0       218183     218198       15  reset_cut_snap_backward    218183
+  facecam_x1     218244     218297       53  x1_until_direct_reset      -
+  reset_x0       218297     218312       15  reset_direct               -
+  facecam_x1     218394     218469       75  x1_until_cut_snapped_reset 218469
+  reset_x0       218469     218484       15  reset_cut_snap_backward    218469
+  facecam_x1     218599     218762      163  x1_until_cut_snapped_reset 218762
+  reset_x0       218762     218777       15  reset_cut_snap_backward    218762
+  facecam_x1     218989     219127      138  x1_until_cut_snapped_reset 219127
+  reset_x0       219127     219142       15  reset_cut_snap_backward    219127
+
+  speech segments : 15
+  editorial bursts: 14 (1 pause(s) bridged)
+  facecam_x1      : 14
+  reset_x0        : 14 (6 direct, 8 cut-snapped = 8 backward + 0 forward)
+  suppressed      : 0 reset(s) with no room, 0 cycle(s) shorter than the x1 animation, 0 cut(s) rejected as too late
+  zoom coverage   : 1417 frames (39.9% of the range)
+  overlaps        : none
+
+  decision trace:
+    timeline [216000, 219555) = 3555 frames @ 60.000000 fps
+    gate reset_after_silence=650ms = 39 frames; lead_in=0f lead_out=0f cut snap window=[-7f, +21f] around the reset anchor (nearest cut wins, forward on a tie); x1 animation=15f x0 animation=15f
+    20 hard cut(s) on the reference video track inside the range
+    15 speech segment(s) after normalization and clipping
+    gap of 154 frames at 216139 reaches the 39-frame gate: a reset may be planned
+    gap of 47 frames at 216442 reaches the 39-frame gate: a reset may be planned
+    gap of 160 frames at 216519 reaches the 39-frame gate: a reset may be planned
+    gap of 103 frames at 216797 reaches the 39-frame gate: a reset may be planned
+    gap of 53 frames at 216930 reaches the 39-frame gate: a reset may be planned
+    gap of 211 frames at 217039 reaches the 39-frame gate: a reset may be planned
+    gap of 183 frames at 217316 reaches the 39-frame gate: a reset may be planned
+    gap of 128 frames at 217749 reaches the 39-frame gate: a reset may be planned
+    gap of 91 frames at 218003 reaches the 39-frame gate: a reset may be planned
+    gap of 55 frames at 218189 reaches the 39-frame gate: a reset may be planned
+    gap of 97 frames at 218297 reaches the 39-frame gate: a reset may be planned
+    gap of 126 frames at 218473 reaches the 39-frame gate: a reset may be planned
+    gap of 17 frames at 218648 is below the 39-frame gate: speech [218665, 218767) joins the burst starting at 218599 (x1 stays up across the pause)
+    gap of 222 frames at 218767 reaches the 39-frame gate: a reset may be planned
+    14 editorial burst(s)
+    burst 0: reset snapped backward from 216139 to hard cut 216132 (delta=-7f, burst end 216139, window [-7f, +21f], nearest cut to the anchor)
+    burst 1: direct reset at 216442 (burst end 216442 + lead-out 0); no usable hard cut in the [-7f, +21f] window
+    burst 2: direct reset at 216519 (burst end 216519 + lead-out 0); no usable hard cut in the [-7f, +21f] window
+    burst 3: reset snapped backward from 216797 to hard cut 216793 (delta=-4f, burst end 216797, window [-7f, +21f], nearest cut to the anchor)
+    burst 4: direct reset at 216930 (burst end 216930 + lead-out 0); no usable hard cut in the [-7f, +21f] window
+    burst 5: direct reset at 217039 (burst end 217039 + lead-out 0); no usable hard cut in the [-7f, +21f] window
+    burst 6: reset snapped backward from 217316 to hard cut 217312 (delta=-4f, burst end 217316, window [-7f, +21f], nearest cut to the anchor)
+    burst 7: direct reset at 217749 (burst end 217749 + lead-out 0); no usable hard cut in the [-7f, +21f] window
+    burst 8: reset snapped backward from 218003 to hard cut 217999 (delta=-4f, burst end 218003, window [-7f, +21f], nearest cut to the anchor)
+    burst 9: reset snapped backward from 218189 to hard cut 218183 (delta=-6f, burst end 218189, window [-7f, +21f], nearest cut to the anchor)
+    burst 10: direct reset at 218297 (burst end 218297 + lead-out 0); no usable hard cut in the [-7f, +21f] window
+    burst 11: reset snapped backward from 218473 to hard cut 218469 (delta=-4f, burst end 218473, window [-7f, +21f], nearest cut to the anchor)
+    burst 12: reset snapped backward from 218767 to hard cut 218762 (delta=-5f, burst end 218767, window [-7f, +21f], nearest cut to the anchor)
+    burst 13: reset snapped backward from 219134 to hard cut 219127 (delta=-7f, burst end 219134, window [-7f, +21f], nearest cut to the anchor)
+
+  plan vs DAZ_OUTPUT_MVP (qualitative only — the planner is NOT tuned to reproduce a human edit):
+    planned x1 / manual x1     : 14 / 12
+    planned x0 / manual x0     : 14 / 12
+    planned x1 matching manual : 12
+    planned with no manual zoom: 2
+    manual with no planned zoom: 0
+    start offset (planned-manual): min/med/max = -129/0/2 frames
+    duration ratio             : min/med/max = 99/104/408 %
+    reset offset (planned-manual): min/med/max = -106/0/87 frames
+
+--- LIVE APPLY: apply-preview -----------------------------------------
+
+davinci-auto-zoom voice render (Phase 3 spike)
+  product   : DaVinci Resolve Studio 21.0.4.5
+  project   : davinci-auto-zoom-test
+  timeline  : DAZ_INPUT [216000, 219555) @ 60.0 fps
+  voice     : A1 (configured, not detected)
+  scratch   : DAZ_AUDIO_SCRATCH_20260817_131933_d37a8ad3
+  ffmpeg    : ffmpeg version n9.0.1 Copyright (c) 2000-2026 the FFmpeg developers
+  isolation : scratch audio tracks 3 -> 1, deleted [A2, A3], kept 'Audio 1'
+  render    : job=773d6f30-68c2-454e-be03-f566cf8150a1 status=Complete in 5.0s
+  rendered  : /tmp/daz-speech-rdk14w0t/daz_voice.wav (17065588 bytes)
+  normalized: 16000 Hz x1 948000 samples = 59.250s
+  expected  : 3555 frames = 59.250s  delta=+0.0000s (+0.000 frames, tolerance 2.0) -> ok
+  cleanup   : restored_timeline=DAZ_AUTO_PREVIEW_20260816_211026_c676d5af scratch_deleted=True absent=True render_dir_removed=True
+  queue     : before=0 after=0 our_job_deleted=True preexisting_preserved=True
+  delivery  : preset_saved=True restored=True deleted=True format_restored=True mode_restored=True
+  audit     : DAZ_INPUT, DAZ_OUTPUT_MVP
+  audit differences: none
+  RESULT: PASS
+
+speech analysis of voice_16k.wav
+  audio     : 948000 samples @ 16000 Hz mono = 59.250s
+  timebase  : 60.000000 fps, timeline starts at frame 216000 (segment start=floor, end=ceil, half-open)
+  model     : silero-vad v6.2.1 (opset 16) via onnxruntime 1.28.0
+  settings  : threshold=0.5 neg=0.35 min_speech=250ms min_silence=100ms pad=30ms
+  timings   : ffmpeg=0.06s model_load=0.03s inference=0.15s
+  duration  : expected 3555 frames (59.250s), rendered 948000 samples (59.250s), delta +0.0000s (+0.000 frames) -> ok
+
+  idx  start_frame    end_frame  frames   start_tc     end_tc      start_s    end_s
+    0       216046       216139      93   01:00:00:46  01:00:02:19      0.77     2.32
+    1       216293       216442     149   01:00:04:53  01:00:07:22      4.88     7.37
+    2       216489       216519      30   01:00:08:09  01:00:08:39      8.15     8.65
+    3       216679       216797     118   01:00:11:19  01:00:13:17     11.32    13.28
+    4       216900       216930      30   01:00:15:00  01:00:15:30     15.00    15.50
+    5       216983       217039      56   01:00:16:23  01:00:17:19     16.38    17.32
+    6       217250       217316      66   01:00:20:50  01:00:21:56     20.83    21.93
+    7       217499       217749     250   01:00:24:59  01:00:29:09     24.98    29.15
+    8       217877       218003     126   01:00:31:17  01:00:33:23     31.28    33.38
+    9       218094       218189      95   01:00:34:54  01:00:36:29     34.90    36.48
+   10       218244       218297      53   01:00:37:24  01:00:38:17     37.40    38.28
+   11       218394       218473      79   01:00:39:54  01:00:41:13     39.90    41.22
+   12       218599       218648      49   01:00:43:19  01:00:44:08     43.32    44.13
+   13       218665       218767     102   01:00:44:25  01:00:46:07     44.42    46.12
+   14       218989       219134     145   01:00:49:49  01:00:52:14     49.82    52.23
+
+  segments      : 15
+  speech        : 1441 frames (24.02s), 40.5% of the analysed range
+  durations     : min=30 median=93 max=250 frames
+  gaps          : min=17 median=114 max=222 frames
+
+  threshold stability (same probabilities, post-processing re-run):
+    thr   segments  speech_ratio  matched  boundary shift min/med/max (samples)
+    0.40        15         40.7%       15  0/0/2048
+    0.50        15         40.1%       15  0/0/0
+    0.60        15         39.8%       15  0/0/512
+
+  editing-reference diagnostics vs DAZ_OUTPUT_MVP (NOT VAD accuracy — the human edit is taste, not ground truth):
+    zoom-in clips              : 12
+    overlapping a speech region: 12
+    with no speech at all      : 0
+    speech regions with no zoom: 3
+    speech start -> zoom start : min/med/max = -2/0/129 frames
+    speech end -> reset start  : min/med/max = 99/250/427 frames
+
+zoom plan for [216000, 219555) @ 60.000000 fps
+  gate      : reset_after_silence=650ms lead_in=0ms lead_out=0ms cut_snap=[-120ms, +350ms] (nearest cut to the reset anchor wins)
+  assets    : x1 animation=15 frames, x0 animation=15 frames (native Media Pool lengths are irrelevant here)
+
+  role         start        end   frames  reason                      cut
+  facecam_x1     216046     216132       86  x1_until_cut_snapped_reset 216132
+  reset_x0       216132     216147       15  reset_cut_snap_backward    216132
+  facecam_x1     216293     216442      149  x1_until_direct_reset      -
+  reset_x0       216442     216457       15  reset_direct               -
+  facecam_x1     216489     216519       30  x1_until_direct_reset      -
+  reset_x0       216519     216534       15  reset_direct               -
+  facecam_x1     216679     216793      114  x1_until_cut_snapped_reset 216793
+  reset_x0       216793     216808       15  reset_cut_snap_backward    216793
+  facecam_x1     216900     216930       30  x1_until_direct_reset      -
+  reset_x0       216930     216945       15  reset_direct               -
+  facecam_x1     216983     217039       56  x1_until_direct_reset      -
+  reset_x0       217039     217054       15  reset_direct               -
+  facecam_x1     217250     217312       62  x1_until_cut_snapped_reset 217312
+  reset_x0       217312     217327       15  reset_cut_snap_backward    217312
+  facecam_x1     217499     217749      250  x1_until_direct_reset      -
+  reset_x0       217749     217764       15  reset_direct               -
+  facecam_x1     217877     217999      122  x1_until_cut_snapped_reset 217999
+  reset_x0       217999     218014       15  reset_cut_snap_backward    217999
+  facecam_x1     218094     218183       89  x1_until_cut_snapped_reset 218183
+  reset_x0       218183     218198       15  reset_cut_snap_backward    218183
+  facecam_x1     218244     218297       53  x1_until_direct_reset      -
+  reset_x0       218297     218312       15  reset_direct               -
+  facecam_x1     218394     218469       75  x1_until_cut_snapped_reset 218469
+  reset_x0       218469     218484       15  reset_cut_snap_backward    218469
+  facecam_x1     218599     218762      163  x1_until_cut_snapped_reset 218762
+  reset_x0       218762     218777       15  reset_cut_snap_backward    218762
+  facecam_x1     218989     219127      138  x1_until_cut_snapped_reset 219127
+  reset_x0       219127     219142       15  reset_cut_snap_backward    219127
+
+  speech segments : 15
+  editorial bursts: 14 (1 pause(s) bridged)
+  facecam_x1      : 14
+  reset_x0        : 14 (6 direct, 8 cut-snapped = 8 backward + 0 forward)
+  suppressed      : 0 reset(s) with no room, 0 cycle(s) shorter than the x1 animation, 0 cut(s) rejected as too late
+  zoom coverage   : 1417 frames (39.9% of the range)
+  overlaps        : none
+
+  decision trace:
+    timeline [216000, 219555) = 3555 frames @ 60.000000 fps
+    gate reset_after_silence=650ms = 39 frames; lead_in=0f lead_out=0f cut snap window=[-7f, +21f] around the reset anchor (nearest cut wins, forward on a tie); x1 animation=15f x0 animation=15f
+    20 hard cut(s) on the reference video track inside the range
+    15 speech segment(s) after normalization and clipping
+    gap of 154 frames at 216139 reaches the 39-frame gate: a reset may be planned
+    gap of 47 frames at 216442 reaches the 39-frame gate: a reset may be planned
+    gap of 160 frames at 216519 reaches the 39-frame gate: a reset may be planned
+    gap of 103 frames at 216797 reaches the 39-frame gate: a reset may be planned
+    gap of 53 frames at 216930 reaches the 39-frame gate: a reset may be planned
+    gap of 211 frames at 217039 reaches the 39-frame gate: a reset may be planned
+    gap of 183 frames at 217316 reaches the 39-frame gate: a reset may be planned
+    gap of 128 frames at 217749 reaches the 39-frame gate: a reset may be planned
+    gap of 91 frames at 218003 reaches the 39-frame gate: a reset may be planned
+    gap of 55 frames at 218189 reaches the 39-frame gate: a reset may be planned
+    gap of 97 frames at 218297 reaches the 39-frame gate: a reset may be planned
+    gap of 126 frames at 218473 reaches the 39-frame gate: a reset may be planned
+    gap of 17 frames at 218648 is below the 39-frame gate: speech [218665, 218767) joins the burst starting at 218599 (x1 stays up across the pause)
+    gap of 222 frames at 218767 reaches the 39-frame gate: a reset may be planned
+    14 editorial burst(s)
+    burst 0: reset snapped backward from 216139 to hard cut 216132 (delta=-7f, burst end 216139, window [-7f, +21f], nearest cut to the anchor)
+    burst 1: direct reset at 216442 (burst end 216442 + lead-out 0); no usable hard cut in the [-7f, +21f] window
+    burst 2: direct reset at 216519 (burst end 216519 + lead-out 0); no usable hard cut in the [-7f, +21f] window
+    burst 3: reset snapped backward from 216797 to hard cut 216793 (delta=-4f, burst end 216797, window [-7f, +21f], nearest cut to the anchor)
+    burst 4: direct reset at 216930 (burst end 216930 + lead-out 0); no usable hard cut in the [-7f, +21f] window
+    burst 5: direct reset at 217039 (burst end 217039 + lead-out 0); no usable hard cut in the [-7f, +21f] window
+    burst 6: reset snapped backward from 217316 to hard cut 217312 (delta=-4f, burst end 217316, window [-7f, +21f], nearest cut to the anchor)
+    burst 7: direct reset at 217749 (burst end 217749 + lead-out 0); no usable hard cut in the [-7f, +21f] window
+    burst 8: reset snapped backward from 218003 to hard cut 217999 (delta=-4f, burst end 218003, window [-7f, +21f], nearest cut to the anchor)
+    burst 9: reset snapped backward from 218189 to hard cut 218183 (delta=-6f, burst end 218189, window [-7f, +21f], nearest cut to the anchor)
+    burst 10: direct reset at 218297 (burst end 218297 + lead-out 0); no usable hard cut in the [-7f, +21f] window
+    burst 11: reset snapped backward from 218473 to hard cut 218469 (delta=-4f, burst end 218473, window [-7f, +21f], nearest cut to the anchor)
+    burst 12: reset snapped backward from 218767 to hard cut 218762 (delta=-5f, burst end 218767, window [-7f, +21f], nearest cut to the anchor)
+    burst 13: reset snapped backward from 219134 to hard cut 219127 (delta=-7f, burst end 219134, window [-7f, +21f], nearest cut to the anchor)
+
+  plan vs DAZ_OUTPUT_MVP (qualitative only — the planner is NOT tuned to reproduce a human edit):
+    planned x1 / manual x1     : 14 / 12
+    planned x0 / manual x0     : 14 / 12
+    planned x1 matching manual : 12
+    planned with no manual zoom: 2
+    manual with no planned zoom: 0
+    start offset (planned-manual): min/med/max = -129/0/2 frames
+    duration ratio             : min/med/max = 99/104/408 %
+    reset offset (planned-manual): min/med/max = -106/0/87 frames
+
+davinci-auto-zoom apply-preview (Phase 5)
+  product   : DaVinci Resolve Studio 21.0.4.5
+  project   : davinci-auto-zoom-test
+  placements: 28
+  source ok : 14 field(s) re-verified against a fresh snapshot; fingerprint sha256:a1d107e1fa95b6152dd06be89ccc0fbd39de8d02faa906f91d3d7fc6d46a5483
+  track     : V3 (video tracks 2, added 1, empty=True)
+  preview   : DAZ_AUTO_PREVIEW_20260817_132005_77443d7c (wrote=True)
+  [ok  ]   0 facecam_x1  FACE_X1          rec=216046 end=  86 -> start=216046 end=216132 dur=86 V3 comps=1
+  [ok  ]   1 reset_x0    FACE_X0_SMOOTH   rec=216132 end=  15 -> start=216132 end=216147 dur=15 V3 comps=1
+  [ok  ]   2 facecam_x1  FACE_X1          rec=216293 end= 149 -> start=216293 end=216442 dur=149 V3 comps=1
+  [ok  ]   3 reset_x0    FACE_X0_SMOOTH   rec=216442 end=  15 -> start=216442 end=216457 dur=15 V3 comps=1
+  [ok  ]   4 facecam_x1  FACE_X1          rec=216489 end=  30 -> start=216489 end=216519 dur=30 V3 comps=1
+  [ok  ]   5 reset_x0    FACE_X0_SMOOTH   rec=216519 end=  15 -> start=216519 end=216534 dur=15 V3 comps=1
+  [ok  ]   6 facecam_x1  FACE_X1          rec=216679 end= 114 -> start=216679 end=216793 dur=114 V3 comps=1
+  [ok  ]   7 reset_x0    FACE_X0_SMOOTH   rec=216793 end=  15 -> start=216793 end=216808 dur=15 V3 comps=1
+  [ok  ]   8 facecam_x1  FACE_X1          rec=216900 end=  30 -> start=216900 end=216930 dur=30 V3 comps=1
+  [ok  ]   9 reset_x0    FACE_X0_SMOOTH   rec=216930 end=  15 -> start=216930 end=216945 dur=15 V3 comps=1
+  [ok  ]  10 facecam_x1  FACE_X1          rec=216983 end=  56 -> start=216983 end=217039 dur=56 V3 comps=1
+  [ok  ]  11 reset_x0    FACE_X0_SMOOTH   rec=217039 end=  15 -> start=217039 end=217054 dur=15 V3 comps=1
+  [ok  ]  12 facecam_x1  FACE_X1          rec=217250 end=  62 -> start=217250 end=217312 dur=62 V3 comps=1
+  [ok  ]  13 reset_x0    FACE_X0_SMOOTH   rec=217312 end=  15 -> start=217312 end=217327 dur=15 V3 comps=1
+  [ok  ]  14 facecam_x1  FACE_X1          rec=217499 end= 250 -> start=217499 end=217749 dur=250 V3 comps=1
+  [ok  ]  15 reset_x0    FACE_X0_SMOOTH   rec=217749 end=  15 -> start=217749 end=217764 dur=15 V3 comps=1
+  [ok  ]  16 facecam_x1  FACE_X1          rec=217877 end= 122 -> start=217877 end=217999 dur=122 V3 comps=1
+  [ok  ]  17 reset_x0    FACE_X0_SMOOTH   rec=217999 end=  15 -> start=217999 end=218014 dur=15 V3 comps=1
+  [ok  ]  18 facecam_x1  FACE_X1          rec=218094 end=  89 -> start=218094 end=218183 dur=89 V3 comps=1
+  [ok  ]  19 reset_x0    FACE_X0_SMOOTH   rec=218183 end=  15 -> start=218183 end=218198 dur=15 V3 comps=1
+  [ok  ]  20 facecam_x1  FACE_X1          rec=218244 end=  53 -> start=218244 end=218297 dur=53 V3 comps=1
+  [ok  ]  21 reset_x0    FACE_X0_SMOOTH   rec=218297 end=  15 -> start=218297 end=218312 dur=15 V3 comps=1
+  [ok  ]  22 facecam_x1  FACE_X1          rec=218394 end=  75 -> start=218394 end=218469 dur=75 V3 comps=1
+  [ok  ]  23 reset_x0    FACE_X0_SMOOTH   rec=218469 end=  15 -> start=218469 end=218484 dur=15 V3 comps=1
+  [ok  ]  24 facecam_x1  FACE_X1          rec=218599 end= 163 -> start=218599 end=218762 dur=163 V3 comps=1
+  [ok  ]  25 reset_x0    FACE_X0_SMOOTH   rec=218762 end=  15 -> start=218762 end=218777 dur=15 V3 comps=1
+  [ok  ]  26 facecam_x1  FACE_X1          rec=218989 end= 138 -> start=218989 end=219127 dur=138 V3 comps=1
+  [ok  ]  27 reset_x0    FACE_X0_SMOOTH   rec=219127 end=  15 -> start=219127 end=219142 dur=15 V3 comps=1
+  verified  : True
+  restored  : DAZ_AUTO_PREVIEW_20260816_211026_c676d5af (was DAZ_AUTO_PREVIEW_20260816_211026_c676d5af) proven=True
+  cleanup   : preview_kept=True preview_deleted=None absent=None
+  audit     : DAZ_INPUT, DAZ_OUTPUT_MVP, assets
+  audit differences: none
+
+  PREVIEW READY FOR HUMAN VISUAL REVIEW: DAZ_AUTO_PREVIEW_20260817_132005_77443d7c
+  unique id: 6d0bde62-788c-4c04-b32c-685ebd84e9e3
+  Open it in Resolve and watch the zooms. Structural and timing correctness is proven; how it *looks* is not.
+  RESULT: PASS

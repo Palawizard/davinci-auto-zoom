@@ -26,11 +26,23 @@ config.toml
 .DS_Store
 Thumbs.db
 
-# Local coding-agent configuration and documentation — intentionally never committed.
-# These are synchronised separately, outside this repository. Keep them on disk, keep them
-# out of the index.
-/.claude/
-/.codex/
-/.agent/
-/AGENTS.md
-/CLAUDE.md
+# Coding-agent documentation is TRACKED, not ignored: `AGENTS.md`, `CLAUDE.md` and
+# `.agent/` are the shared engineering context every agent and reviewer works from, and a
+# decision log whose history does not match the code's is worthless. Do not re-add them here.
+#
+# What stays out is only what is genuinely personal, secret or session state:
+.claude/settings.local.json
+.claude/*.local.json
+.claude/sessions/
+.claude/todos/
+.claude/shell-snapshots/
+.claude/statsig/
+.claude/history.jsonl
+.codex/auth.json
+.codex/*.local.*
+.codex/sessions/
+.codex/log/
+*.local.toml
+secrets.toml
+.env
+.env.*
