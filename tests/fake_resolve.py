@@ -355,6 +355,10 @@ class FakeTimeline:
     def DeleteClips(self, items: list[FakeTimelineItem], ripple: bool = False) -> bool:
         """The exact call signature the README documents: `DeleteClips([items], Bool)`.
 
+        Reproduces the behaviour **measured** on Studio 21.0.4.5 (D042), which the README
+        does not mention: like `MediaPool.AppendToTimeline`, this only acts on the *current*
+        timeline. Called on any other timeline it returns False and deletes nothing.
+
         The ripple flag is recorded verbatim so a test can assert DAZ never lets Resolve
         ripple a timeline while removing adjustment-layer-style clips.
         """
@@ -363,6 +367,8 @@ class FakeTimeline:
             raise RuntimeError("DeleteClips() failed")
         names = ", ".join(f"{i.GetName()}@{i.GetStart()}" for i in items)
         self._log.record(f"DeleteClips([{names}], ripple={ripple}) on {self._name!r}")
+        if not self.is_current:
+            return False
         if not self.delete_clips_outcome:
             return False
         for item in items:

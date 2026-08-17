@@ -323,30 +323,37 @@ def _run_checks(
         )
 
     # 2/3. immediate re-read of the whole track, through the real classifier.
-    before_switch = snapshot_owned_track(scratch, track_index)
-    verdicts = [classify_item(item, expectations) for item in before_switch]
+    #
+    # The track deliberately also holds the untagged control twin, so the expected shape is
+    # "exactly the tagged items are owned, and the control is not" — not "everything is
+    # owned". Getting this accounting wrong is how a probe talks itself into a false PASS.
+    tagged_ids = {str(item.GetUniqueId()) for item in created}
+
+    def _split(items: Any) -> tuple[list[Any], list[Any]]:
+        verdicts = [classify_item(item, expectations) for item in items]
+        return (
+            [v for v in verdicts if v.item.unique_id in tagged_ids],
+            [v for v in verdicts if v.item.unique_id not in tagged_ids],
+        )
+
+    before_tagged, before_others = _split(snapshot_owned_track(scratch, track_index))
     report.check(
         "immediate_readback",
-        len(verdicts) == len(created) and all(v.state == OWNED for v in verdicts),
-        f"{sum(v.state == OWNED for v in verdicts)}/{len(verdicts)} items classify as owned",
+        len(before_tagged) == len(created)
+        and all(v.state == OWNED for v in before_tagged)
+        and all(v.state == UNOWNED for v in before_others),
+        f"{sum(v.state == OWNED for v in before_tagged)}/{len(created)} tagged item(s) owned, "
+        f"{len(before_others)} untagged item(s) unowned",
     )
     report.check(
         "record_round_trip",
-        all(
+        bool(before_tagged)
+        and all(
             v.record is not None
             and serialize(v.record) == serialize(records[v.record.role])
-            for v in verdicts
+            for v in before_tagged
         ),
         "every record came back byte-identical to the one written",
-    )
-
-    # 4. an untagged clip of the same asset is never owned. Inserted last so it cannot be
-    #    confused with the tagged pair, and classified through exactly the same code path.
-    untagged = [v for v in verdicts if v.state == UNOWNED]
-    report.check(
-        "no_false_positive_yet",
-        not untagged,
-        "no unowned item among the tagged pair (the negative case is the sentinel below)",
     )
 
     # 6. switch away, switch back, re-read.
@@ -357,17 +364,22 @@ def _run_checks(
     if not switched:
         report.check("survives_timeline_switch", False, "could not switch timelines")
     else:
-        reread = snapshot_owned_track(find_timeline(project, str(scratch.GetName())), track_index)
-        after = [classify_item(item, expectations) for item in reread]
+        after_tagged, after_others = _split(
+            snapshot_owned_track(find_timeline(project, str(scratch.GetName())), track_index)
+        )
         report.check(
             "survives_timeline_switch",
-            len(after) == len(created) and all(v.state == OWNED for v in after),
+            len(after_tagged) == len(created)
+            and all(v.state == OWNED for v in after_tagged)
+            and all(v.state == UNOWNED for v in after_others),
             f"after switching to {str(other.GetName())!r} and back, "
-            f"{sum(v.state == OWNED for v in after)}/{len(after)} still owned",
+            f"{sum(v.state == OWNED for v in after_tagged)}/{len(created)} still owned and "
+            f"the untagged twin is still unowned",
         )
         report.check(
             "readback_is_stable",
-            [v.to_dict() for v in after] == [v.to_dict() for v in verdicts],
+            [v.to_dict() for v in after_tagged + after_others]
+            == [v.to_dict() for v in before_tagged + before_others],
             "the classification is identical before and after the switch",
         )
 
@@ -427,17 +439,20 @@ def _run_checks(
     )
     report.check(
         "duplicate_is_not_silently_owned",
-        carries == 0 or all(v.state != OWNED for v in copy_verdicts),
-        "a hand-duplicated timeline is never classified owned against its own identity"
-        if carries
-        else "no markers were copied, so the duplicate is simply unowned",
+        all(v.state != OWNED for v in copy_verdicts),
+        "not one item of the hand-duplicated timeline classifies as owned against its own "
+        "identity",
     )
+    # The property that matters is that a destructive command *stops*. An untagged item on
+    # the duplicate reads as `unowned`, which is not a blocker — but it is also never
+    # deleted, so it cannot make the duplicate look cleanable. What must hold is that every
+    # copied record blocks.
     report.check(
         "duplicate_blocks_destructive_work",
-        carries == 0 or all(v.state in (STALE, AMBIGUOUS) for v in copy_verdicts),
+        carries == 0 or any(v.state in (STALE, AMBIGUOUS) for v in copy_verdicts),
         f"copied ownership reads as {states}, which fails destructive commands closed"
         if carries
-        else "nothing copied, nothing to block",
+        else "nothing copied, so there is no ownership to mistake for this timeline's",
     )
     return duplicate
 

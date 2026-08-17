@@ -608,3 +608,53 @@ def test_a_successful_rebuild_leaves_the_protected_timelines_alone() -> None:
     assert report.restored_current_timeline == "DAZ_OUTPUT_MVP"
     assert sorted(n for n in _names(project) if n.startswith(RECOVERY_PREFIX)) == []
     assert not any("SaveProject" in call for call in project.mutations)
+
+
+def test_the_preview_is_made_current_before_the_delete() -> None:
+    """Regression: DeleteClips silently no-ops on a non-current timeline (D042).
+
+    Found live on Studio 21.0.4.5, where the first clean-preview run returned False from
+    DeleteClips, removed nothing and correctly kept its recovery. The README documents no
+    such restriction; `AppendToTimeline` has the same one and it is the only reason we
+    guessed right. The fake reproduces the behaviour, so this test fails against the old code.
+    """
+
+    resolve, project, _, preview = _owned_preview()
+    order: list[str] = []
+    original_set = project.SetCurrentTimeline
+    original_delete = _timeline(project, preview).DeleteClips
+
+    def set_current(timeline: Any) -> bool:
+        order.append(f"SetCurrentTimeline({timeline.GetName()})")
+        return original_set(timeline)
+
+    def delete(items: list[Any], ripple: bool = False) -> bool:
+        order.append("DeleteClips")
+        return original_delete(items, ripple)
+
+    project.SetCurrentTimeline = set_current  # type: ignore[method-assign]
+    _timeline(project, preview).DeleteClips = delete  # type: ignore[method-assign]
+
+    report = _clean(project, resolve, preview)
+
+    assert report.succeeded is True
+    assert order.index(f"SetCurrentTimeline({preview})") < order.index("DeleteClips")
+    # And the user's timeline is put back afterwards, as part of the transaction.
+    assert order[-1] == "SetCurrentTimeline(DAZ_OUTPUT_MVP)"
+    assert report.current_timeline_restored is True
+
+
+def test_a_preview_that_cannot_be_made_current_deletes_nothing() -> None:
+    resolve, project, _, preview = _owned_preview()
+    original = project.SetCurrentTimeline
+
+    def set_current(timeline: Any) -> bool:
+        return False if timeline.GetName() == preview else original(timeline)
+
+    project.SetCurrentTimeline = set_current  # type: ignore[method-assign]
+    report = _clean(project, resolve, preview)
+
+    assert report.succeeded is False
+    assert _deletes(project) == []
+    assert len(_zoom_items(project, preview)) == len(PLACEMENTS)
+    assert report.recovery_retained is True

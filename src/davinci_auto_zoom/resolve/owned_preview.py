@@ -419,6 +419,12 @@ def _delete_owned(
     `ripple=False` is passed explicitly rather than relying on the documented default. These
     clips sit on a dedicated zoom track above the user's edit; a ripple delete would shift
     every clip after them and silently destroy the timing of the whole preview.
+
+    **The target timeline must already be the current one.** `DeleteClips` shares the
+    undocumented restriction measured on `AppendToTimeline`: called on a timeline that is not
+    current it returns False and deletes nothing (D042). The caller makes the preview current
+    and checks that it did; doing it here would hide a state change inside a helper whose job
+    is one API call.
     """
 
     owned = [verdict for verdict in ownership.owned]
@@ -830,6 +836,21 @@ def run_owned_preview(
         report.recovery_unique_id = str(recovery.GetUniqueId())
         if report.recovery_unique_id == report.preview_unique_id:
             raise RuntimeError("the recovery timeline is not a distinct object")
+
+        # Measured on Studio 21.0.4.5: `DeleteClips` silently no-ops and returns False unless
+        # its timeline is the current one, exactly like `AppendToTimeline` (D042). Made
+        # current *after* the recovery exists, and restored in `_finish`.
+        if not project.SetCurrentTimeline(preview):
+            raise RuntimeError(
+                f"SetCurrentTimeline({preview_name!r}) failed; DeleteClips only acts on the "
+                "current timeline, so nothing was deleted"
+            )
+        current = project.GetCurrentTimeline()
+        if current is None or str(current.GetUniqueId()) != report.preview_unique_id:
+            raise RuntimeError(
+                "the target preview did not become the current timeline; refusing to call "
+                "DeleteClips, which would then silently act on the wrong timeline or not at all"
+            )
 
         _delete_owned(preview, ownership, report)
         _verify_clean(preview, ownership, expectations, report)
