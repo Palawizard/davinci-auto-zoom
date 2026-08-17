@@ -729,3 +729,216 @@ current config.
 
 **Live result (2026-08-17):** 14 resets → 6 direct, 8 `reset_cut_snap_backward`, 0 forward.
 Median reset offset against the human edit moved from 5 frames to **0**.
+
+## D035 — Ownership is a marker on the TimelineItem instance, and nothing else is evidence
+
+**Status:** adopted, Phase 7. Proven live on Studio 21.0.4.5
+(`.agent/reports/phase-07-ownership-probe-report.txt`, 14/14 checks).
+
+Two `FACE_X1` TimelineItems can share a name, a track, a frame range, a duration, a Fusion
+comp and a Media Pool asset, and one can be DAZ's while the other was dragged there by the
+user. Nothing observable about the clip separates them. So the only proof of ownership is a
+marker on the **TimelineItem instance** whose `customData` carries a DAZ record.
+
+Never sufficient, individually or together: clip name, track index, position, duration, Fusion
+graph, Media Pool asset name. They may *corroborate* a marker (D037) but they can never create
+ownership. **An old clip with no DAZ metadata stays unowned even if it is byte-identical to
+one DAZ would have made.**
+
+`TimelineItem.AddMarker(frameId, color, name, note, duration, customData)`, `GetMarkers()`,
+`GetMarkerByCustomData()` and `DeleteMarkerByCustomData()` are all documented and appear in
+neither the deprecated nor the unsupported section of the README installed with the running
+build. `customData` is documented as "not exposed via UI and useful for scripting developer to
+attach any user specific data".
+
+Measured live, on real **Generator** items (which expose no Media Pool item and no source
+frames, so they were the case most likely to behave differently):
+
+- markers attach to the instance, not to the shared asset — no other `FACE_X1` anywhere in the
+  project acquired metadata (`asset_isolation`);
+- the record round-trips byte-identically through `customData`;
+- it survives switching to another timeline and back (`survives_timeline_switch`), and the
+  classification is identical before and after;
+- an identical, untagged twin inserted on the same track classifies as `unowned`.
+
+The record is versioned (`schema`), namespaced (`davinci-auto-zoom`) and carries the preview
+identity, the semantic role, the configured asset, the planned frames, the source fingerprint
+and a deterministic placement id. Format and parser live in `domain/ownership.py`; the live
+side is `resolve/ownership.py`.
+
+**100% or nothing.** `apply-preview` now claims every item it creates and re-reads the whole
+track through the classifier a later `clean-preview` will use. If one item cannot be claimed,
+the entire preview is rolled back. A partially owned preview is not a lesser success — it is a
+preview no destructive command could ever safely touch, so it must not be allowed to exist.
+
+## D036 — DAZ never overwrites a marker it did not write, and fails closed instead
+
+**Status:** adopted, Phase 7. Proven live (`user_marker_preserved`).
+
+Local frame 0 is *preferred*, never assumed. Before tagging, the item's existing markers are
+read and DAZ takes the first local frame nothing occupies — a marker's occupied span includes
+its duration, so a five-frame user marker at frame 0 pushes DAZ to frame 5 rather than landing
+inside it. The live probe places a stand-in user marker at frame 0 first and requires it back
+untouched; DAZ took frame 1.
+
+If an item has **no** free local frame — genuinely possible on a 15-frame reset — that item
+fails closed. It is never tagged by taking somebody else's frame, and the failure rolls the
+whole preview back rather than producing a partially owned one.
+
+DAZ also never updates or deletes a marker. Cleanup removes whole TimelineItems, which takes
+their markers with them; markers are never edited in place.
+
+## D037 — Four ownership states, and ambiguity means zero deletions
+
+**Status:** adopted, Phase 7.
+
+`unowned` is the *safe* answer, not the fallback. But "I cannot claim this" and "I cannot even
+classify this" are different, and collapsing them would let a corrupt record be quietly
+deleted around. So:
+
+| state | meaning | destructive commands |
+| --- | --- | --- |
+| `owned` | well-formed record matching every expectation | deletable |
+| `unowned` | nothing claims to be DAZ's | never touched, never blocks |
+| `stale` | well-formed record naming a different preview or a different source fingerprint | never deleted, blocks the run |
+| `ambiguous` | a marker claims to be DAZ's and contradicts itself | never deleted, blocks the run |
+
+A marker becomes `ambiguous` on: unparseable JSON, wrong namespace, unknown schema, a missing
+or wrongly-typed field, an unexpected field, an invalid role name, a backwards frame range, a
+`placement_id` that does not match its own fields, a role that is not configured, a role whose
+configured asset differs from the record's, a clip renamed away from its record, or two DAZ
+markers making different claims. Two *identical* DAZ markers are `owned` with a warning: they
+agree, so identity is not in doubt.
+
+**One ambiguous or stale item on a track stops the entire run before its first delete.** A
+half-cleaned track whose ownership was never fully classifiable is worse than an uncleaned one.
+
+Sanity checks are defence in depth and can only make a verdict stricter, never looser. An item
+that *moved* since it was tagged stays `owned` and carries a diagnostic saying so — position is
+not evidence either way (D035), and refusing there would be an ownership rule smuggled back in
+through geometry.
+
+## D038 — A hand-duplicated preview is `stale`, and is never destructively cleanable
+
+**Status:** adopted, Phase 7. Behaviour measured live, not assumed.
+
+Measured: `Timeline.DuplicateTimeline` **copies the ownership markers** onto the duplicate's
+items. The duplicate gets a new timeline `unique_id`; its markers still name the *source*
+preview.
+
+That is not a defect, and it defines the semantics. Classified against its own identity, every
+copied item comes back `stale`, so a `clean-preview` or `rebuild-preview` aimed at the copy
+refuses before deleting anything. Confirmed live: the probe's duplicate classified as
+`['stale', 'unowned']` and both destructive-work checks passed.
+
+The conservative rule: a timeline holding records whose `preview_id` is not this timeline's is
+never automatically cleaned. Markers on a duplicate are **not** rewritten to adopt the copy —
+DAZ does not decide that a copy of the user's is now its own.
+
+## D039 — Legacy previews are inert: never migrated, never retro-tagged, never deleted
+
+**Status:** adopted, Phase 7.
+
+`DAZ_AUTO_PREVIEW_20260816_211026_c676d5af` (Phase 5) and
+`DAZ_AUTO_PREVIEW_20260817_132005_77443d7c` (Phase 6, the visually validated one) were made
+before DAZ tagged its output. Their 28 items each carry **zero markers of any kind**, verified
+by the post-Phase-7 audit.
+
+They are therefore `unowned`, which is correct and permanent. There is no migration path and
+there will not be one: retro-tagging would mean deciding from name, track and frames that a
+clip is DAZ's, which is exactly what D035 forbids — and it would be indistinguishable from
+adopting a user's clips.
+
+A track holding items where **not one** carries ownership metadata is refused as
+`legacy preview: no verifiable DAZ ownership metadata`. Verified live against both.
+
+## D040 — `clean` tolerates a foreign clip; `rebuild` fails closed on one
+
+**Status:** adopted, Phase 7. Both halves proven live.
+
+A selective clean can safely leave a clip DAZ did not create: it removes proven-owned items
+one identity at a time and touches nothing else. Proven live on a disposable timeline — 3
+tagged DAZ items removed, 1 untagged `FACE_X1` on the same track surviving with the *same
+unique id*, the same frames, and every other track item-for-item identical (13/13 checks).
+
+`rebuild-preview` refuses instead. After cleaning it would insert fresh placements next to the
+surviving clip, and DAZ still does not rely on Resolve's collision behaviour (D032). The
+refusal happens **before** any deletion, so a refused rebuild costs nothing.
+
+    clean-preview   -> preserves unowned, reports them
+    rebuild-preview -> refuses while any unowned item is on the target track
+
+## D041 — A `DAZ_RECOVERY_*` duplicate exists before the first delete, and any failure keeps it
+
+**Status:** adopted, Phase 7.
+
+`apply-preview` can use "delete the thing we made" as its transaction boundary (D031). The
+destructive commands cannot: they modify a timeline that already exists. So before the first
+`DeleteClips`, a `DAZ_RECOVERY_<timestamp>_<id>` duplicate of the target is created; if the
+duplicate cannot be made, nothing is deleted at all.
+
+Deleting the recovery is the **last** action of the transaction, taken only once the delete,
+any re-insertion, the active-timeline restore *and* the protected audit have all passed. A run
+can therefore never announce success while the user's timeline is missing or a protected
+timeline has moved — in those cases the copy is still there.
+
+On any failure after a mutation the recovery is kept, its exact name reported, and **no
+automatic restoration is attempted**. Putting the copy back is the user's decision, made with
+the copy in front of them. No other timeline is created or deleted either way.
+
+`DeleteClips` is always called with an explicit `ripple=False` rather than relying on the
+documented default: these clips sit on a dedicated track above the user's edit, and a ripple
+delete would shift everything after them. No video track is ever deleted. `SaveProject()` is
+never called.
+
+## D042 — `DeleteClips` only acts on the current timeline (undocumented; measured)
+
+**Status:** measured on Studio 21.0.4.5, Phase 7. Found live, fixed, regression-tested.
+
+`Timeline.DeleteClips([timelineItems], Bool)` is documented with no mention of the current
+timeline. In practice it behaves like `MediaPool.AppendToTimeline`: called on a timeline that
+is not current it **returns False and deletes nothing**.
+
+Found by the first live `clean-preview`, which returned `DeleteClips returned False`, removed
+0 of 28 items, kept its recovery and restored the active timeline — the safety model worked
+exactly as designed, and turned an undocumented API restriction into a clean refusal instead
+of a partial mutation.
+
+Measured directly afterwards on a disposable copy:
+
+```
+recovery NOT current -> DeleteClips([1], False) -> False,  V3 still 28 items
+recovery made current -> DeleteClips([1], False) -> True,   V3 27 items
+recovery made current -> DeleteClips([27], False) -> True,  V3 0 items
+```
+
+The fix makes the preview current after the recovery exists and before the delete, verifies
+via `GetCurrentTimeline().GetUniqueId()` that it actually became current, and restores the
+user's timeline in the transaction's `finally` as before. `tests/fake_resolve.py` reproduces
+the behaviour, so `test_the_preview_is_made_current_before_the_delete` fails against the old
+code.
+
+**Generalised lesson:** the installed README documents signatures, not preconditions. Two
+write-capable calls now share the "must be current" precondition; assume any third one does
+too until measured.
+
+## D043 — Idempotence is the same desired state, not the same Resolve objects
+
+**Status:** adopted, Phase 7. Proven live.
+
+A `placement_id` is `sha256(canonical JSON of {version, source_fingerprint, role, start, end,
+asset})`, truncated to 128 bits. **No clock, no randomness, no counter, and deliberately not
+the preview's identity** — a placement belongs to a plan, not to whichever preview holds it.
+
+Two rebuilds are structurally idempotent when they produce the same placement count, the same
+roles, the same start/end frames, the same durations, the same placement ids, and no
+duplicates. Newly created `TimelineItem.GetUniqueId()` values necessarily differ after a
+rebuild and are explicitly **not** part of the comparison.
+
+Proven live: rebuild #1 and rebuild #2 of
+`DAZ_AUTO_PREVIEW_20260817_163637_e8787ece` produced byte-identical `(role, start, end,
+placement_id)` for all 28 placements, 28 unique placement ids, and 28 items on the track after
+each — no accumulation.
+
+Because the fingerprint is hashed in, re-cut source material changes every placement id, and
+`rebuild-preview` refuses on the fingerprint mismatch before deleting anything.

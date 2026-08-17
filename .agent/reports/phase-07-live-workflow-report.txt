@@ -1,0 +1,244 @@
+=== Phase 7 live workflow — DaVinci Resolve Studio 21.0.4.5, project davinci-auto-zoom-test
+=== 2026-08-17. Steps A-D, run in order, on DAZ_AUTO_PREVIEW_20260817_163637_e8787ece.
+
+############ STEP A — apply-preview (new owned preview) ############
+
+davinci-auto-zoom apply-preview (Phase 5)
+  product   : DaVinci Resolve Studio 21.0.4.5
+  project   : davinci-auto-zoom-test
+  placements: 28
+  source ok : 14 field(s) re-verified against a fresh snapshot; fingerprint sha256:a1d107e1fa95b6152dd06be89ccc0fbd39de8d02faa906f91d3d7fc6d46a5483
+  track     : V3 (video tracks 2, added 1, empty=True)
+  preview   : DAZ_AUTO_PREVIEW_20260817_163637_e8787ece (wrote=True)
+  [ok  ]   0 facecam_x1  FACE_X1          rec=216046 end=  86 -> start=216046 end=216132 dur=86 V3 comps=1 owned=True marker@0 pid=3b8eef7c486c0f9600797b6edecd095f
+  [ok  ]   1 reset_x0    FACE_X0_SMOOTH   rec=216132 end=  15 -> start=216132 end=216147 dur=15 V3 comps=1 owned=True marker@0 pid=de65ab74afce8a6fcac923a206e6cdf3
+  [ok  ]   2 facecam_x1  FACE_X1          rec=216293 end= 149 -> start=216293 end=216442 dur=149 V3 comps=1 owned=True marker@0 pid=f925b4cfcfc1bf3ff09574fc2a13f91f
+  [ok  ]   3 reset_x0    FACE_X0_SMOOTH   rec=216442 end=  15 -> start=216442 end=216457 dur=15 V3 comps=1 owned=True marker@0 pid=2c7c4839dab70083f11120dd859f0612
+  [ok  ]   4 facecam_x1  FACE_X1          rec=216489 end=  30 -> start=216489 end=216519 dur=30 V3 comps=1 owned=True marker@0 pid=63bdf2c6fe48913d1b570705d58c95af
+  [ok  ]   5 reset_x0    FACE_X0_SMOOTH   rec=216519 end=  15 -> start=216519 end=216534 dur=15 V3 comps=1 owned=True marker@0 pid=e0627c61cebb1ca86418b3bc0d5e1e83
+  [ok  ]   6 facecam_x1  FACE_X1          rec=216679 end= 114 -> start=216679 end=216793 dur=114 V3 comps=1 owned=True marker@0 pid=3f11632dc1aed5f9769a2f55f18d3b8d
+  [ok  ]   7 reset_x0    FACE_X0_SMOOTH   rec=216793 end=  15 -> start=216793 end=216808 dur=15 V3 comps=1 owned=True marker@0 pid=334984bd4e146585b8acda545bc3e7e7
+  [ok  ]   8 facecam_x1  FACE_X1          rec=216900 end=  30 -> start=216900 end=216930 dur=30 V3 comps=1 owned=True marker@0 pid=8d43dab85c460f112cc1da1ff335fd55
+  [ok  ]   9 reset_x0    FACE_X0_SMOOTH   rec=216930 end=  15 -> start=216930 end=216945 dur=15 V3 comps=1 owned=True marker@0 pid=da8d03c4df52742d9a79e100e350731e
+  [ok  ]  10 facecam_x1  FACE_X1          rec=216983 end=  56 -> start=216983 end=217039 dur=56 V3 comps=1 owned=True marker@0 pid=5a6afe50124be292fc4c6313ceef5736
+  [ok  ]  11 reset_x0    FACE_X0_SMOOTH   rec=217039 end=  15 -> start=217039 end=217054 dur=15 V3 comps=1 owned=True marker@0 pid=bc6fb7f93edd8332e460040c06a00c1a
+  [ok  ]  12 facecam_x1  FACE_X1          rec=217250 end=  62 -> start=217250 end=217312 dur=62 V3 comps=1 owned=True marker@0 pid=9581e8951983d27886d6f820d3191e4b
+  [ok  ]  13 reset_x0    FACE_X0_SMOOTH   rec=217312 end=  15 -> start=217312 end=217327 dur=15 V3 comps=1 owned=True marker@0 pid=6ca2096bd0a56791cbc300640d00ec72
+  [ok  ]  14 facecam_x1  FACE_X1          rec=217499 end= 250 -> start=217499 end=217749 dur=250 V3 comps=1 owned=True marker@0 pid=c55e8add384db2d26be1ac0b02098cfa
+  [ok  ]  15 reset_x0    FACE_X0_SMOOTH   rec=217749 end=  15 -> start=217749 end=217764 dur=15 V3 comps=1 owned=True marker@0 pid=eb8710a6d537a8d6b274addb67589aaf
+  [ok  ]  16 facecam_x1  FACE_X1          rec=217877 end= 122 -> start=217877 end=217999 dur=122 V3 comps=1 owned=True marker@0 pid=2cc7ccf726b3efeb886c3354f67c0aa4
+  [ok  ]  17 reset_x0    FACE_X0_SMOOTH   rec=217999 end=  15 -> start=217999 end=218014 dur=15 V3 comps=1 owned=True marker@0 pid=a6d7745ecf17d0e8df4e0f20f151197d
+  [ok  ]  18 facecam_x1  FACE_X1          rec=218094 end=  89 -> start=218094 end=218183 dur=89 V3 comps=1 owned=True marker@0 pid=efacf86c5178bfb2740f1dbb79eea0bd
+  [ok  ]  19 reset_x0    FACE_X0_SMOOTH   rec=218183 end=  15 -> start=218183 end=218198 dur=15 V3 comps=1 owned=True marker@0 pid=1077424a1e8f48c6d053fd8da06188d0
+  [ok  ]  20 facecam_x1  FACE_X1          rec=218244 end=  53 -> start=218244 end=218297 dur=53 V3 comps=1 owned=True marker@0 pid=5e3dffd8d19aef5e73aab4e78b73f50e
+  [ok  ]  21 reset_x0    FACE_X0_SMOOTH   rec=218297 end=  15 -> start=218297 end=218312 dur=15 V3 comps=1 owned=True marker@0 pid=506a17646665d844dfd01f4f2c416196
+  [ok  ]  22 facecam_x1  FACE_X1          rec=218394 end=  75 -> start=218394 end=218469 dur=75 V3 comps=1 owned=True marker@0 pid=1ad5dac20d80276f4fb46f705db592dd
+  [ok  ]  23 reset_x0    FACE_X0_SMOOTH   rec=218469 end=  15 -> start=218469 end=218484 dur=15 V3 comps=1 owned=True marker@0 pid=a0074dd92e2705e9fabd8bf90924672e
+  [ok  ]  24 facecam_x1  FACE_X1          rec=218599 end= 163 -> start=218599 end=218762 dur=163 V3 comps=1 owned=True marker@0 pid=11c6032a44914ccc7a233c510f4e389d
+  [ok  ]  25 reset_x0    FACE_X0_SMOOTH   rec=218762 end=  15 -> start=218762 end=218777 dur=15 V3 comps=1 owned=True marker@0 pid=bb4e5b6a0c699457ad81d781a6b438cb
+  [ok  ]  26 facecam_x1  FACE_X1          rec=218989 end= 138 -> start=218989 end=219127 dur=138 V3 comps=1 owned=True marker@0 pid=bd2fa66efc21c5d9fc2762b1bfeb4e7c
+  [ok  ]  27 reset_x0    FACE_X0_SMOOTH   rec=219127 end=  15 -> start=219127 end=219142 dur=15 V3 comps=1 owned=True marker@0 pid=e7efed76da5e15fca5a3920d2365ea6c
+  verified  : True
+  ownership : preview_id=9fb7e350-345f-465c-99a8-60ef1c85d972 fingerprint=sha256:a1d107e1fa95b6152dd06be89ccc0fbd39de8d02faa906f91d3d7fc6d46a5483
+              items created 28, owned 28, unowned 0, stale 0, ambiguous 0
+              verification: True
+  restored  : DAZ_AUTO_PREVIEW_20260817_132005_77443d7c (was DAZ_AUTO_PREVIEW_20260817_132005_77443d7c) proven=True
+  cleanup   : preview_kept=True preview_deleted=None absent=None
+  audit     : DAZ_INPUT, DAZ_OUTPUT_MVP, assets
+  audit differences: none
+
+  PREVIEW READY FOR HUMAN VISUAL REVIEW: DAZ_AUTO_PREVIEW_20260817_163637_e8787ece
+  unique id: 9fb7e350-345f-465c-99a8-60ef1c85d972
+  Open it in Resolve and watch the zooms. Structural and timing correctness is proven; how it *looks* is not.
+  RESULT: PASS
+
+############ STEP B — clean-preview ############
+
+davinci-auto-zoom clean-preview (Phase 7)
+  product   : DaVinci Resolve Studio 21.0.4.5
+  project   : davinci-auto-zoom-test
+  preview   : DAZ_AUTO_PREVIEW_20260817_163637_e8787ece (9fb7e350-345f-465c-99a8-60ef1c85d972)
+  before    : owned 28, unowned 0, stale 0, ambiguous 0
+  recovery  : DAZ_RECOVERY_20260817_165219_f225ec90 created=True deleted=True absent=True
+  DeleteClips([28 item(s)], ripple=False) -> True
+  removed   : 28 owned item(s); 0 unowned item(s) left untouched
+  cleaned   : True
+  restored  : DAZ_AUTO_PREVIEW_20260817_132005_77443d7c (was DAZ_AUTO_PREVIEW_20260817_132005_77443d7c) proven=True
+  audit     : DAZ_INPUT, DAZ_OUTPUT_MVP, assets
+  audit differences: none
+  RESULT: PASS
+
+############ STEP C — rebuild-preview #1 ############
+
+davinci-auto-zoom rebuild-preview (Phase 7)
+  product   : DaVinci Resolve Studio 21.0.4.5
+  project   : davinci-auto-zoom-test
+  preview   : DAZ_AUTO_PREVIEW_20260817_163637_e8787ece (9fb7e350-345f-465c-99a8-60ef1c85d972)
+  before    : owned 0, unowned 0, stale 0, ambiguous 0
+  recovery  : DAZ_RECOVERY_20260817_173235_0976de83 created=True deleted=True absent=True
+  removed   : 0 owned item(s); 0 unowned item(s) left untouched
+  cleaned   : True
+  plan      : 28 placement(s)
+  [ok  ]   0 facecam_x1  FACE_X1          start=216046 end=216132 owned=True pid=3b8eef7c486c0f9600797b6edecd095f
+  [ok  ]   1 reset_x0    FACE_X0_SMOOTH   start=216132 end=216147 owned=True pid=de65ab74afce8a6fcac923a206e6cdf3
+  [ok  ]   2 facecam_x1  FACE_X1          start=216293 end=216442 owned=True pid=f925b4cfcfc1bf3ff09574fc2a13f91f
+  [ok  ]   3 reset_x0    FACE_X0_SMOOTH   start=216442 end=216457 owned=True pid=2c7c4839dab70083f11120dd859f0612
+  [ok  ]   4 facecam_x1  FACE_X1          start=216489 end=216519 owned=True pid=63bdf2c6fe48913d1b570705d58c95af
+  [ok  ]   5 reset_x0    FACE_X0_SMOOTH   start=216519 end=216534 owned=True pid=e0627c61cebb1ca86418b3bc0d5e1e83
+  [ok  ]   6 facecam_x1  FACE_X1          start=216679 end=216793 owned=True pid=3f11632dc1aed5f9769a2f55f18d3b8d
+  [ok  ]   7 reset_x0    FACE_X0_SMOOTH   start=216793 end=216808 owned=True pid=334984bd4e146585b8acda545bc3e7e7
+  [ok  ]   8 facecam_x1  FACE_X1          start=216900 end=216930 owned=True pid=8d43dab85c460f112cc1da1ff335fd55
+  [ok  ]   9 reset_x0    FACE_X0_SMOOTH   start=216930 end=216945 owned=True pid=da8d03c4df52742d9a79e100e350731e
+  [ok  ]  10 facecam_x1  FACE_X1          start=216983 end=217039 owned=True pid=5a6afe50124be292fc4c6313ceef5736
+  [ok  ]  11 reset_x0    FACE_X0_SMOOTH   start=217039 end=217054 owned=True pid=bc6fb7f93edd8332e460040c06a00c1a
+  [ok  ]  12 facecam_x1  FACE_X1          start=217250 end=217312 owned=True pid=9581e8951983d27886d6f820d3191e4b
+  [ok  ]  13 reset_x0    FACE_X0_SMOOTH   start=217312 end=217327 owned=True pid=6ca2096bd0a56791cbc300640d00ec72
+  [ok  ]  14 facecam_x1  FACE_X1          start=217499 end=217749 owned=True pid=c55e8add384db2d26be1ac0b02098cfa
+  [ok  ]  15 reset_x0    FACE_X0_SMOOTH   start=217749 end=217764 owned=True pid=eb8710a6d537a8d6b274addb67589aaf
+  [ok  ]  16 facecam_x1  FACE_X1          start=217877 end=217999 owned=True pid=2cc7ccf726b3efeb886c3354f67c0aa4
+  [ok  ]  17 reset_x0    FACE_X0_SMOOTH   start=217999 end=218014 owned=True pid=a6d7745ecf17d0e8df4e0f20f151197d
+  [ok  ]  18 facecam_x1  FACE_X1          start=218094 end=218183 owned=True pid=efacf86c5178bfb2740f1dbb79eea0bd
+  [ok  ]  19 reset_x0    FACE_X0_SMOOTH   start=218183 end=218198 owned=True pid=1077424a1e8f48c6d053fd8da06188d0
+  [ok  ]  20 facecam_x1  FACE_X1          start=218244 end=218297 owned=True pid=5e3dffd8d19aef5e73aab4e78b73f50e
+  [ok  ]  21 reset_x0    FACE_X0_SMOOTH   start=218297 end=218312 owned=True pid=506a17646665d844dfd01f4f2c416196
+  [ok  ]  22 facecam_x1  FACE_X1          start=218394 end=218469 owned=True pid=1ad5dac20d80276f4fb46f705db592dd
+  [ok  ]  23 reset_x0    FACE_X0_SMOOTH   start=218469 end=218484 owned=True pid=a0074dd92e2705e9fabd8bf90924672e
+  [ok  ]  24 facecam_x1  FACE_X1          start=218599 end=218762 owned=True pid=11c6032a44914ccc7a233c510f4e389d
+  [ok  ]  25 reset_x0    FACE_X0_SMOOTH   start=218762 end=218777 owned=True pid=bb4e5b6a0c699457ad81d781a6b438cb
+  [ok  ]  26 facecam_x1  FACE_X1          start=218989 end=219127 owned=True pid=bd2fa66efc21c5d9fc2762b1bfeb4e7c
+  [ok  ]  27 reset_x0    FACE_X0_SMOOTH   start=219127 end=219142 owned=True pid=e7efed76da5e15fca5a3920d2365ea6c
+  verified  : True
+  ownership : created 28, owned 28, unowned 0, stale 0, ambiguous 0, verification True
+  restored  : DAZ_AUTO_PREVIEW_20260817_132005_77443d7c (was DAZ_AUTO_PREVIEW_20260817_132005_77443d7c) proven=True
+  audit     : DAZ_INPUT, DAZ_OUTPUT_MVP, assets
+  audit differences: none
+
+  REBUILT: DAZ_AUTO_PREVIEW_20260817_163637_e8787ece
+  28 owned item(s), placement ids 3b8eef7c486c0f9600797b6edecd095f, de65ab74afce8a6fcac923a206e6cdf3, f925b4cfcfc1bf3ff09574fc2a13f91f ...
+  RESULT: PASS
+
+############ STEP D — rebuild-preview #2 (idempotence) ############
+
+succeeded=True owned_before=28 deleted=28
+items created=28 owned=28 unowned=0 stale=0 ambiguous=0
+recovery=DAZ_RECOVERY_20260817_173715_544437c3 deleted=True absent=True
+restored=DAZ_AUTO_PREVIEW_20260817_132005_77443d7c proven=True
+audit_differences=[]
+
+  [ok  ]   0 facecam_x1  FACE_X1          start=216046 end=216132 owned=True pid=3b8eef7c486c0f9600797b6edecd095f
+  [ok  ]   1 reset_x0    FACE_X0_SMOOTH   start=216132 end=216147 owned=True pid=de65ab74afce8a6fcac923a206e6cdf3
+  [ok  ]   2 facecam_x1  FACE_X1          start=216293 end=216442 owned=True pid=f925b4cfcfc1bf3ff09574fc2a13f91f
+  [ok  ]   3 reset_x0    FACE_X0_SMOOTH   start=216442 end=216457 owned=True pid=2c7c4839dab70083f11120dd859f0612
+  [ok  ]   4 facecam_x1  FACE_X1          start=216489 end=216519 owned=True pid=63bdf2c6fe48913d1b570705d58c95af
+  [ok  ]   5 reset_x0    FACE_X0_SMOOTH   start=216519 end=216534 owned=True pid=e0627c61cebb1ca86418b3bc0d5e1e83
+  [ok  ]   6 facecam_x1  FACE_X1          start=216679 end=216793 owned=True pid=3f11632dc1aed5f9769a2f55f18d3b8d
+  [ok  ]   7 reset_x0    FACE_X0_SMOOTH   start=216793 end=216808 owned=True pid=334984bd4e146585b8acda545bc3e7e7
+  [ok  ]   8 facecam_x1  FACE_X1          start=216900 end=216930 owned=True pid=8d43dab85c460f112cc1da1ff335fd55
+  [ok  ]   9 reset_x0    FACE_X0_SMOOTH   start=216930 end=216945 owned=True pid=da8d03c4df52742d9a79e100e350731e
+  [ok  ]  10 facecam_x1  FACE_X1          start=216983 end=217039 owned=True pid=5a6afe50124be292fc4c6313ceef5736
+  [ok  ]  11 reset_x0    FACE_X0_SMOOTH   start=217039 end=217054 owned=True pid=bc6fb7f93edd8332e460040c06a00c1a
+  [ok  ]  12 facecam_x1  FACE_X1          start=217250 end=217312 owned=True pid=9581e8951983d27886d6f820d3191e4b
+  [ok  ]  13 reset_x0    FACE_X0_SMOOTH   start=217312 end=217327 owned=True pid=6ca2096bd0a56791cbc300640d00ec72
+  [ok  ]  14 facecam_x1  FACE_X1          start=217499 end=217749 owned=True pid=c55e8add384db2d26be1ac0b02098cfa
+  [ok  ]  15 reset_x0    FACE_X0_SMOOTH   start=217749 end=217764 owned=True pid=eb8710a6d537a8d6b274addb67589aaf
+  [ok  ]  16 facecam_x1  FACE_X1          start=217877 end=217999 owned=True pid=2cc7ccf726b3efeb886c3354f67c0aa4
+  [ok  ]  17 reset_x0    FACE_X0_SMOOTH   start=217999 end=218014 owned=True pid=a6d7745ecf17d0e8df4e0f20f151197d
+  [ok  ]  18 facecam_x1  FACE_X1          start=218094 end=218183 owned=True pid=efacf86c5178bfb2740f1dbb79eea0bd
+  [ok  ]  19 reset_x0    FACE_X0_SMOOTH   start=218183 end=218198 owned=True pid=1077424a1e8f48c6d053fd8da06188d0
+  [ok  ]  20 facecam_x1  FACE_X1          start=218244 end=218297 owned=True pid=5e3dffd8d19aef5e73aab4e78b73f50e
+  [ok  ]  21 reset_x0    FACE_X0_SMOOTH   start=218297 end=218312 owned=True pid=506a17646665d844dfd01f4f2c416196
+  [ok  ]  22 facecam_x1  FACE_X1          start=218394 end=218469 owned=True pid=1ad5dac20d80276f4fb46f705db592dd
+  [ok  ]  23 reset_x0    FACE_X0_SMOOTH   start=218469 end=218484 owned=True pid=a0074dd92e2705e9fabd8bf90924672e
+  [ok  ]  24 facecam_x1  FACE_X1          start=218599 end=218762 owned=True pid=11c6032a44914ccc7a233c510f4e389d
+  [ok  ]  25 reset_x0    FACE_X0_SMOOTH   start=218762 end=218777 owned=True pid=bb4e5b6a0c699457ad81d781a6b438cb
+  [ok  ]  26 facecam_x1  FACE_X1          start=218989 end=219127 owned=True pid=bd2fa66efc21c5d9fc2762b1bfeb4e7c
+  [ok  ]  27 reset_x0    FACE_X0_SMOOTH   start=219127 end=219142 owned=True pid=e7efed76da5e15fca5a3920d2365ea6c
+
+############ IDEMPOTENCE: rebuild #1 vs rebuild #2 ############
+
+role, start, end and placement_id for all 28 placements, compared line by line:
+  -> IDENTICAL. 0 differences, 0 duplicate placement ids.
+
+############ REFUSALS (live) ############
+
+### clean-preview --preview-timeline DAZ_AUTO_PREVIEW_20260816_211026_c676d5af
+refused: clean-preview refused, nothing was deleted and nothing was created:
+  - legacy preview: no verifiable DAZ ownership metadata. This timeline was created before DAZ tagged what it makes, so nothing on it can be proven to be DAZ's. It is left exactly as it is — it is never migrated, retro-tagged or deleted. Create a fresh preview with apply-preview instead.
+  (exit 4)
+
+### clean-preview --preview-timeline DAZ_AUTO_PREVIEW_20260817_132005_77443d7c
+refused: clean-preview refused, nothing was deleted and nothing was created:
+  - legacy preview: no verifiable DAZ ownership metadata. This timeline was created before DAZ tagged what it makes, so nothing on it can be proven to be DAZ's. It is left exactly as it is — it is never migrated, retro-tagged or deleted. Create a fresh preview with apply-preview instead.
+  (exit 4)
+
+### clean-preview --preview-timeline DAZ_INPUT
+refused: clean-preview refused, nothing was deleted and nothing was created:
+  - 'DAZ_INPUT' is a protected timeline for this run (source or reference). These commands never touch the material you work in.
+  - 'DAZ_INPUT' is not a DAZ preview: the name does not start with 'DAZ_AUTO_PREVIEW_'. Only timelines DAZ created can be cleaned or rebuilt.
+  (exit 4)
+
+### clean-preview --preview-timeline DAZ_OUTPUT_MVP
+refused: clean-preview refused, nothing was deleted and nothing was created:
+  - 'DAZ_OUTPUT_MVP' is a protected timeline for this run (source or reference). These commands never touch the material you work in.
+  - 'DAZ_OUTPUT_MVP' is not a DAZ preview: the name does not start with 'DAZ_AUTO_PREVIEW_'. Only timelines DAZ created can be cleaned or rebuilt.
+  (exit 4)
+
+
+############ FOREIGN-ITEM SELECTIVE-CLEAN PROOF (disposable timeline) ############
+
+scratch: DAZ_AUTO_PREVIEW_foreignproof_d4f5adea (e15d7786-2ee4-4f97-89c1-ff54e9f3521c)
+
+  [PASS] sentinel_has_no_markers            FACE_X1 @216600 uid=3c56a31a-c1af-4943-8020-c9952397f13e
+  [PASS] track_prepared                     V3 holds 4 items
+
+  [PASS] clean_succeeded                    error=None
+  [PASS] classified_before                  owned 3, unowned 1, stale 0, ambiguous 0
+  [PASS] owned_removed                      3 deleted
+  [PASS] delete_was_not_ripple              [(3, False)]
+  [PASS] only_the_sentinel_survives         V3 now holds [('FACE_X1', 216600)]
+  [PASS] sentinel_is_the_same_object        uid 3c56a31a-c1af-4943-8020-c9952397f13e (was 3c56a31a-c1af-4943-8020-c9952397f13e)
+  [PASS] sentinel_frames_unchanged          [216600,216690)
+  [PASS] no_other_track_changed             V1/V2 and every audio track are item-for-item identical
+  [PASS] video_track_count_unchanged        3 video tracks, none deleted
+  [PASS] recovery_removed                   DAZ_RECOVERY_20260817_182207_caa931f3
+
+cleanup: deleting DAZ_AUTO_PREVIEW_foreignproof_d4f5adea -> True
+  [PASS] project_back_to_its_previous_timelines added [], removed []
+
+RESULT: PASS (13/13 checks)
+
+############ INDEPENDENT SAFETY AUDIT ############
+
+=== originals and legacy previews ===
+  [PASS] DAZ_INPUT unchanged                    protected, {'V1': 21, 'V2': 21, 'A1': 21, 'A2': 21, 'A3': 21}
+  [PASS] DAZ_OUTPUT_MVP unchanged               protected, {'V1': 21, 'V2': 21, 'V3': 24, 'A1': 21, 'A2': 21, 'A3': 21}
+  [PASS] DAZ_AUTO_PREVIEW_20260816_211026_c676d5af unchanged legacy preview, {'V1': 21, 'V2': 21, 'V3': 28, 'A1': 21, 'A2': 21, 'A3': 21}
+  [PASS] DAZ_AUTO_PREVIEW_20260817_132005_77443d7c unchanged legacy preview, {'V1': 21, 'V2': 21, 'V3': 28, 'A1': 21, 'A2': 21, 'A3': 21}
+
+=== legacy previews are not owned and were not retro-tagged ===
+  [PASS] c676d5af has zero DAZ ownership        28 items, 28 unowned, 0 owned, 0 markers of any kind
+  [PASS] 77443d7c has zero DAZ ownership        28 items, 28 unowned, 0 owned, 0 markers of any kind
+
+=== the Phase 7 owned preview ===
+  [PASS] 28 items on the target track           28
+  [PASS] every item classifies as owned         owned 28, unowned 0, stale 0, ambiguous 0
+  [PASS] no duplicate placement ids             28 unique
+  [PASS] exactly one DAZ marker per item        marker counts [1]
+  [PASS] no overlap, x1 ends where its x0 starts [216046,219142)
+  [PASS] V3 matches the fresh plan 1:1          28 placements compared
+  [PASS] V1/V2 and audio still equal DAZ_INPUT  ['A1', 'A2', 'A3', 'V1', 'V2']
+
+=== nothing temporary left behind ===
+  [PASS] no recovery/scratch/render timelines   none
+  [PASS] exactly three previews                 ['DAZ_AUTO_PREVIEW_20260816_211026_c676d5af', 'DAZ_AUTO_PREVIEW_20260817_132005_77443d7c', 'DAZ_AUTO_PREVIEW_20260817_163637_e8787ece']
+  [PASS] no timeline appeared or vanished       added ['DAZ_AUTO_PREVIEW_20260817_163637_e8787ece'], removed []
+
+=== media pool, deliver, render queue ===
+  [PASS] assets unchanged                       ['FACE_X1', 'FACE_X0_SMOOTH']
+  [PASS] asset bin still resolves once          ['Master/DAVINCI_AUTO_ZOOM']
+  [PASS] render queue empty                     0 job(s)
+  [PASS] no DAZ render preset left              none
+  [PASS] deliver format/codec readable and untouched {'format': 'mov', 'codec': 'ProRes422HQ'} mode=1
+  [PASS] active timeline                        DAZ_AUTO_PREVIEW_20260817_132005_77443d7c (was DAZ_AUTO_PREVIEW_20260817_132005_77443d7c)
+
+RESULT: PASS (22/22 checks)

@@ -373,3 +373,71 @@ instead of claiming the edit is good.
 Worth noting for later phases: the counts (15 segments → 14 bursts → 28 placements) reproduced
 the Phase 4 baseline exactly, which is what made it safe to apply. A materially different plan
 from the same input would have been a reason to stop and diagnose, not to write.
+
+## Phase 7 — TimelineItem markers as ownership (Studio 21.0.4.5)
+
+Measured by `probe-ownership` on a scratch duplicated from `DAZ_INPUT`, with real
+`FACE_X1` / `FACE_X0_SMOOTH` **Generator** items. Full output:
+`.agent/reports/phase-07-ownership-probe-report.txt`.
+
+### What the installed README says
+
+`TimelineItem` carries the same marker block as `Timeline`, `MediaPoolItem` and `Folder`:
+
+```
+AddMarker(frameId, color, name, note, duration, customData)  --> Bool
+GetMarkers()                                                 --> {markers...}
+GetMarkerByCustomData(customData)                            --> {markers...}
+UpdateMarkerCustomData(frameId, customData)                  --> Bool
+GetMarkerCustomData(frameId)                                 --> string
+DeleteMarkerAtFrame(frameNum) / DeleteMarkerByCustomData(customData)
+```
+
+None of them appear in the Deprecated or Unsupported sections. `customData` is documented as
+"not exposed via UI and is useful for scripting developer to attach any user specific data to
+markers" — which is precisely the intended use.
+
+`GetMarkers()` returns `{frameId -> {...}}` with **float** keys (`96.0`) and float durations,
+and the frame is **item-local** ("clip offset 96"), not a timeline frame.
+
+### What is actually true, measured
+
+| question | answer |
+| --- | --- |
+| do markers work on Generator items? | **yes** |
+| instance-scoped or asset-scoped? | **instance.** No other `FACE_X1` in the project acquired metadata |
+| does `customData` round-trip? | **yes**, byte-identical (~230 chars of JSON) |
+| does it survive a timeline switch + re-read? | **yes**, classification identical before and after |
+| can two markers share a local frame? | **no** — `AddMarker` returns False on an occupied frame |
+| does `DuplicateTimeline` copy them? | **yes** — 2/2 tagged items kept their records |
+| does the duplicate look owned? | **no** — the copied records still name the source preview, so the copy classifies `stale` (D038) |
+
+The occupied-frame behaviour is why local frame 0 is preferred but never assumed: a user
+marker there makes `AddMarker(0, ...)` fail outright. DAZ reads the existing markers, picks the
+first free local frame (counting a marker's duration as occupied), and fails the item closed if
+there is none — relevant for a 15-frame reset.
+
+### `DeleteClips` only acts on the current timeline
+
+**Undocumented.** The README gives `Timeline.DeleteClips([timelineItems], Bool)` with no
+precondition. Measured on a disposable duplicate:
+
+```
+timeline NOT current  -> DeleteClips([1], False)  -> False   V3 still 28 items
+timeline made current -> DeleteClips([1], False)  -> True    V3 27 items
+timeline made current -> DeleteClips([27], False) -> True    V3 0 items
+```
+
+Same restriction as `MediaPool.AppendToTimeline`, which the README *does* describe as acting on
+"the current timeline". Found by the first live `clean-preview` failing safely (D042).
+
+Batching 27 items in one call worked. No upper bound was probed.
+
+### Not measured
+
+- maximum `customData` length, or maximum markers per item;
+- whether `UpdateMarkerCustomData` / `DeleteMarkerByCustomData` behave on Generator items — DAZ
+  never calls them (D036), so they were deliberately left untested;
+- whether marker metadata survives a project close/reopen. Asset `unique_id`s do (Phase 6), and
+  timeline `unique_id`s appear to, but the markers themselves were only tested within one
+  session and across a timeline switch.

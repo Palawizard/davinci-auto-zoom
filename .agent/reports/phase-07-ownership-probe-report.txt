@@ -1,0 +1,28 @@
+=== probe-ownership (live, DaVinci Resolve Studio 21.0.4.5) ===
+
+davinci-auto-zoom probe-ownership (Phase 7)
+  product   : DaVinci Resolve Studio 21.0.4.5
+  project   : davinci-auto-zoom-test
+  scratch   : DAZ_SCRATCH_OWNERSHIP_d8bde5d9 (wrote=True)
+  [PASS] items_created                2 generator item(s) inserted on V3
+  [PASS] untagged_twin_is_unowned     an identical, untagged 'FACE_X1' classifies as unowned
+  [PASS] sentinel_marker_placed       a stand-in user marker occupies local frame 0 of the x1 item
+  [PASS] tag_facecam_x1               marker at local frame 1
+  [PASS] tag_reset_x0                 marker at local frame 0
+  [PASS] daz_avoided_the_user_frame   DAZ did not take local frame 0, which was already occupied
+  [PASS] user_marker_preserved        the pre-existing user marker is still at local frame 0, unchanged
+  [PASS] immediate_readback           2/2 tagged item(s) owned, 1 untagged item(s) unowned
+  [PASS] record_round_trip            every record came back byte-identical to the one written
+  [PASS] survives_timeline_switch     after switching to 'DAZ_AUTO_PREVIEW_20260817_132005_77443d7c' and back, 2/2 still owned and the untagged twin is still unowned
+  [PASS] readback_is_stable           the classification is identical before and after the switch
+  [PASS] asset_isolation              no other instance of the shared asset acquired ownership metadata
+  [PASS] duplicate_is_not_silently_owned not one item of the hand-duplicated timeline classifies as owned against its own identity
+  [PASS] duplicate_blocks_destructive_work copied ownership reads as ['stale', 'unowned'], which fails destructive commands closed
+  observations (recorded, not judged):
+    - DuplicateTimeline copied ownership markers onto 2/3 item(s) of 'DAZ_SCRATCH_OWNERSHIP_eeb02bd2'
+    - classified against its own identity, the duplicate's items are ['stale', 'unowned'] — the records still name the source preview, so they are not automatically cleanable
+  restored  : DAZ_AUTO_PREVIEW_20260817_132005_77443d7c (was DAZ_AUTO_PREVIEW_20260817_132005_77443d7c) proven=True
+  cleanup   : deleted=True absent=True
+  audit     : DAZ_INPUT, DAZ_OUTPUT_MVP, assets
+  audit differences: none
+  RESULT: PASS

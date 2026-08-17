@@ -340,22 +340,59 @@ Done:
   built with a different lookback is refused
 - live: 14 resets → 6 direct + 8 backward snaps; second preview created for A/B review
 
-## Phase 7 — Idempotency + workflow polish [NEXT]
+## Phase 7 — Persistent ownership + safe clean/rebuild [DONE]
 
-Goal: make repeated editing practical.
+Goal: let DAZ recognise the clips it created, distinguish them from a user's even when the
+assets are identical, remove only its own, and rebuild the same plan without stacking
+duplicates.
 
-Starting point: `apply-preview` proves the executor is correct and the planner now places the
-reset where the edit wants it, but every run still builds a fresh timeline and refuses a
-populated target track. The next questions, in order, are how a DAZ-created clip is
-*identified* later, what a second run should do with an existing preview, and only then
-whether applying in place on a user timeline is safe.
+Delivered, and proven live on Studio 21.0.4.5 (see
+`.agent/reports/phase-07-ownership-probe-report.txt` and
+`.agent/reports/phase-07-live-workflow-report.txt`):
 
-Tasks:
+- **`domain/ownership.py`** — versioned, namespaced record; canonical serialization;
+  deterministic `placement_id`; four-state classifier (`owned` / `unowned` / `stale` /
+  `ambiguous`); free-marker-frame selection. Pure, no Resolve (D035, D036, D037, D043).
+- **`resolve/ownership.py`** — the only place a marker is read or written. `AddMarker` onto a
+  local frame proven free, then a re-read that must return the record byte-identically.
+- **`probe-ownership`** — isolated live capability probe on a scratch it creates and deletes.
+  14/14 checks. Established that markers attach to the *instance* not the shared asset,
+  survive a timeline switch, and are **copied by `DuplicateTimeline`** (D038).
+- **`apply-preview`** — now claims every created item and re-reads the whole track through the
+  classifier. 100% owned or the whole preview rolls back.
+- **`clean-preview`** / **`rebuild-preview`** — destructive, each behind its own flag, each on
+  one explicitly named preview, each preceded by a `DAZ_RECOVERY_*` duplicate (D040, D041).
 
-- `plan`, `apply`, `clean`, `doctor` commands
-- generated-region ownership strategy
+Live proof: `apply` → 28/28 owned → `clean` → 28 removed → `rebuild` → 28/28 owned →
+`rebuild` again → byte-identical `(role, start, end, placement_id)` for all 28, no duplicates
+(D043). Independent post-run audit: 22/22.
+
+One live bug found and fixed: `DeleteClips` silently no-ops on a non-current timeline (D042).
+
+**Explicitly out of scope, and still is:** applying in place on `DAZ_INPUT` or any user
+timeline; collision resolution; ripple editing; replacing a user clip. The empty-target-track
+rule (D032) is unchanged.
+
+## Phase 7b — Apply in place on a user timeline [NEXT]
+
+Ownership now exists, which is the precondition D032 was waiting for. The open questions, in
+order:
+
+1. what does a user timeline look like that DAZ may write into at all — is a dedicated,
+   verified-empty zoom track still required, or is "a track holding only DAZ-owned items"
+   enough now that the second is provable?
+2. the recovery model. `apply-preview` leaves a preview behind; an in-place apply cannot. Is
+   `DAZ_RECOVERY_*` (D041) sufficient for a timeline the user is actively working in, or does
+   in-place work need something stronger?
+3. collision behaviour is still unmeasured (D032). Either measure it on a scratch or keep
+   refusing to depend on it.
+
+Do not weaken any Phase 7 refusal to make in-place work easier. `stale` and `ambiguous` stay
+fail-closed.
+
+Also carried forward from the earlier Phase 7 list, none of it blocking:
+
 - partial range processing
-- clear summaries/errors
 - config validation
 - backup/test-timeline guidance
 

@@ -178,6 +178,43 @@ Do not add a GUI until the real workflow has been validated from CLI/dry-run.
 - `cli.py`: orchestration only; no business logic
 - `tests/`: primarily pure tests; Resolve integration tests should be opt-in and clearly separated
 
+## Known uncertainty after Phase 7
+
+Phase 7 gave DAZ a way to recognise its own work, and the shape of what it closed matters:
+
+- **ownership is now provable, and only provable one way.** A marker on the TimelineItem
+  instance carrying a versioned, namespaced record (D035), verified live on the Generator
+  items this tool actually creates. Nothing else counts — name, track, position, duration,
+  Fusion graph and Media Pool asset are all things a user's clip can share exactly;
+- **the safety model earned its keep on the first live run.** `DeleteClips` turned out to
+  no-op silently on a non-current timeline, an undocumented restriction (D042). The result was
+  a clean refusal with a retained recovery and zero items removed — not a partial mutation.
+  A design that fails closed converts an unknown API precondition into an inconvenience;
+- **the classifier needs four states, not two** (D037). `unowned` is the safe answer, but
+  "I cannot claim this" and "I cannot even classify this" have to be different, or a corrupt
+  record gets quietly deleted around;
+- `DuplicateTimeline` **copies** ownership markers. Measured, not assumed. The copy therefore
+  reads as `stale` against its own identity and is never destructively cleanable (D038).
+
+Still open after Phase 7:
+
+- **collision behaviour is still unmeasured** (D032, carried since Phase 5). Phase 7 works
+  only on a track it verified empty or emptied itself, so it never had to know. Phase 7b will;
+- marker capacity is uncharacterised: 28 items × 1 marker each is fine, but no upper bound on
+  `customData` length or markers per item was probed;
+- whether marker metadata survives a project **close and reopen**. It survives a timeline
+  switch and re-read within a session, which is what the destructive commands need today, but
+  the longer-lived guarantee is assumed rather than measured;
+- whether other write-capable calls share the "must be current" precondition. Two do. Assume
+  any third does until measured;
+- the Phase 7 preview is structurally identical to the visually validated Phase 6 one — same
+  28 placements, same frames — but has **not itself been watched**. Structural equality is
+  strong evidence and not the same thing.
+
+Carried forward unchanged: x1 over-triggering (14 planned vs 12 manual, still untouched and
+still unmeasured), the 120 ms lookback calibrated on one timeline, the unlistened voice render,
+the absent hand-labelled speech reference.
+
 ## Known uncertainty after Phase 6
 
 Phase 6 closed the largest Phase 4 unknown, and the way it closed is the point:

@@ -209,13 +209,14 @@ Then, in increasing order of what they touch:
 
 | Command | What it changes |
 | --- | --- |
-| `probe-write`, `speech-probe` | **Temporary, opt-in** development probes. Each works on a scratch timeline it creates and deletes, restores everything it touched, and needs its own confirmation flag. Neither leaves anything behind. |
+| `probe-write`, `speech-probe`, `probe-ownership` | **Temporary, opt-in** development probes. Each works on a scratch timeline it creates and deletes, restores everything it touched, and needs its own confirmation flag. None leaves anything behind. |
 | `plan-probe` | The full dry run. Uses the same temporary render as `speech-probe`; **never inserts a zoom**. |
-| `apply-preview` | **Write-capable, and deliberately persistent.** Places the planned zooms on a **new** `DAZ_AUTO_PREVIEW_*` timeline duplicated from your source, and keeps it on success so you can inspect it. Your own timelines are never modified. |
+| `apply-preview` | **Write-capable, and deliberately persistent.** Places the planned zooms on a **new** `DAZ_AUTO_PREVIEW_*` timeline duplicated from your source, tags every clip it creates as its own, and keeps the preview on success so you can inspect it. Your own timelines are never modified. |
+| `clean-preview`, `rebuild-preview` | **Destructive**, each behind its own flag, each on one preview you name explicitly. They remove only clips DAZ can *prove* it created, refuse outright if any ownership on the track is unclear, and make a `DAZ_RECOVERY_*` copy before deleting anything. |
 
 There is still **no production command that edits a timeline you already work in.** Applying
-in place, recognising and replacing DAZ's own earlier zooms, `clean` and `rebuild` are not
-implemented.
+in place is not implemented; ownership metadata exists so that it *could* be built safely
+later, not because it exists now.
 
 Every command fails gracefully with an actionable message when Resolve is closed or the
 scripting module cannot be found, and exits non-zero rather than raising.
@@ -372,6 +373,10 @@ What it guarantees:
   and reference timelines and your assets and compares them with how they looked before. Any
   difference fails the run and deletes the preview it made. Keeping the preview is the last
   decision, taken only once everything else has passed.
+- **Every clip it creates is tagged as its own.** Each inserted item gets a marker carrying
+  DAZ ownership metadata, which is then read back and checked. Either 100% of the items are
+  tagged and verified, or the whole preview is rolled back — a half-owned preview is never
+  left behind. The report prints items created, items owned, and the verification result.
 - **On success the preview is kept**, on purpose — it is the thing you open and watch. The
   report ends with the preview's exact name and unique id.
 - An empty plan creates no timeline at all and reports "nothing to apply".
@@ -380,6 +385,92 @@ What it guarantees:
 What it proves, and what it does not: the result is **structurally and rhythmically exactly
 the plan**, placed with the assets you built. Whether the edit *looks* good is a human
 judgement the API cannot make — open the preview and watch it.
+
+### `clean-preview` and `rebuild-preview` — reworking a preview DAZ made
+
+Once a preview carries ownership metadata, DAZ can safely take its own clips back out of it —
+and only its own.
+
+```bash
+python -m davinci_auto_zoom clean-preview \
+  --confirm-clean-owned-preview \
+  --project MY_PROJECT \
+  --source-timeline MY_INPUT_TIMELINE \
+  --preview-timeline DAZ_AUTO_PREVIEW_20260817_163637_e8787ece \
+  --config config.toml
+```
+
+```bash
+python -m davinci_auto_zoom rebuild-preview \
+  --confirm-rebuild-owned-preview \
+  --confirm-resolve-render-test \
+  --project MY_PROJECT \
+  --source-timeline MY_INPUT_TIMELINE \
+  --preview-timeline DAZ_AUTO_PREVIEW_20260817_163637_e8787ece \
+  --config config.toml
+```
+
+`clean-preview` empties the zoom track of everything DAZ can prove it created.
+`rebuild-preview` does the same and then re-runs the whole pipeline, so the preview ends up
+carrying a freshly computed plan. Each has its own confirmation flag — one does not authorise
+the other — and each acts on exactly the one timeline you name. There is no "latest", no
+wildcard, and no batch mode.
+
+**How DAZ knows a clip is its own.** When it creates a clip it attaches a marker holding a
+namespaced, versioned record: which preview it was made for, which role it fills, which asset
+that role pointed at, which frames the planner asked for, and a fingerprint of the source
+material. That marker is the *only* evidence of ownership.
+
+Nothing about how a clip looks is ever treated as proof. Two `FACE_X1` clips can share a name,
+a track, a position, a duration, a Fusion composition and the same Media Pool asset — one
+yours, one DAZ's. So:
+
+- **a clip with no DAZ metadata is yours**, even if it is identical to one DAZ would have
+  made. It is never deleted;
+- **previews made before this feature existed are never adopted.** They hold no metadata, so
+  nothing on them can be proven to be DAZ's. Both commands refuse them with
+  `legacy preview: no verifiable DAZ ownership metadata`. They are not migrated, not
+  retro-tagged and not deleted — they stay exactly as they are, forever;
+- a timeline you **duplicated by hand** from a DAZ preview carries copies of the original's
+  markers, which name the *original* preview. DAZ reads that as stale ownership and refuses to
+  clean it automatically.
+
+What they refuse, always before deleting anything:
+
+- your source and reference timelines, and any timeline whose name is not a
+  `DAZ_AUTO_PREVIEW_*`;
+- a legacy preview, as above;
+- **any track where a single item's ownership cannot be classified** — corrupt metadata, an
+  unknown version, contradictory markers, or metadata belonging to a different preview. One
+  such item stops the whole run and *nothing* is deleted. A half-cleaned track is worse than
+  an uncleaned one;
+- for `rebuild-preview` only: any clip on the target track that DAZ did not create. A clean
+  can safely work around a foreign clip; a rebuild would then be inserting new clips next to
+  it, and DAZ does not guess at what Resolve does when clips collide.
+
+**A foreign clip is never deleted.** If the zoom track holds 28 DAZ clips and one of yours,
+`clean-preview` removes the 28, leaves yours untouched, and tells you it is there.
+
+**A recovery copy exists before anything is deleted.** Both commands first duplicate the
+target as `DAZ_RECOVERY_<timestamp>_<id>`. It is removed only after the deletion, the
+re-insertion, the restore of the timeline you had open and the re-check of your originals have
+*all* passed. If anything fails, the copy is kept and the report tells you its exact name.
+DAZ will not try to undo the run for you — you decide, with the copy in front of you.
+
+The delete is never a ripple delete, no video track is ever removed, and `SaveProject()` is
+never called.
+
+**Running `rebuild-preview` twice changes nothing the second time.** With the same source, the
+same config and the same assets, it produces the same number of placements, at the same
+frames, in the same roles, with the same identities — clips are replaced, never stacked. If
+you re-cut your source after planning, the fingerprint no longer matches and the rebuild
+refuses rather than half-applying.
+
+### Not implemented: applying to a timeline you work in
+
+DAZ still only ever writes to a `DAZ_AUTO_PREVIEW_*` timeline it created. There is no command
+that adds zooms to your own timeline, and ownership metadata exists so that such a command
+*could* be built safely later — not because it exists now.
 
 ## Configuration
 
@@ -433,6 +524,11 @@ Two `[planner]` keys from the early scaffold are gone rather than re-tuned:
   success, and either way the `finally` block restores the timeline you had open.
 - A plan is re-validated against a fresh snapshot, in full, before the first write.
 - Zooms go on a dedicated track that has been verified empty. Nothing is overwritten.
+- Ownership is never inferred from a clip's name, track, position, duration, Fusion graph or
+  Media Pool asset. The only proof is a DAZ marker on the TimelineItem instance. An item that
+  cannot be classified is ambiguous, and ambiguity means zero deletions.
+- Destructive commands create a `DAZ_RECOVERY_*` duplicate before their first deletion and
+  remove it only after the whole run has succeeded. Deletes are never ripple deletes.
 - Never depend on undocumented API behavior without recording the evidence/version in the local agent notes.
 - Keep frame math in integer timeline frames; convert milliseconds only at configuration boundaries.
 - Keep raw Resolve proxy objects inside the `resolve` package.
