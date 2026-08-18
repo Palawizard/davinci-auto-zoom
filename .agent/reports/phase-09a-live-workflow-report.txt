@@ -1,0 +1,176 @@
+PHASE 9a — LIVE RUN ON DAVINCI RESOLVE STUDIO 21.0.4.5
+=======================================================
+
+Date: 2026-08-18. Project `davinci-auto-zoom-test`, source `DAZ_INPUT`, reference
+`DAZ_OUTPUT_MVP3`, voice A1, cut reference V1, zoom track V3.
+
+**No preview was created and nothing was placed.** Phase 9a's only new command is a
+diagnostic; the write-capable surface of the project is unchanged.
+
+Order actually run: read-only Fusion-comp probe -> `gameplay-study` -> `plan-probe` facecam
+regression -> independent post-run audit.
+
+
+1. GAMEPLAY ASSET TIMING — READ-ONLY
+-------------------------------------
+
+`TimelineItem.ExportFusionComp(path, 1)` on the manual instances in `DAZ_OUTPUT_MVP3`, parsed
+with the existing `domain/fusion_comp.py`. Exporting a comp reads a timeline item and writes a
+file outside the project; it modifies no timeline.
+
+All twelve asset families — the six facecam ones and the six gameplay ones — carry keyframes
+at exactly **t=0 and t=15** on `Transform1Size` (and on `Path1Displacement` where the move has
+a path). `X0_TO_GAMEPLAY` and `GAMEPLAY_TO_X0` have a single `Path1Displacement` key, i.e. size
+only and no path travel, which is consistent with the two moves that involve no facecam.
+
+The exported comps were written to a private temp directory and deleted. See D062 for the
+table and for the one asset (`X3_TO_GAMEPLAY`) that has no manual instance to measure.
+
+
+2. GAMEPLAY-STUDY — PASS
+-------------------------
+
+    .venv/bin/python -m davinci_auto_zoom gameplay-study \
+      --confirm-resolve-render-test \
+      --project davinci-auto-zoom-test \
+      --source-timeline DAZ_INPUT --reference-timeline DAZ_OUTPUT_MVP3 \
+      --config config.example.toml
+
+Three renders in total, each on its own scratch duplicate, each through the same
+`render_voice_track` primitive as `plan-probe`:
+
+    label             kind    scratch                                kept A   emptied A   secs
+    voice (A1)        audio   DAZ_AUDIO_SCRATCH_20260818_194741*     A1       -           7.0
+    secondary audio   audio   DAZ_AUDIO_SCRATCH_20260818_194741_fa…  A2,A3    A1          5.0
+    program video     video   DAZ_AUDIO_SCRATCH_20260818_194814_5e…  A1,A2,A3 -          18.0
+
+    * the voice render is `plan-probe`'s own, run first by the shared pipeline.
+
+Per render, from the JSON payload:
+
+    clean                     : true (all three)
+    error                     : null (all three)
+    audit_differences         : [] against DAZ_INPUT and DAZ_OUTPUT_MVP3 (all three)
+    scratch_absent_after_cleanup : true (all three)
+    render_queue_restored     : true (all three)
+    delivery_unrestored       : [] (all three)
+    render_directory_removed  : true (all three)
+
+The video render used the built-in `H.264 Master` preset, checked for presence by the same
+preflight that checks `Audio Only` — `required_preset` was added to
+`voice_render_preflight_failures` precisely so the check applies to the preset that will
+actually be loaded, not to the target's default.
+
+Results, in full: `.agent/reports/phase-09a-mvp3-gameplay-analysis.txt` (the measurement) and
+`.agent/reports/phase-09a-gameplay-policy-comparison.txt` (the dry run against the human edit).
+
+    voice          : 15 segment(s) -> 14 burst(s), 20 hard cut(s)
+    reference level: audio p75 = -31.6 dBFS, motion median = 0.0182
+    manual         : 42 transition(s), 10 gameplay episode(s), ends at x0
+    graph          : every one of the 42 clips is a legal move; nothing outside the table
+    agreement      : 11/15 windows classified as the human did
+    succeeded      : true
+
+
+2b. THE GUARD THAT FIRED, AND WHY THAT IS THE HEADLINE
+-------------------------------------------------------
+
+The first attempt at the secondary-audio render **refused**:
+
+    VoiceRenderFailed: the surviving audio track(s) are [('Audio 1', 21), ('Audio 2', 21)],
+    expected [('Audio 2', 21), ('Audio 3', 21)]; the wrong track would have been analysed
+
+Deleting A1 to leave A2+A3 renumbers *and renames* the survivors on 21.0.4.5. Since all three
+audio tracks here carry the same 21 items from the same source, the post-condition could no
+longer prove which track had survived — and it stopped rather than rendering a mix it could
+not identify. Nothing was left behind by the refusal; cleanup ran as normal.
+
+`_silence_audio_tracks` (empty the unwanted tracks with `DeleteClips`, keep every index, name
+and item count intact) replaced the delete for this case. `_isolate_voice_track` is untouched
+and still runs the Phase 3 single-track path. See D063.
+
+
+3. PLAN-PROBE — FACECAM REGRESSION, PASS
+-----------------------------------------
+
+Run before the phase (`config.example.toml` with six roles) and after (twelve roles), same
+source, same reference:
+
+    placements                       : 42 -> 42, IDENTICAL in
+                                       (role, start, end, reason, cut_frame, burst_index)
+    bursts                           : identical (14)
+    speech segments                  : identical (15)
+    voice valleys + outcomes         : identical (63 found, 14 used)
+    decision trace                   : 126 lines, 125 identical
+    structural fingerprint           : sha256:a1d107e1…d46a5483, unchanged since Phase 5
+
+    entry snaps      10 direct / 1 backward / 3 forward   — unchanged
+    promotion snaps  13 direct / 1 backward / 0 forward   — unchanged
+    reset snaps       6 direct / 8 backward / 0 forward   — unchanged
+    peaks            5 at face_x1, 4 at face_x2, 5 at face_x3, 0 overlaps
+
+Exactly two differences exist anywhere in the payload, and both are "the config declares more
+assets" rather than "the plan changed":
+
+    1. `diagnostics.role_counts` now lists the six gameplay roles, each at **0**;
+    2. `source.assets` / `asset_identities` / `asset_transition_frames` carry six more
+       entries, and the one differing decision-trace line is the one that prints them.
+
+Adding `STATE_GAMEPLAY` moved no frame. (D054.)
+
+
+4. INDEPENDENT POST-RUN AUDIT
+------------------------------
+
+Read-only `snapshot --json` after everything, structurally diffed against the snapshot taken
+before the phase started — unique id, frame range, and every track's items compared:
+
+    OK  DAZ_INPUT                                    c4d7a327-…
+    OK  DAZ_OUTPUT_MVP                               81df1b0c-…
+    OK  DAZ_OUTPUT_MVP2                              ee4eb745-…
+    OK  DAZ_OUTPUT_MVP3                              6d23476d-…   (the new reference)
+    OK  DAZ_AUTO_PREVIEW_20260816_211026_c676d5af    96f30d77-…   (Phase 5)
+    OK  DAZ_AUTO_PREVIEW_20260817_132005_77443d7c    6d0bde62-…   (Phase 6)
+    OK  DAZ_AUTO_PREVIEW_20260817_163637_e8787ece    9fb7e350-…   (Phase 7)
+    OK  DAZ_AUTO_PREVIEW_20260817_233130_203670b0    5a973592-…   (Phase 8)
+    OK  DAZ_AUTO_PREVIEW_20260818_005127_086a1483    2848d398-…   (Phase 8c)
+
+    protected timelines unchanged : 9/9, each with its original unique id
+    timelines added               : NONE
+    timelines removed             : none
+    leftover scratch / recovery / temp timelines : none
+    Media Pool items              : 12/12 identical (same media_id, unique_id, frame count)
+    render queue                  : 0 jobs, IsRenderingInProgress False
+    temporary DAZ render presets  : none
+    project render format/codec   : mov / ProRes422HQ (the project's own, restored)
+    current timeline              : DAZ_OUTPUT_MVP3 (the user's, restored)
+    temp directories under /tmp   : none
+
+**Zero timelines were added by this phase** — the first phase since Phase 4 for which that is
+true, and it is the intended outcome: Phase 9a measures and proposes, it does not build.
+
+The only thing that changed in the snapshot at all is the `role` field the tool *assigns* to
+six Media Pool clips (`None` -> `x0_to_gameplay` etc.), which is a property of
+`config.example.toml` and not of the project. The clips themselves are byte-identical.
+
+
+5. COMMANDS, FOR RERUNS
+------------------------
+
+    .venv/bin/python -m davinci_auto_zoom gameplay-study \
+      --confirm-resolve-render-test \
+      --project davinci-auto-zoom-test \
+      --source-timeline DAZ_INPUT --reference-timeline DAZ_OUTPUT_MVP3 \
+      --config config.example.toml
+
+    .venv/bin/python -m davinci_auto_zoom plan-probe \
+      --confirm-resolve-render-test \
+      --project davinci-auto-zoom-test \
+      --source-timeline DAZ_INPUT --reference-timeline DAZ_OUTPUT_MVP3 \
+      --config config.example.toml
+
+`gameplay-study` takes a few minutes (three renders, VAD, envelope, ffmpeg video decode). Run
+it without a short command timeout, for the same reason as `apply-preview`: the safety model
+is transactional against *failures*, not against the process being killed. A kill mid-run
+leaves a `DAZ_AUDIO_SCRATCH_*` timeline and possibly a temporary render preset, both disposable
+by name — because the thing that would clean them up is the thing that got killed.

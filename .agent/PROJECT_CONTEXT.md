@@ -200,6 +200,45 @@ Do not add a GUI until the real workflow has been validated from CLI/dry-run.
 - `cli.py`: orchestration only; no business logic
 - `tests/`: primarily pure tests; Resolve integration tests should be opt-in and clearly separated
 
+## Known uncertainty after Phase 9a
+
+Phase 9a is a measurement phase and its main result is a negative one. Read
+`.agent/reports/phase-09a-mvp3-gameplay-analysis.txt` before assuming anything about gameplay
+triggers.
+
+- **the Phase 8c preview has been WATCHED and validated by the user.** The facecam behaviour
+  — `X0 -> FACE_X1` on a burst, `FACE_X2` on the first voice valley/recovery, `FACE_X3` on the
+  second, cut snapping on every transition, the reset back to X0 — is now confirmed good
+  visually as well as structurally, and is to be treated as stable. Do not change facecam
+  logic without a demonstrated bug. This retires the "no preview has been watched since Phase
+  6" uncertainty carried below;
+- **nothing measured predicts which silence becomes gameplay** (D056). Silence duration,
+  secondary-audio activity, and visual motion all have *fully nested* class ranges on
+  `DAZ_OUTPUT_MVP3`: the shortest gap that became gameplay is shorter than the shortest that
+  stayed X0, and the longest silence in the timeline stayed X0. Every single-threshold rule
+  scores 10 or 11 of 15 against a majority baseline of 10;
+- **the ablation says do not ship either signal.** Silence+audio, silence+video and all three
+  together each score 8/15 — *below* the baseline — while the no-signal rule scores 11/15.
+  Both renders stay as measurement tools; neither belongs in a runtime planner (D059);
+- **the exit anchor is solved, the entry anchor is not** (D057). Gameplay exits are placed on
+  the creator's next burst start (6 of 10 within one frame), not on the cut list (87-152 frames
+  away in seven of nine cases). Entries have no cluster and no signal, and the proposal is
+  systematically ~62 frames early;
+- **the four "whether" errors share a location, not a feature.** Gaps 10, 11 and 12 are three
+  consecutive windows in the one stretch where the creator talks in short bursts and the editor
+  never cut to the game. Asking the creator why is worth more than another feature;
+- `face_x3_to_gameplay` has **no manual instance anywhere in MVP3**. Both its place in the
+  graph and its 15-frame animation length are inferred rather than measured (D062). Confirm
+  with the creator before Phase 9b places anything with it;
+- everything above rests on **one reference timeline and 15 windows**. The negative result is
+  robust to that (nested ranges are not a small-sample artifact); the candidate rule's 11/15 is
+  not.
+
+Still true, and now more sharply: **burst extent (Phase 8b) is not just a facecam problem.**
+Three of the ten manual gameplay entries sit inside a detected burst, and episode 1's -77
+frames is exactly the burst-1 overrun Phase 8c recorded. Fixing burst extent would clean up the
+gameplay entry measurements before anyone tries to model them.
+
 ## Known uncertainty after Phase 8c
 
 - **the level model is now only as good as the burst extent.** Where the automatic burst
@@ -251,7 +290,9 @@ Still open after Phase 7:
   any third does until measured;
 - the Phase 7 preview is structurally identical to the visually validated Phase 6 one — same
   28 placements, same frames — but has **not itself been watched**. Structural equality is
-  strong evidence and not the same thing.
+  strong evidence and not the same thing. (Superseded for the *behaviour* by Phase 9a: the
+  Phase 8c preview, which supersedes this one editorially, has now been watched and validated.
+  This particular timeline still has not been, and no longer needs to be.)
 
 Carried forward unchanged: x1 over-triggering (14 planned vs 12 manual, still untouched and
 still unmeasured), the 120 ms lookback calibrated on one timeline, the unlistened voice render,

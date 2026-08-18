@@ -32,6 +32,14 @@ For the current assignment, also read the prompt file named by the user.
 - `domain/dynamics.py` — the energy envelope as plain `(frame, dB)` pairs, and the valley +
   recovery cues read from it. Pure: no numpy, no ONNX, no file. Every threshold is **relative**,
   in dB against the burst's own voice level, so a gain change cannot change the edit (D051).
+- `vision.py` — the picture's turn at the same boundary: rendered video -> ffmpeg -> small
+  grayscale frames -> a motion envelope. **Objective visual facts only** ("how much did the
+  picture change here"), never "is this an interesting moment". No object detection, no OCR,
+  no game-specific model, no VLM, and no new dependency: ffmpeg and numpy already exist (D055).
+- `domain/gameplay.py` — pure, and the reader of both envelopes for the gameplay question. It
+  keeps two things apart on purpose (D057): *whether* a would-be-X0 window should be gameplay,
+  and *where exactly* the move starts and ends. Phase 9a is dry-run only — nothing here emits
+  an `AssetPlacement`, and the production planner does not import it.
 - Timeline positions are integer frames internally. Half-open ranges `[start, end)`.
 - **No editorial logic below the planner.** The executor resolves a role to a clip name,
   appends it at the planned frames, verifies and tags. It does not know what a zoom level is,
@@ -45,9 +53,11 @@ For the current assignment, also read the prompt file named by the user.
   methods that are neither deprecated nor unsupported there.
 - **No command may modify a timeline the user already works in.** The write-capable surface
   is exactly:
-  - `probe-write`, `speech-probe`, `plan-probe`, `probe-ownership` — each behind its own
-    opt-in flag, each on a scratch timeline it creates and deletes, each restoring every
-    piece of project state it touched;
+  - `probe-write`, `speech-probe`, `plan-probe`, `probe-ownership`, `gameplay-study` — each
+    behind its own opt-in flag, each on a scratch timeline it creates and deletes, each
+    restoring every piece of project state it touched. `gameplay-study` renders more than
+    once (voice, secondary audio, video) but through exactly the same primitive, so it
+    inherits the same audit, cleanup and refusal behaviour rather than reimplementing them;
   - `apply-preview` — the one command that intentionally leaves something behind: a new
     `DAZ_AUTO_PREVIEW_*` timeline duplicated from the source, carrying the planned zooms;
   - `clean-preview` / `rebuild-preview` — destructive, but only on a `DAZ_AUTO_PREVIEW_*`

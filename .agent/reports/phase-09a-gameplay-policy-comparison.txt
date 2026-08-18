@@ -1,0 +1,205 @@
+PHASE 9a — CANDIDATE GAMEPLAY POLICY vs DAZ_OUTPUT_MVP3, WINDOW BY WINDOW
+=========================================================================
+
+Date: 2026-08-18. Produced by `gameplay-study` (dry run: nothing was placed, no preview was
+created, no gameplay asset was ever appended to any timeline).
+
+    .venv/bin/python -m davinci_auto_zoom gameplay-study \
+      --confirm-resolve-render-test \
+      --project davinci-auto-zoom-test \
+      --source-timeline DAZ_INPUT --reference-timeline DAZ_OUTPUT_MVP3 \
+      --config config.example.toml
+
+The measurement this comparison rests on is `.agent/reports/phase-09a-mvp3-gameplay-analysis.txt`.
+Read that first: it is where the phase's actual result lives, and the result is that no
+measured signal predicts the human's gameplay decisions.
+
+**The two problems are reported separately throughout**, per D057:
+
+    problem A   GAMEPLAY or X0?          -> the "manual / proposed" columns
+    problem B   if GAMEPLAY, where?      -> the entry/exit columns
+
+A rule can be right about A and 90 frames wrong about B, and this phase's rule is exactly
+that. Collapsing the two into one accuracy number would hide the only useful thing here.
+
+
+THE RULE BEING COMPARED
+------------------------
+
+    a would-be-X0 window becomes GAMEPLAY
+      unless it is shorter than min_window_ms (500 ms)
+      or it is the tail of the timeline
+
+    entry anchor = start of the silence window, snapped to a hard cut within [-120, +120] ms
+    exit  anchor = end   of the silence window, snapped to a hard cut within [-120, +120] ms
+
+Zero fitted parameters. `use_secondary_audio` and `use_video` exist in
+`GameplayPolicySettings` and are what the ablation switches; the candidate rule reaches its
+score without consulting either (`gameplay_by_default = true`).
+
+
+1. PROBLEM A — GAMEPLAY OR X0
+------------------------------
+
+    gap  range                frames    sec   manual     proposed   verdict
+      0  [216000, 216046)         46   0.77   GAMEPLAY   GAMEPLAY   agrees
+      1  [216139, 216293)        154   2.57   X0         GAMEPLAY   DIVERGES  (false positive)
+      2  [216442, 216489)         47   0.78   GAMEPLAY   GAMEPLAY   agrees
+      3  [216519, 216679)        160   2.67   mixed      GAMEPLAY   agrees
+      4  [216797, 216900)        103   1.72   mixed      GAMEPLAY   agrees
+      5  [216930, 216983)         53   0.88   GAMEPLAY   GAMEPLAY   agrees
+      6  [217039, 217250)        211   3.52   mixed      GAMEPLAY   agrees
+      7  [217316, 217499)        183   3.05   mixed      GAMEPLAY   agrees
+      8  [217749, 217877)        128   2.13   mixed      GAMEPLAY   agrees
+      9  [218003, 218094)         91   1.52   GAMEPLAY   GAMEPLAY   agrees
+     10  [218189, 218244)         55   0.92   X0         GAMEPLAY   DIVERGES  (false positive)
+     11  [218297, 218394)         97   1.62   X0         GAMEPLAY   DIVERGES  (false positive)
+     12  [218473, 218599)        126   2.10   X0         GAMEPLAY   DIVERGES  (false positive)
+     13  [218767, 218989)        222   3.70   mixed      GAMEPLAY   agrees
+     14  [219134, 219555)        421   7.02   X0         X0         agrees    (timeline tail)
+
+    11 of 15 classified as the human did.
+    false positives: 1, 10, 11, 12.   false negatives: none.
+
+A "mixed" window is counted as agreement for problem A: the human did put gameplay in it, so
+"this window should carry gameplay" is the right answer. *How much* of it they filled is
+problem B, and that is where the mixed windows are scored.
+
+**The whole error is one shape and it is worth naming.** Every divergence is a false
+positive, and three of the four (10, 11, 12) are consecutive windows in the same stretch —
+frames 218189 to 218599, the one part of the delivery where the creator talks in short bursts
+and the editor stayed on the facecam ladder without ever cutting to the game. The remaining
+one, gap 1, is the timeline's second window. Nothing measured in this phase distinguishes
+that stretch: its secondary audio spans 8% to 81% activity and its motion spans 1.55x to
+1.77x, both squarely inside the range of windows that *did* become gameplay.
+
+That is a property of the section, not of any window in it, and it is the single most
+promising thing to ask the creator about.
+
+
+2. PROBLEM B — WHERE THE MOVE STARTS
+-------------------------------------
+
+Only the 10 windows the rule proposed gameplay for *and* the human did too. `raw` is the
+silence-window boundary; `final` is after cut snapping; `manual` is the frame the editor
+actually chose.
+
+    gap    raw      cut       final    snap              manual    delta
+      0  216000       -      216000    direct            216000      +0
+      2  216442       -      216442    direct            216365     +77
+      3  216519       -      216519    direct            216529     -10
+      4  216797  216793      216793    cut_snap_back     216851     -58
+      5  216930       -      216930    direct            216923      +7
+      6  217039       -      217039    direct            217196    -157
+      7  217316  217312      217312    cut_snap_back     217482    -170
+      8  217749       -      217749    direct            217802     -53
+      9  218003  217999      217999    cut_snap_back     217999      +0
+     13  218767  218762      218762    cut_snap_back     218852     -90
+
+    deltas: -170, -157, -90, -58, -53, -10, 0, 0, +7, +77
+    |delta| <= 10 frames : 4 of 10
+    |delta| >= 50 frames : 5 of 10
+    median delta: -31.5 frames    mean |delta|: 62 frames
+
+**The entry rule is not solved and this table is the evidence.** The systematic sign is the
+whole story: 7 of 10 are negative, i.e. the proposal opens the game *earlier* than the editor
+did, by up to 170 frames (2.8 s). The editor does not move to gameplay when the creator stops
+talking — they wait, by 0 to 166 frames with no cluster (analysis report section 6), and
+nothing measured here predicts how long.
+
+The two positive outliers are both explained and neither is a taste difference:
+
+  - gap 2, +77: the manual entry sits *inside* burst 1, and +77 is exactly the burst-extent
+    overrun Phase 8c already recorded for that burst. Fixing Phase 8b would move this to ~0.
+  - gap 5, +7: the manual entry is 7 frames inside burst 4, same cause, much smaller.
+
+Cut snapping fired on 4 of 10 entries and helped none of them: in every case the cut it found
+was 4-6 frames from the raw anchor while the manual entry was 53-170 frames away. It did no
+harm either — which is the behaviour that makes a snap window safe to keep — but the facecam
+`[-120, +120] ms` window is carried here on the strength of doing nothing, not on evidence
+that it is right for gameplay (D060).
+
+
+3. PROBLEM B — WHERE THE MOVE ENDS
+-----------------------------------
+
+    gap    raw      cut       final    snap              manual    delta
+      0  216046       -      216046    direct            216045      +1
+      2  216489       -      216489    direct            216489      +0
+      3  216679  216680      216680    cut_snap_forward  216641     +39
+      4  216900  216900      216900    direct            216900      +0
+      5  216983       -      216983    direct            216987      -4
+      6  217250       -      217250    direct            217264     -14
+      7  217499       -      217499    direct            217540     -41
+      8  217877       -      217877    direct            217895     -18
+      9  218094       -      218094    direct            218095      -1
+     13  218989       -      218989    direct            218989      +0
+
+    deltas: -41, -18, -14, -4, -1, 0, 0, +1, +39
+    |delta| <= 4 frames : 6 of 10
+    |delta| <= 20 frames: 8 of 10
+    median |delta|: 2.5 frames    mean |delta|: 11.8 frames
+
+**The exit rule works, and it works because the exit anchor is the creator's voice.** The
+silence window's end *is* the next burst start, so "exit where the window ends" and "exit
+when he starts talking again" are the same rule, and the human agrees with it to within a
+single frame in 6 of 10 cases.
+
+This matches the manual measurement independently (analysis report section 7): the nine
+`gameplay_to_face_x1` exits sit -1 to +41 frames from the next burst start, while the nearest
+hard cut is 87 to 152 frames away in seven of nine. **The exits are placed on the voice, not
+on the cut list.**
+
+The one bad exit is gap 3 (+39), and it is caused by cut snapping, not by the anchor: the
+raw anchor 216679 was 38 frames from the manual 216641, and the snap moved it one frame
+*further* onto the cut at 216680. That is one case out of ten and inside the noise of a
+single timeline, but it is the only measured instance of gameplay cut-snapping doing harm,
+and it is an argument for a narrower exit window rather than a wider one.
+
+The single `gameplay_to_x0` exit (episode 2, gap 3) is also the only exit the editor placed
+*before* the next voice rather than on it — 38 frames early, exactly on a hard cut. One
+instance is not a rule, but it is consistent with: you leave the game *for the face* when he
+talks, and *for nothing* when the shot ends.
+
+
+4. WHICH SIGNAL EXPLAINS WHICH DECISION
+----------------------------------------
+
+    decision                            explained by                       quality
+    exit frame (gameplay -> face_x1)    the creator's next burst start     STRONG, 6/10 within
+                                                                          1 frame, 8/10 within
+                                                                          20
+    whether a window carries gameplay   nothing measured; "almost always"  WEAK, 11/15, and
+                                        is the best available answer       the 4 errors share
+                                                                          a location, not a
+                                                                          feature
+    entry frame                         nothing measured                   NONE, mean |delta|
+                                                                          62 frames, biased
+                                                                          early
+    silence duration                    nothing                            NONE, class ranges
+                                                                          nest completely
+    secondary audio activity            nothing                            NEGATIVE, costs
+                                                                          accuracy (ablation B)
+    visual motion                       nothing                            NEGATIVE, costs
+                                                                          accuracy (ablation C)
+
+Deliberately not reduced to a single score, per the brief. The honest summary is that this
+phase solved one of the three sub-problems (the exit anchor), found a defensible default for
+the second (call it gameplay unless it is the tail or too short), and made no progress at all
+on the third (the entry anchor).
+
+
+5. WHAT IS NOT CLAIMED
+-----------------------
+
+- Nothing here is a fit. The rule has no parameter tuned against MVP3; its two exclusions are
+  structural. That is also why its 11/15 should not be read as an accuracy figure that will
+  transfer — it is one timeline, 15 windows, and 10 of the 15 labels are "gameplay".
+- The `mixed` windows are counted as gameplay for problem A. Under a stricter reading (the
+  window must be *mostly* gameplay) the rule would score worse, and the entry deltas in
+  section 2 are precisely the reason: the human fills 9% to 70% of a mixed window, the
+  proposal fills all of it.
+- No claim is made about which of A2/A3 is the game and which is other people. The track
+  names in this project are positional and Resolve renames them on deletion.
+- The secondary-audio and video renders stay available as measurement, and the
+  recommendation from the ablation is that **neither belongs in a runtime planner**.

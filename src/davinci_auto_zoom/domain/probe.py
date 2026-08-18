@@ -138,6 +138,7 @@ def voice_render_preflight_failures(
     render_presets: tuple[str, ...],
     rendering_in_progress: bool,
     media_storage_volumes: tuple[str, ...] = ("",),
+    required_preset: str | None = None,
 ) -> tuple[str, ...]:
     """Every reason the speech probe must refuse to touch Resolve. Empty means cleared.
 
@@ -186,9 +187,13 @@ def voice_render_preflight_failures(
             "and could not tell its own render apart from yours."
         )
 
-    if target.render_preset not in render_presets:
+    # `required_preset` lets a caller that renders through a different built-in preset (the
+    # Phase 9a video render) have the same check applied to the preset it will actually load,
+    # rather than to the target's default one.
+    wanted = required_preset or target.render_preset
+    if wanted not in render_presets:
         failures.append(
-            f"render preset {target.render_preset!r} is not available in this "
+            f"render preset {wanted!r} is not available in this "
             f"installation; found {len(render_presets)} preset(s)"
         )
 

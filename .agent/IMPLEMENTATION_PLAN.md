@@ -441,7 +441,72 @@ to Phases 6, 7 and 8; the source fingerprint is unchanged.
 changes (Phase 8b — deliberately not touched to keep this phase's measurement clean), apply in
 place, collision resolution.
 
-## Phase 8b — Burst extent [NEXT, and now the only thing between the planner and the human edit]
+**The preview was watched and validated by the user on 2026-08-18.** The facecam behaviour is
+confirmed good editorially, not only structurally, and is now the stable baseline: do not
+change it without a demonstrated bug.
+
+## Phase 9a — Gameplay trigger evidence and policy discovery [DONE — measurement, dry run only]
+
+Goal: find out *when* a region that would be X0 deserves to be GAMEPLAY instead, from the
+user's own manual edit, and add the gameplay states to the graph without disturbing the
+facecam. Delivered; see `.agent/reports/phase-09a-mvp3-gameplay-analysis.txt`,
+`.agent/reports/phase-09a-gameplay-policy-comparison.txt` and
+`.agent/reports/phase-09a-live-workflow-report.txt`.
+
+- **`domain/transitions.py` gains `STATE_GAMEPLAY` and exactly six moves** (D053), all six
+  observed in `DAZ_OUTPUT_MVP3` before being added, with `GAMEPLAY -> FACE_X2/X3` and
+  `GAMEPLAY -> GAMEPLAY` forbidden and raising like any other move outside the table.
+- **The six roles are optional capabilities** (D054), and that is proven rather than claimed:
+  `plan-probe` before and after produces 42 placements identical in
+  `(role, start, end, reason, cut, burst)`, the same bursts, valleys and fingerprint.
+- **`vision.py`** — rendered video -> ffmpeg -> 64x36 grayscale at 10/s -> a motion envelope.
+  Objective visual facts only, no new dependency, no semantics (D055).
+- **`domain/gameplay.py`** — pure. Reconstructs the manual state sequence, builds the
+  silence-window population, computes relative audio/video features, and decides. It keeps
+  "gameplay or X0" and "exactly where" apart (D057) and emits no `AssetPlacement` (D061).
+- **`gameplay-study`** — the diagnostic CLI. Three renders through the same `render_voice_track`
+  primitive, therefore the same audit, cleanup and refusal behaviour. Never places anything.
+
+**The result is a negative one, and it is the phase's main finding.** The prior hypothesis —
+that the length of the creator's silence is the main gameplay signal — is measurably wrong
+here (D056), and so is every other signal measured: silence duration, secondary-audio activity
+and visual motion all have fully nested class ranges. The ablation puts silence+audio,
+silence+video and all-three at 8/15, *below* the majority baseline of 10, while a rule using no
+signal at all scores 11/15 with zero fitted parameters. **Neither the secondary-audio render
+nor the video render belongs in a runtime planner** on this evidence (D059).
+
+What *was* solved: the exit anchor. Gameplay exits are placed on the creator's next burst
+start (6 of 10 within one frame), not on the cut list (87-152 frames away in seven of nine
+cases). The entry anchor is untouched — no cluster, no signal, systematically ~62 frames early.
+
+**Explicitly out of scope, and still is:** gameplay placements in a production `ZoomPlan`,
+`apply-preview` for gameplay, gameplay ownership/rebuild, apply in place, any semantic CV,
+transcription, learned classifiers, further gameplay states or transitions.
+
+## Phase 9b — Gameplay planning [NEXT ONLY IF A SECOND REFERENCE EXISTS]
+
+Turning Phase 9a's proposals into real placements. **Do not start this on the current
+evidence.** Phase 9a says the entry anchor is unsolved and the four "whether" errors are
+unexplained; shipping a planner on 15 windows from one delivery would bake in exactly the
+overfit D056 refused to commit.
+
+In descending order of expected value:
+
+1. **A second reference edit that uses gameplay.** Everything below is worth less than this.
+2. **Ask the creator about gaps 1, 10, 11 and 12** — four windows where the game did not come
+   up, three of them consecutive. One question, and worth more than another feature.
+3. **Phase 8b (burst extent) first.** Three of ten manual gameplay entries sit inside a
+   detected burst, and one of them is exactly Phase 8c's recorded burst-1 overrun. The entry
+   measurements are contaminated by it.
+4. Only then: the entry-anchor rule, and `AssetPlacement` emission for the six gameplay roles.
+
+When it is written, the shape is already fixed by the graph and by D062: both gameplay clip
+families are **hold** clips animating in 15 frames, so a `*_to_gameplay` placement runs from
+the move to whatever comes next and a `gameplay_to_*` placement has the same shape — the
+`FACE_X*` rule, not the `X*_TO_X0` one. Confirm `X3_TO_GAMEPLAY`'s length with the creator
+before using it; it has no manual instance to measure.
+
+## Phase 8b — Burst extent [OPEN — no longer the imposed next milestone]
 
 **Phase 8c raised the value of this phase from "highest available" to "the single remaining
 cause of every level divergence".** Every one of the 5 cycles where Phase 8c disagrees with
@@ -502,25 +567,27 @@ Potential shape:
 
 Do not make UI architecture dictate domain logic.
 
-## Phase 9 — Gameplay states [FUTURE]
+## Phase 9 — Gameplay states [SPLIT: 9a DONE above, 9b OPEN above]
 
-**The state machine itself now exists** (Phase 8, D044). This phase is no longer "build a state
-machine"; it is "add gameplay states to the table that is already there, with measurement behind
-them". The remaining candidate states and transitions:
+**The state machine itself now exists** (Phase 8, D044), and as of Phase 9a so do the gameplay
+states in it (D053). This section is kept for the record of what the preconditions were and
+how each was met.
 
-- `GAMEPLAY_*` states
-- `x0 -> gameplay`, `face_x1/x2/x3 -> gameplay`, `gameplay -> x0`, `gameplay -> face_x1`
+The three preconditions, all of which **are** now met:
 
-Preconditions before writing any of it, none of which are met today:
+1. ~~a reference edit that actually uses gameplay zooms~~ — `DAZ_OUTPUT_MVP3`, 42 transitions,
+   10 gameplay episodes, five of the six authorised moves exercised;
+2. ~~an asset family in the bin with known animation lengths~~ — six assets, all 45 frames in
+   the Media Pool, all measured at 15 animation frames via read-only Fusion-comp export
+   (D062). `X3_TO_GAMEPLAY` alone has no manual instance and is inferred;
+3. **evidence about what triggers them** — measured, and the answer is that nothing measurable
+   does (D056). The prediction in the original text ("speech duration will not be the answer")
+   was right, and so was the reason for making it: guessing here would have repeated D047's
+   mistake. What Phase 9a did instead was measure, report the negative, and ship a rule with
+   zero fitted parameters.
 
-1. a reference edit that actually uses gameplay zooms, the way `DAZ_OUTPUT_MVP2` served the
-   facecam ladder;
-2. an asset family for them in the bin, with known animation lengths;
-3. evidence about what *triggers* them. Speech duration will not be the answer, and guessing
-   would repeat the mistake D047 is careful not to make about x3.
-
-Deliberately still closed: demotions between facecam levels (D045). Nothing observed so far
-wants them.
+Deliberately still closed: demotions between facecam levels (D045), and any gameplay state or
+transition beyond the six (D053). Nothing observed so far wants either.
 
 Later rules may depend on transcript semantics, gameplay events or manual annotations. The
 planner chooses states and transitions; the executor only realizes them with assets. That

@@ -29,6 +29,7 @@ from davinci_auto_zoom.domain.speech_report import (
     reference_zooms,
 )
 from davinci_auto_zoom.domain.timebase import Timebase
+from davinci_auto_zoom.domain.transitions import ForbiddenTransition
 from davinci_auto_zoom.resolve.capability_probe import probe_resolve
 from davinci_auto_zoom.resolve.executor import (
     CONFIRM_FLAG as APPLY_CONFIRM_FLAG,
@@ -37,6 +38,10 @@ from davinci_auto_zoom.resolve.executor import (
     ApplyPreviewRefused,
     ApplyReport,
     apply_preview,
+)
+from davinci_auto_zoom.resolve.gameplay_study import (
+    GameplayStudyRefused,
+    run_gameplay_study,
 )
 from davinci_auto_zoom.resolve.owned_preview import (
     CLEAN,
@@ -217,6 +222,38 @@ def _build_parser() -> argparse.ArgumentParser:
         "--keep-temp-audio",
         action="store_true",
         help="Keep the rendered and normalized audio and print exactly where they are.",
+    )
+
+    gameplay_study = add(
+        "gameplay-study",
+        "DEVELOPMENT DIAGNOSTIC. Phase 9a: measures the creator's silences, the secondary "
+        "audio and the picture's motion, reads the GAMEPLAY decisions out of a human "
+        "reference edit, and compares the two. Renders three times through the same "
+        "temporary, opt-in scratch pipeline as plan-probe, so it needs the same "
+        "confirmation flag. It NEVER places a gameplay clip and never creates a preview.",
+    )
+    gameplay_study.add_argument(
+        VOICE_CONFIRM_FLAG,
+        action="store_true",
+        dest="confirmed",
+        help="Required. Covers the temporary renders only; nothing is ever placed.",
+    )
+    gameplay_study.add_argument("--project", required=True, help="Exact expected project name.")
+    gameplay_study.add_argument(
+        "--source-timeline",
+        required=True,
+        help="Timeline to measure. Never modified; duplicates are rendered.",
+    )
+    gameplay_study.add_argument(
+        "--reference-timeline",
+        required=True,
+        help="REQUIRED here: the human edit whose GAMEPLAY decisions are the study's "
+        "subject. Read-only, and never written to.",
+    )
+    gameplay_study.add_argument(
+        "--keep-temp-audio",
+        action="store_true",
+        help="Keep the rendered and normalized media and print exactly where they are.",
     )
 
     apply_preview = add(
@@ -604,6 +641,48 @@ def _owned_preview(
     return report.to_dict(), report.to_text(), report.succeeded
 
 
+def _gameplay_study(
+    args: Any,
+    config: Config,
+    resolve: Any,
+    project: Any,
+    directory: Path,
+    zoom_plan: ZoomPlan,
+    speech_segments: int,
+) -> tuple[dict[str, Any], str, bool]:
+    """Run the Phase 9a diagnostic on top of the plan the pipeline just produced.
+
+    The bursts and hard cuts come from the plan rather than being recomputed, so the study
+    and the facecam planner can never disagree about where the creator was talking.
+
+    A refusal is a normal, reportable outcome — the study needs a reference edit and a clean
+    render, and saying so is more useful than a traceback. Nothing is placed either way.
+    """
+
+    try:
+        study = run_gameplay_study(
+            resolve,
+            project,
+            config,
+            VoiceRenderTarget(
+                project=args.project,
+                source_timeline=args.source_timeline,
+                voice_audio_track=config.voice_audio_track,
+            ),
+            directory,
+            reference_timeline=args.reference_timeline,
+            bursts=zoom_plan.bursts,
+            speech_segments=speech_segments,
+            timeline=zoom_plan.timeline,
+            frame_rate=zoom_plan.frame_rate,
+            timeline_frame_rate=str(zoom_plan.frame_rate),
+            confirmed=args.confirmed,
+        )
+    except (GameplayStudyRefused, ForbiddenTransition) as exc:
+        return {"refused": str(exc)}, f"refused: {exc}", False
+    return study.to_dict(), study.to_text(), study.succeeded
+
+
 def _speech_probe(
     args: Any,
     config: Config,
@@ -611,6 +690,7 @@ def _speech_probe(
     plan: bool = False,
     apply_plan: bool = False,
     rebuild: bool = False,
+    gameplay: bool = False,
 ) -> int:
     try:
         resolve = connect()
@@ -669,7 +749,15 @@ def _speech_probe(
                     text += "\n" + _plan_reference_text(comparison)
                 # A plan with overlapping placements is a bug, not a result.
                 succeeded = succeeded and zoom_plan.valid
-                if apply_plan and succeeded:
+                if gameplay and succeeded:
+                    study_payload, study_text, studied = _gameplay_study(
+                        args, config, resolve, project, directory, zoom_plan,
+                        len(result.segments),
+                    )
+                    payload["gameplay_study"] = study_payload
+                    text += "\n\n" + study_text
+                    succeeded = studied
+                elif apply_plan and succeeded:
                     apply_payload, apply_text, applied = _apply_preview(
                         args, config, resolve, project, zoom_plan
                     )
@@ -689,7 +777,7 @@ def _speech_probe(
                     payload["rebuild"] = rebuild_payload
                     text += "\n\n" + rebuild_text
                     succeeded = rebuilt
-                elif apply_plan or rebuild:
+                elif apply_plan or rebuild or gameplay:
                     text += (
                         "\n\nrefused: the pipeline did not produce a usable plan, so nothing "
                         "was created and nothing was deleted"
@@ -794,7 +882,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         _emit(clean_payload, clean_text, args.as_json)
         return EXIT_OK if cleaned else EXIT_PROBE_FAILED
 
-    if args.command in ("plan-probe", "apply-preview", "rebuild-preview"):
+    if args.command in ("plan-probe", "apply-preview", "rebuild-preview", "gameplay-study"):
         if config.asset_timing is None:
             print(
                 "error: the planner needs to know how long your zoom assets take to animate. "
@@ -804,6 +892,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             return EXIT_BAD_REQUEST
         if args.command == "plan-probe":
             return _speech_probe(args, config, plan=True)
+        if args.command == "gameplay-study":
+            return _speech_probe(args, config, plan=True, gameplay=True)
         if args.command == "rebuild-preview":
             if not args.confirmed_rebuild:
                 print(

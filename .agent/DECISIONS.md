@@ -1205,3 +1205,229 @@ Three properties hold for every class, and are tested:
 3. **A nearer but invalid cut gives way to the next valid candidate**, never to nothing.
    Validity is the chain: transitions stay ordered, the previous animation finishes, the new
    one fits, nothing overlaps, nothing leaves the timeline.
+
+## D053 — `GAMEPLAY` is one state, reachable from all four framings and leaving to only two
+
+Phase 9a, superseding D048's "absent, not stubbed" now that the evidence D048 demanded exists.
+`DAZ_OUTPUT_MVP3` is a human edit that uses gameplay zooms, the asset family exists in the bin
+with measured animation lengths, and the moves below were **observed before they were added**.
+
+    X0       -> GAMEPLAY     x0_to_gameplay
+    FACE_X1  -> GAMEPLAY     face_x1_to_gameplay
+    FACE_X2  -> GAMEPLAY     face_x2_to_gameplay
+    FACE_X3  -> GAMEPLAY     face_x3_to_gameplay
+    GAMEPLAY -> X0           gameplay_to_x0
+    GAMEPLAY -> FACE_X1      gameplay_to_face_x1
+
+Six moves, and the graph stays closed: `GAMEPLAY -> FACE_X2`, `GAMEPLAY -> FACE_X3` and
+`GAMEPLAY -> GAMEPLAY` raise like any other move outside the table.
+
+**Why the way out is narrower than the way in.** A facecam level is earned by what the voice
+does *inside* a burst (D049). Coming off the game, no burst has started yet, so nothing has
+been earned — landing at `FACE_X2` would assert a level the audio has not justified. Landing
+at `FACE_X1` (the creator is talking again) or at `X0` (the shot ended) are the only two things
+the picture can honestly say at that instant.
+
+The manual edit agrees, and lopsidedly: 9 of its 10 exits are `gameplay_to_face_x1`. Five of
+the six entries appear; `face_x3_to_gameplay` has no instance anywhere in MVP3 and therefore
+rests on the user's statement rather than on evidence — recorded here so nobody later reads it
+as measured.
+
+`GAMEPLAY` is deliberately **not** a rung of `FACECAM_LADDER`. It is not tighter or wider than
+a facecam level, it is a different subject, so `Transition.is_promotion` was redefined
+positively (both ends in the ladder) and "leave face_x2 for the game" cannot be counted as a
+promotion by `top_state_counts`.
+
+## D054 — The gameplay roles are optional capabilities, and that is a tested guarantee
+
+`REQUIRED_ROLES` is unchanged: `x0_to_face_x1` and `face_x1_to_x0`. A project that configures
+no gameplay asset must keep producing exactly the plan it produced before `STATE_GAMEPLAY`
+existed — not a similar one.
+
+Proven live, not asserted: `plan-probe` on `DAZ_INPUT` before and after this phase produces
+**42 placements identical in `(role, start, end, reason, cut, burst)`**, the same 14 bursts,
+the same 15 segments, the same 63 valleys, the same 126-line decision trace bar one line, and
+the same fingerprint `sha256:a1d107e1…`. The only differences anywhere are the two places that
+*should* change when a config declares more assets: `role_counts` now lists the six gameplay
+roles at zero, and `PlanSource` records the six extra configured assets.
+
+`tests/test_planner.py::test_configuring_gameplay_assets_does_not_change_the_facecam_plan`
+keeps this true without Resolve.
+
+## D055 — `vision.py` measures the picture; it never interprets it
+
+The `speech/` boundary (D021, D050) applied to video. `vision.py` answers "how much did the
+picture change here" and stops. No object detection, no OCR, no game-specific detector, no
+VLM, no learned classifier — reading the envelope as an editorial cue is `domain/gameplay.py`.
+
+Implementation constraints that follow from being a measurement and not a feature:
+
+- **no new dependency.** ffmpeg and numpy are already required; a mean absolute frame
+  difference is one numpy expression. OpenCV, scipy and torch were not added and are not
+  needed;
+- frames are decoded small (64x36) and slow (10/s) on purpose — far finer than any editorial
+  decision this feeds, and a minute of video decodes in well under a second;
+- **frames are mean-subtracted before differencing.** A uniform brightness change — a fade, an
+  exposure shift, a flashbang — moves every pixel equally and would otherwise read as maximal
+  motion while nothing moved. What survives is structural change. It is not contrast-invariant
+  and does not claim to be;
+- `motion_from_frames` is split from `motion_envelope` so the metric is testable against frames
+  a test builds by hand, with no video file and no ffmpeg process involved.
+
+## D056 — Silence duration does not predict gameplay here, and no rule pretends it does
+
+The Phase 9a brief's prior hypothesis was that the length of the creator's silence would be the
+main signal. Measured on `DAZ_OUTPUT_MVP3`, over all 15 would-be-X0 windows:
+
+    gameplay windows: 46, 47, 53, 91, 103, 128, 160, 183, 211, 222 frames
+    X0 windows      : 55, 97, 126, 154, 421 frames
+
+The shortest gap that became gameplay (46) is **shorter** than the shortest that stayed X0
+(55), and the **longest silence in the timeline (421 frames, 7.0 s) stayed X0**. The ranges do
+not merely overlap, they nest. There is no threshold with useful behaviour.
+
+Neither does anything else measured. Secondary-audio activity, mean level, dynamic range and
+onset count all have fully nested class ranges; so do mean motion, p90 motion, active fraction
+and hard-cut density. Every single-threshold rule scores 10 or 11 of 15 against a majority
+baseline of 10.
+
+So the candidate rule uses **no signal**: a would-be-X0 window becomes gameplay unless it is
+shorter than 500 ms or is the timeline's tail. It scores 11/15 with zero fitted parameters.
+`long_silence_ms` is left in the settings at 100 s — effectively disabled, kept as a documented
+knob rather than deleted, because one timeline cannot rule the idea out for other material.
+
+This decision records a **negative result as the phase's main finding**. Fitting a threshold to
+reach 11 here would be fitting one lucky negative on n=15.
+
+## D057 — "Gameplay or X0" and "exactly where" are separate problems, reported separately
+
+`decide_gameplay` answers them in that order and never merges them, and a `False` decision
+carries no anchors at all, so no report can show a proposed frame for a declined window.
+
+The reason is empirical: on MVP3 the rule gets **problem A right 11 times of 15** and is
+**biased 62 frames early on problem B**, with 7 of 10 entries opening the game before the
+editor did, by up to 170 frames. A single accuracy number would have hidden that completely.
+
+Split out, the three sub-problems have very different status:
+
+    exit frame     SOLVED    — anchored on the creator's next burst start, 6 of 10 within one
+                               frame, 8 of 10 within 20. The editor places exits on the VOICE,
+                               not on the cut list: the nearest hard cut is 87-152 frames away
+                               in seven of nine cases.
+    whether        WEAK      — 11/15, and all four errors are false positives sharing a
+                               LOCATION (gap 1, and the consecutive 10/11/12) rather than a
+                               feature. Nothing measured sees that stretch.
+    entry frame    UNSOLVED  — no cluster, no signal, systematically early.
+
+## D058 — The gameplay decision sees neutral data only
+
+`GameplayWindowFeatures` carries a window, two feature bundles and a frame rate. No Resolve
+object, no reference timeline, no burst index, no timeline name. A policy that cannot see
+*which* window it is looking at cannot special-case one, which is the structural version of
+"do not overfit to MVP3" rather than a promise not to.
+
+Everything the features contain is **relative**: audio levels are dB against the timeline's own
+p75, motion is a ratio of the timeline's own median. Changing the mix gain or the exposure of
+the whole delivery cannot move a decision — the rule D051 already established for the voice.
+
+## D059 — Thresholds and named conditions, never a weighted score
+
+With one reference timeline, a `gameplay_score = 0.437*silence + 0.281*audio + …` that
+reproduces MVP3 would be a curve fit wearing a lab coat. `GameplayPolicySettings` is a flat set
+of readable thresholds, `GameplayDecision` carries the reason tokens that fired, and the dry
+run prints them per window so a decision can be understood without reading the code.
+
+The ablation is run by switching signals off in the **same** `decide_gameplay`, never by a
+second implementation, so the families cannot diverge from the shipped rule.
+
+Result, and it decided the recommendation:
+
+    A silence only            5/15
+    B silence + audio         8/15    false+ 1, 11
+    C silence + video         8/15    false+ 10, 11, 12
+    D silence + audio + video 8/15    false+ 1, 10, 11, 12
+    candidate (no signal)    11/15
+
+B, C and D all land **below** the majority baseline of 10, and D inherits every false positive
+of B *and* of C while fixing one false negative — the signature of two signals that are wrong
+in different places, not two that combine. **D was not selected because it has more features.**
+Neither secondary audio nor video motion belongs in a runtime planner on this evidence; both
+stay as measurement, in `gameplay-study`.
+
+## D060 — Gameplay snap windows are carried from the facecam ones on sufferance
+
+The facecam windows (D052) were measured for the facecam and are not assumed to transfer.
+`GameplayPolicySettings` gives entry and exit their own settings, defaulted to
+`[-120, +120] ms` because that is what the measurement says is *harmless* here, not what it
+says is right:
+
+- **entry**: snapping fired on 4 of 10 and helped none. In every case the cut it found was 4-6
+  frames from the raw anchor while the manual entry was 53-170 frames away. Only 3 of 10 manual
+  entries are on a cut at all; the other seven are 23-132 frames from the nearest one;
+- **exit**: snapping fired once, on gap 3, and made it **worse** — the raw anchor was 38 frames
+  from the manual exit and the snap moved it one frame further onto a cut. That is the only
+  measured instance of gameplay cut-snapping doing harm, and it argues for a narrower exit
+  window, not a wider one.
+
+## D061 — Phase 9a is a dry run; nothing it produces reaches a timeline
+
+`gameplay-study` never calls `AppendToTimeline`, creates no preview, and the production planner
+does not import `domain/gameplay.py`. `GameplayEpisodeProposal` stops at naming the two roles a
+move would need — no `AssetPlacement`, no asset name, no frame count.
+
+The mutating surface is exactly `plan-probe`'s, through the same `render_voice_track`: scratch
+duplicates, one render job at a time, captured and restored Deliver state, post-run audit. It
+renders more than once (voice, secondary audio, video), which is why it is metered by the same
+opt-in flag and no other.
+
+Turning a proposal into a plan is Phase 9b, and on this evidence it should not be attempted
+before a second reference edit exists — the entry anchor is unsolved and the four "whether"
+errors are unexplained.
+
+## D062 — Gameplay assets are hold clips animating in 15 frames, measured not assumed
+
+Read-only, via `TimelineItem.ExportFusionComp` on the manual instances in `DAZ_OUTPUT_MVP3` and
+the existing `domain/fusion_comp.py` parser. A one-off measurement: the runtime still never
+opens a Fusion graph (D007) and receives these as configuration.
+
+    asset             Media Pool length   keyframes   instance durations observed in MVP3
+    X0_TO_GAMEPLAY           45            0, 15      45, 49, 58, 68, 93, 137
+    X1_TO_GAMEPLAY           45            0, 15      64, 112, 124
+    X2_TO_GAMEPLAY           45            0, 15      96
+    X3_TO_GAMEPLAY           45            none — no manual instance exists
+    GAMEPLAY_TO_X0           45            0, 15      39
+    GAMEPLAY_TO_X1           45            0, 15      23, 40, 43, 48, 48, 49, 61, 63, 88
+
+Every measured gameplay asset animates in **15 frames**, exactly like the six facecam ones,
+despite being 45 frames long in the Media Pool. The 45 is a property of the asset file and is
+irrelevant to planning, the same way `X1_TO_X0`'s 42 always was (D014).
+
+Both families are **hold** clips, not fixed-length ones: the shortest `*_TO_GAMEPLAY` is 45
+frames and the shortest `GAMEPLAY_TO_X1` is 23, both far past 15, and the editor varies them
+continuously. So both follow the `FACE_X*` shape (D014/D045), not the `X*_TO_X0` one.
+
+`face_x3_to_gameplay = 15` in `config.example.toml` is **inferred from the other five, not
+measured**, and is flagged as such in the file. Confirm it with the creator before Phase 9b
+places anything with it.
+
+## D063 — `DeleteTrack` renumbers *and renames* survivors, so it cannot isolate a complement
+
+Measured on Studio 21.0.4.5 while building the Phase 9a secondary-audio render. Deleting A1 to
+leave A2+A3 shifts them to indices 1 and 2 **and renames them** `Audio 1`, `Audio 2`. In this
+project all three audio tracks carry the same 21 items from the same source, so after the
+deletion nothing distinguishes them and the post-condition check in `_isolate_voice_track`
+cannot prove which track survived.
+
+It correctly **refused to render** rather than guess, which is the guard working as designed.
+
+The fix is not to weaken the check. `_silence_audio_tracks` empties the unwanted tracks with
+`DeleteClips` instead of removing them: the dropped tracks end at zero items while every kept
+track keeps its index, its name and its exact item count. That is strictly stronger evidence
+than the delete path had, and positional rather than name-based.
+
+`_isolate_voice_track` is untouched and still runs for the single-voice-track case — the Phase
+3 path stays exactly the code proven across five phases. Two paths, one comment explaining why,
+rather than one path that is worse for both.
+
+Consequence for the analysis: **which of A2/A3 carries the game and which carries other people
+is not claimed anywhere.** The names are positional and prove nothing.

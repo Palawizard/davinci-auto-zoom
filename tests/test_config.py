@@ -177,6 +177,9 @@ def test_the_example_config_carries_this_projects_asset_timing() -> None:
     config = Config.load(example)
     assert config.cut_reference_video_track == 1
     assert config.asset_timing is not None
+    # All twelve animate in 15 frames. The six gameplay ones were measured from the Fusion
+    # comps of the manual instances in DAZ_OUTPUT_MVP3, not assumed from the facecam ones —
+    # their Media Pool length is 45, and the planner never reads that.
     assert config.asset_timing.to_dict() == {
         "x0_to_face_x1": 15,
         "face_x1_to_face_x2": 15,
@@ -184,6 +187,12 @@ def test_the_example_config_carries_this_projects_asset_timing() -> None:
         "face_x1_to_x0": 15,
         "face_x2_to_x0": 15,
         "face_x3_to_x0": 15,
+        "x0_to_gameplay": 15,
+        "face_x1_to_gameplay": 15,
+        "face_x2_to_gameplay": 15,
+        "face_x3_to_gameplay": 15,
+        "gameplay_to_x0": 15,
+        "gameplay_to_face_x1": 15,
     }
     assert config.planner.reset_after_silence_ms == 650
     assert config.assets == {
@@ -193,6 +202,12 @@ def test_the_example_config_carries_this_projects_asset_timing() -> None:
         "face_x1_to_x0": "X1_TO_X0",
         "face_x2_to_x0": "X2_TO_X0",
         "face_x3_to_x0": "X3_TO_X0",
+        "x0_to_gameplay": "X0_TO_GAMEPLAY",
+        "face_x1_to_gameplay": "X1_TO_GAMEPLAY",
+        "face_x2_to_gameplay": "X2_TO_GAMEPLAY",
+        "face_x3_to_gameplay": "X3_TO_GAMEPLAY",
+        "gameplay_to_x0": "GAMEPLAY_TO_X0",
+        "gameplay_to_face_x1": "GAMEPLAY_TO_X1",
     }
     # Calibrated on DAZ_OUTPUT_MVP2 (Phase 8c); see
     # .agent/reports/phase-08c-voice-dynamics-analysis.txt.

@@ -1,0 +1,433 @@
+PHASE 9a — DAZ_OUTPUT_MVP3, READ-ONLY: WHAT THE HUMAN ACTUALLY DID WITH GAMEPLAY
+================================================================================
+
+Date: 2026-08-18. DaVinci Resolve Studio 21.0.4.5, project `davinci-auto-zoom-test`.
+Source `DAZ_INPUT` [216000, 219555) @ 60 fps. Reference `DAZ_OUTPUT_MVP3`, V3, 42 items.
+
+Nothing in this report was produced by writing to a reference timeline. The state
+reconstruction and the episode table come from a read-only `snapshot`; the three renders
+behind the audio and video numbers all ran on scratch duplicates and are audited in
+`.agent/reports/phase-09a-live-workflow-report.txt`.
+
+**Read section 3 before section 8.** The prior hypothesis this phase was asked to test —
+that the length of the creator's silence is the main gameplay signal — is measurably wrong on
+this material, and so is every other signal measured here. That negative is the phase's
+main result, and it is stated before any candidate rule.
+
+
+1. THE MANUAL STATE SEQUENCE, AND THE GRAPH
+--------------------------------------------
+
+All 42 clips on V3 were walked through `domain/transitions.py` starting at X0. Every one of
+them is a legal move, the picture returns to X0 at the end, and no clip on the track is
+outside the configured role table.
+
+    transitions      : 42
+    gameplay episodes: 10
+    final state      : x0
+
+Roles used, and how often:
+
+    x0_to_face_x1         5      x0_to_gameplay          6
+    face_x1_to_face_x2    6      face_x1_to_gameplay     3
+    face_x2_to_face_x3    1      face_x2_to_gameplay     1
+    face_x1_to_x0         5      face_x3_to_gameplay     0
+    face_x2_to_x0         4      gameplay_to_x0          1
+    face_x3_to_x0         1      gameplay_to_face_x1     9
+
+**The announced graph is confirmed and is not exceeded.** Five of the six authorised gameplay
+moves appear; `face_x3_to_gameplay` does not appear at all, which makes it the one move in
+the table that rests on the user's statement rather than on evidence. No forbidden move
+appears: there is no `GAMEPLAY -> FACE_X2`, no `GAMEPLAY -> FACE_X3`, and no
+`GAMEPLAY -> GAMEPLAY`. Had one appeared, `reference_states()` would have raised and this
+analysis would have stopped rather than interpreted it — that refusal is tested
+(`tests/test_gameplay.py::test_a_move_outside_the_graph_is_reported_not_interpreted`).
+
+Note the asymmetry the edit reveals and the graph already encoded: the way *in* to gameplay is
+from anywhere (6/3/1/0 across the four framing states), and the way *out* is overwhelmingly
+`gameplay_to_face_x1` — 9 of 10. The creator comes back and starts talking; the picture goes
+to him at the first level and earns anything tighter afterwards.
+
+
+2. THE TEN MANUAL GAMEPLAY EPISODES
+------------------------------------
+
+`start` is the first frame of the `*_to_gameplay` clip — the frame the editor chose, not the
+frame its animation finishes on. `end` is the first frame of the exit clip.
+
+    ep  start    end   dur  entry role            exit role             prev      next
+     0  216000  216045   45  x0_to_gameplay       gameplay_to_face_x1   x0        face_x1
+     1  216365  216489  124  face_x1_to_gameplay  gameplay_to_face_x1   face_x1   face_x1
+     2  216529  216641  112  face_x1_to_gameplay  gameplay_to_x0        face_x1   x0
+     3  216851  216900   49  x0_to_gameplay       gameplay_to_face_x1   x0        face_x1
+     4  216923  216987   64  face_x1_to_gameplay  gameplay_to_face_x1   face_x1   face_x1
+     5  217196  217264   68  x0_to_gameplay       gameplay_to_face_x1   x0        face_x1
+     6  217482  217540   58  x0_to_gameplay       gameplay_to_face_x1   x0        face_x1
+     7  217802  217895   93  x0_to_gameplay       gameplay_to_face_x1   x0        face_x1
+     8  217999  218095   96  face_x2_to_gameplay  gameplay_to_face_x1   face_x2   face_x1
+     9  218852  218989  137  x0_to_gameplay       gameplay_to_face_x1   x0        face_x1
+
+    durations: min 45, median 80.5, max 137 frames (0.75 s / 1.34 s / 2.28 s)
+    total gameplay: 846 frames = 23.8% of the 3555-frame range
+
+Relative to the creator's voice (negative = the editor moved while the VAD still called it
+speech):
+
+    ep   frames since voice ended   frames until voice resumes
+     0            -                            +1
+     1          -77                             0
+     2          +10                           +38
+     3          +54                             0
+     4           -7                            -4
+     5         +157                          -14
+     6         +166                          -41
+     7          +53                          -18
+     8           -4                            -1
+     9          +85                             0
+
+Three entries (1, 4, 8) are *inside* a detected burst. Episode 1's -77 is exactly the
+burst-extent divergence Phase 8c already recorded for burst 1 ("closes 77 frames late",
+`.agent/HANDOFF.md`): the two numbers match to the frame, which is strong independent
+evidence that the divergence is the VAD's burst end and not the editor's taste.
+
+
+3. THE POPULATION, AND THE RESULT THAT MATTERS
+-----------------------------------------------
+
+Population: the 15 would-be-X0 windows, i.e. every gap between the 14 editorial bursts the
+facecam planner produces, plus the head and tail of the range. Positives *and* negatives.
+
+    gap  range                 frames   sec   manual     covered  episodes
+      0  [216000, 216046)          46  0.77   GAMEPLAY     98%    [0]      (timeline head)
+      1  [216139, 216293)         154  2.57   X0            0%    []
+      2  [216442, 216489)          47  0.78   GAMEPLAY    100%    [1]
+      3  [216519, 216679)         160  2.67   mixed         70%   [2]
+      4  [216797, 216900)         103  1.72   mixed         48%   [3]
+      5  [216930, 216983)          53  0.88   GAMEPLAY    100%    [4]
+      6  [217039, 217250)         211  3.52   mixed         26%   [5]
+      7  [217316, 217499)         183  3.05   mixed          9%   [6]
+      8  [217749, 217877)         128  2.13   mixed         59%   [7]
+      9  [218003, 218094)          91  1.52   GAMEPLAY    100%    [8]
+     10  [218189, 218244)          55  0.92   X0            0%    []
+     11  [218297, 218394)          97  1.62   X0            0%    []
+     12  [218473, 218599)         126  2.10   X0            0%    []
+     13  [218767, 218989)         222  3.70   mixed         62%   [9]
+     14  [219134, 219555)         421  7.02   X0            0%    []  (timeline tail)
+
+    10 windows carry gameplay (fully or partly), 5 stay at X0.
+
+**Silence duration does not separate them.**
+
+    gameplay windows: 46, 47, 53, 91, 103, 128, 160, 183, 211, 222   min 46  median 115  max 222
+    X0 windows      : 55, 97, 126, 154, 421                          min 55  median 126  max 421
+
+    the shortest gap that became gameplay (46 frames, 0.77 s) is SHORTER than the shortest
+    gap that stayed X0 (55 frames, 0.92 s);
+
+    the longest gap in the whole timeline (421 frames, 7.02 s) STAYED X0.
+
+The ranges do not merely overlap, they nest. There is no threshold `gap >= T` with any useful
+behaviour: the best one scores 11 of 15, and "call every window gameplay" already scores 10.
+No plateau exists because no separation exists.
+
+This is the opposite of what the phase was asked to expect, so it is worth being explicit
+about what it does *not* mean. It does not mean long silences are irrelevant to editing in
+general; it means that **on this delivery, the creator's silence length carries essentially no
+information about which silence became gameplay**, and any rule built on it here would be
+fitting noise on n=15.
+
+
+4. SECONDARY AUDIO — EVERYTHING THE VIEWER HEARS WITH A1 MUTED
+---------------------------------------------------------------
+
+`DAZ_INPUT` has three audio tracks; A1 is the configured voice. A2 and A3 were rendered both
+combined and individually, each on a scratch duplicate.
+
+**What the tracks are is not claimed.** All three carry the same 21 items from the same
+source recording, and Resolve names them positionally ("Audio 1..3"); worse, deleting A1 to
+isolate the others *renumbers and renames the survivors*, so the name proves nothing. The
+tracks are therefore reported as A2, A3 and combined-non-A1 and nothing is asserted about
+which one holds the game and which holds other people.
+
+Timeline-wide levels, dBFS, 30 ms windows at 10 ms hop:
+
+    combined non-A1 : min -73.3   median -44.9   p75 -31.6   max -19.0
+    A2 alone        : min -73.3   median -62.5              max -39.4
+    A3 alone        : min -140.0  median -45.8              max -19.0
+
+A2 is roughly 17 dB below A3 throughout and never rises above -39 dBFS; the combined mix is
+A3 to within a fraction of a dB almost everywhere. A3 contains true digital silence
+(-140 dBFS floor), A2 does not.
+
+The A2/A3 split above came from two extra single-track renders run once during the
+investigation. The shipped `gameplay-study` command renders the **combined** non-A1 mix only
+(two renders in total, with the video), because nothing in the result depended on the split;
+the per-window table below is therefore exactly what the command reproduces.
+
+Per window, against the timeline's own p75 (so a gain change cannot move any of these):
+
+    gap  active%  mean dB  p90 dB  range dB  onsets   manual
+      0      0     -18.5   -16.0      8.1       0     GAMEPLAY
+      1     71      -6.9    +7.2     41.9       3     X0
+      2     74      -4.2    +8.5     31.4       4     GAMEPLAY
+      3     84      -2.1    +9.3     49.3       6     mixed
+      4     75      -6.2    +6.5     43.2       8     mixed
+      5     92      +4.1   +11.0     29.2       0     GAMEPLAY
+      6     45     -17.0    +6.3     52.6       6     mixed
+      7     65     -11.3    +2.9     44.3       8     mixed
+      8     32     -16.8    +7.5     49.2       1     mixed
+      9     30     -22.5    -3.5     41.6       1     GAMEPLAY
+     10      8     -24.1   -13.7     27.8       2     X0
+     11     81      -4.5    +3.9     31.6       0     X0
+     12     34     -22.1    +4.1     49.0       7     X0
+     13     45     -16.3    +5.2     52.0      10     mixed
+     14     67      -9.2    +6.5     50.5      19     X0
+
+    active fraction:  gameplay 0-92%,  X0 8-81%    — nested
+    mean level     :  gameplay -22.5..+4.1 dB,  X0 -24.1..-4.5 dB    — nested
+    onsets         :  gameplay 0-10,  X0 0-19     — nested
+
+**No secondary-audio feature separates the two classes.** Gap 0 is fully gameplay with 0%
+audio activity; gap 11 stays X0 with 81%. The best threshold on any of these columns scores
+10 or 11 of 15, which is the majority baseline.
+
+
+5. VIDEO ACTIVITY
+------------------
+
+One H.264 render of the program video on a scratch duplicate, decoded by ffmpeg to 64x36
+grayscale at 10 samples/second, measured as the mean absolute difference of consecutive
+**mean-subtracted** frames (so a uniform brightness change is not counted as motion).
+Normalised by the timeline's own median motion (0.0182), so `1.00x` means "as busy as a
+typical moment of this delivery".
+
+    gap  mean   p90    max    active%  variance  cuts  cuts/s   manual
+      0  0.60x  0.67x  0.71x     0%      0.01      0    0.00    GAMEPLAY
+      1  0.84x  1.20x  1.53x    35%      0.10      2    0.78    X0
+      2  1.08x  1.20x  1.29x    57%      0.02      0    0.00    GAMEPLAY
+      3  1.17x  1.70x  2.10x    48%      0.19      1    0.38    mixed
+      4  2.52x  3.92x  4.28x    94%      0.87      1    0.58    mixed
+      5  1.99x  2.64x  2.79x    89%      0.35      0    0.00    GAMEPLAY
+      6  2.44x  3.67x  5.12x   100%      0.75      0    0.00    mixed
+      7  2.09x  3.12x  3.94x   100%      0.42      1    0.33    mixed
+      8  1.80x  3.05x  3.31x    64%      0.68      1    0.47    mixed
+      9  1.00x  2.57x  2.79x    27%      0.72      0    0.00    GAMEPLAY
+     10  1.77x  2.38x  2.62x    89%      0.24      0    0.00    X0
+     11  1.55x  2.23x  2.55x    88%      0.31      0    0.00    X0
+     12  1.64x  2.25x  3.00x    81%      0.29      0    0.00    X0
+     13  0.21x  0.43x  0.60x     0%      0.02      0    0.00    mixed
+     14  0.10x  0.17x  0.60x     0%      0.01      1    0.14    X0
+
+    mean motion  :  gameplay 0.21-2.52x,  X0 0.10-1.77x   — nested
+    active%      :  gameplay 0-100%,      X0 0-89%        — nested
+
+**No video feature separates them either**, and the two clearest cases point in opposite
+directions: gap 13 is 62% gameplay with the second-*lowest* motion in the timeline (0.21x),
+while gaps 10-12 are the calmest-looking negatives at 1.5-1.8x. Hard-cut density is flat
+across both classes (0 cuts in most windows of both).
+
+The one thing the motion curve does show cleanly is structure that has nothing to do with the
+labels: motion collapses after frame 218767 (gaps 13 and 14 at 0.21x and 0.10x), which is the
+outro. That is a real, legible feature of the delivery — it is simply not the feature that
+predicts gameplay.
+
+
+6. WHERE THE MANUAL GAMEPLAY MOVES START
+-----------------------------------------
+
+Hard cuts on V1 of `DAZ_INPUT`: 20, at
+
+    216132 216174 216291 216641 216680 216735 216793 216851 216900 217312
+    217413 217601 217802 217999 218183 218394 218469 218762 219127 219486
+
+Entries, split by the transition that performed them:
+
+    ep  role                  frame   prev cut  next cut  nearest   into its window
+     0  x0_to_gameplay       216000       -      216132     +132      +0  (head)
+     3  x0_to_gameplay       216851    216851    216851       +0     +54
+     5  x0_to_gameplay       217196    216900    217312     +116    +157
+     6  x0_to_gameplay       217482    217413    217601      -69    +166
+     7  x0_to_gameplay       217802    217802    217802       +0     +53
+     9  x0_to_gameplay       218852    218762    219127      -90     +85
+
+     1  face_x1_to_gameplay  216365    216291    216641      -74   (inside burst 1)
+     2  face_x1_to_gameplay  216529    216291    216641     +112     +10
+     4  face_x1_to_gameplay  216923    216900    217312      -23   (inside burst 4)
+
+     8  face_x2_to_gameplay  217999    217999    217999       +0   (inside burst 8)
+
+    exactly on a cut: 3 of 10 — episodes 3, 7 (both x0_to_gameplay) and 8
+    nearest-cut deltas: -90, -74, -69, -23, 0, 0, 0, +112, +116, +132
+    delta into the silence window (the 6 that start inside one): +0, +10, +53, +54, +85,
+                                                                 +157, +166
+
+The four categories do behave differently and are not merged: every `x0_to_gameplay` starts
+in a would-be-X0 window, and every `face_x*_to_gameplay` except episode 2 starts while the
+detector still hears speech.
+
+**Entry placement is not explained.** Three of ten land exactly on a cut; the other seven are
+23 to 132 frames from the nearest one, which is far outside any snap window worth having. The
+delay from the start of the silence window ranges from 0 to 166 frames with no cluster. The
+`[-120 ms, +120 ms]` window measured for facecam entries would fire on 3 of these 10 and do
+nothing for the rest — so it is *harmless* here, and it is not a solution.
+
+
+7. WHERE THEY END
+------------------
+
+Exits, against the next moment the creator's voice is heard (counting the burst the exit may
+already be inside):
+
+    ep  role                  frame   nearest cut   next voice   delta
+     0  gameplay_to_face_x1  216045       +87         216046      -1
+     1  gameplay_to_face_x1  216489      +152         216489       0
+     3  gameplay_to_face_x1  216900        +0         216900       0
+     4  gameplay_to_face_x1  216987       -87         216983      +4
+     5  gameplay_to_face_x1  217264       +48         217250     +14
+     6  gameplay_to_face_x1  217540       +61         217499     +41
+     7  gameplay_to_face_x1  217895       -93         217877     +18
+     8  gameplay_to_face_x1  218095       +88         218094      +1
+     9  gameplay_to_face_x1  218989      +138         218989       0
+
+     2  gameplay_to_x0       216641        +0         216679     -38
+
+    the nine gameplay_to_face_x1 exits, against the voice: -1, 0, 0, +1, +4, +14, +18, +41
+                                                            min -1  median +1  max +41
+                                                            6 of 9 within 1 frame
+    the same nine, against the nearest hard cut: -93, -87, 0, +48, +61, +87, +88, +138, +152
+                                                            1 of 9 on a cut
+
+**This is the one thing in the whole study that is explained, and it is explained sharply.**
+A `GAMEPLAY -> FACE_X1` exit is not placed against the edit's cuts at all — it is placed on
+the creator's voice. Six of nine sit within a single frame of the burst start; the widest is
+41 frames (0.68 s) late. The hard cuts, by contrast, are 87-152 frames away in seven of nine
+cases: whatever the editor was watching, it was not the cut list.
+
+The single `GAMEPLAY -> X0` exit is the exception in both respects: it is exactly on a hard
+cut and 38 frames *before* the next voice. One instance is an observation, not a rule, but it
+is consistent with a readable idea — you leave the game *for the face* when he starts talking,
+and *for nothing* when the shot ends.
+
+
+8. WHAT A CANDIDATE RULE CAN HONESTLY BE
+-----------------------------------------
+
+Question A (gameplay or X0?) and question B (exactly where?) are separate, and this material
+answers them very differently.
+
+**Question A: no measured signal works.** Best single-threshold scores, over 15 windows,
+where the majority baseline "always gameplay" is 10/15:
+
+    silence duration       11/15      secondary audio, mean level   11/15
+    secondary audio active 10/15      secondary audio onsets        11/15
+    video mean motion      11/15      video active fraction         10/15
+    video p90 motion       11/15      hard cuts in window           11/15
+
+Every one of these is the baseline plus at most one window, and every one has fully nested
+class ranges. Fitting a threshold to reach 11 here is fitting one lucky negative.
+
+So the candidate rule shipped in `GameplayPolicySettings` uses **no signal at all**:
+
+    a would-be-X0 window becomes GAMEPLAY
+      unless it is shorter than 500 ms  (no room for the move to read as an intention)
+      or it is the tail of the timeline (the outro; the reference edit leaves it at X0)
+
+    entry anchor = the start of the silence window,   snapped to a hard cut within +-120 ms
+    exit  anchor = the end of the silence window,     snapped to a hard cut within +-120 ms
+
+It scores 11/15 — matching the best any measured feature reached — with **zero fitted
+parameters**, and its two exclusions are structural rather than tuned. Its failure mode is
+legible and worth naming: the four false positives are gaps 1, 10, 11 and 12, and gaps 10-12
+are three *consecutive* windows in the one stretch of the delivery where the creator talks in
+short bursts and the editor stayed on the facecam ladder throughout. Whatever separates that
+section is a property of the section, not of any window in it, and nothing measured here sees
+it.
+
+The `long_silence_ms` backstop is deliberately set to 100 s — effectively off. On this
+material the longest silence stayed X0, so a "very long silence implies gameplay" rung would
+be actively wrong, and it is left in the settings as a disabled, documented knob rather than
+deleted, because one timeline is not enough to rule the idea out for other material either.
+
+
+9. ABLATION
+------------
+
+All four families run the same `decide_gameplay` with `gameplay_by_default` switched off, so
+they measure what the signals explain on their own.
+
+    family                  correct   false positives   false negatives
+    A silence only            5/15    -                 0,2,3,4,5,6,7,8,9,13
+    B silence+audio           8/15    1,11              0,6,8,9,13
+    C silence+video           8/15    10,11,12          0,3,9,13
+    D silence+audio+video     8/15    1,10,11,12        0,9,13
+
+    candidate rule (no signal) 11/15  1,10,11,12        -
+
+Family A with the backstop disabled proposes nothing, which is why it scores 5 — the five
+true negatives. B, C and D all land *below* the majority baseline of 10, and all three land
+at the same 8: adding the secondary audio, adding the video, and adding both are equally
+unhelpful, they simply fail on different windows. **D is not selected**, and neither is B
+nor C.
+
+Note what D's error profile shows. It inherits every false positive of B *and* every false
+positive of C (1, 10, 11, 12) while fixing only one of their false negatives, which is the
+signature of two signals that are individually wrong in different places rather than two
+signals that combine. There is nothing here to build on.
+
+The recommendation that follows is blunt: **do not put either signal in the runtime.** The
+secondary-audio render and the video render cost several minutes each and, on the only
+reference that exists, buy negative accuracy. They stay in the codebase as a measurement tool
+(`gameplay-study`), not as a planning input.
+
+
+10. GAMEPLAY ASSET TIMING
+--------------------------
+
+Read-only, via `TimelineItem.ExportFusionComp` on the manual instances in `DAZ_OUTPUT_MVP3`
+and the existing `domain/fusion_comp.py` parser. This is a one-off measurement; the runtime
+still never opens a Fusion graph (D007) and receives these as configuration.
+
+    asset             Media Pool length   keyframe times        instance durations in MVP3
+    X0_TO_GAMEPLAY           45           0, 15                 45, 49, 58, 68, 93, 137
+    X1_TO_GAMEPLAY           45           0, 15                 64, 112, 124
+    X2_TO_GAMEPLAY           45           0, 15                 96
+    X3_TO_GAMEPLAY           45           (no manual instance)
+    GAMEPLAY_TO_X0           45           0, 15                 39
+    GAMEPLAY_TO_X1           45           0, 15                 23, 40, 43, 48, 48, 49, 61, 63, 88
+
+**Every gameplay asset animates in 15 frames**, exactly like the six facecam ones, despite
+being 45 frames long in the Media Pool. The 45 is the asset file's length and is irrelevant
+to planning, the same way `X1_TO_X0`'s 42 always was.
+
+Both gameplay clip families are **hold** clips, not fixed-length ones: the shortest
+`*_TO_GAMEPLAY` instance is 45 frames and the shortest `GAMEPLAY_TO_X1` is 23, both well past
+15, and the editor varies them continuously with the length of the moment. So a
+`*_to_gameplay` placement runs from the move to whatever comes next, and a `gameplay_to_*`
+placement is the same shape — which is the `FACE_X*` rule (D014/D045), not the `X*_TO_X0` one.
+
+`X3_TO_GAMEPLAY` has no manual instance anywhere in MVP3, so its 15 frames are inferred from
+the other five rather than measured. **This is the one number in the config that should be
+confirmed with the user** before Phase 9b places anything with it.
+
+`config.example.toml` now carries all twelve roles. The six gameplay ones are optional
+capabilities: `REQUIRED_ROLES` is unchanged, and
+`tests/test_planner.py::test_configuring_gameplay_assets_does_not_change_the_facecam_plan`
+proves a config carrying them produces placement-for-placement the same facecam plan.
+
+
+11. WHAT WOULD ACTUALLY MOVE THIS FORWARD
+------------------------------------------
+
+In descending order of expected value, and none of it implemented here:
+
+1. **A second reference timeline.** Every conclusion above rests on 15 windows from one
+   delivery. The negative result is robust to that (nested ranges are not a small-sample
+   artifact) but the candidate rule's 11/15 is not.
+2. **Ask the creator about gaps 1, 10, 11 and 12.** Four windows, one question: why did the
+   game not come up there? That answer is worth more than another feature.
+3. **Burst extent (Phase 8b).** Three of ten manual entries sit inside a detected burst, and
+   episode 1's -77 frames is exactly Phase 8c's recorded burst-1 overrun. Fixing burst extent
+   would clean up the entry measurements before anyone tries to model them.
+4. **Entry anchoring**, which is untouched: 7 of 10 entries are nowhere near a cut and range
+   0-166 frames into their window. The exit rule is solved; the entry rule is not even
+   sketched.

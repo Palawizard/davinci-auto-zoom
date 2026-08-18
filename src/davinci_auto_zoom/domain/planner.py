@@ -461,6 +461,10 @@ class ZoomPlan:
         peaks: dict[int, str] = {}
         for placement in self.zoom_placements:
             transition = BY_ROLE[placement.asset_role]
+            # Only rungs of the ladder have a height. A gameplay placement is a change of
+            # subject, not a level, and must not be ranked against face_x1..x3.
+            if transition.to_state not in FACECAM_LADDER:
+                continue
             current = peaks.get(placement.burst_index)
             if current is None or FACECAM_LADDER.index(transition.to_state) > FACECAM_LADDER.index(
                 current
@@ -696,7 +700,7 @@ def hard_cuts_in_range(cuts: Iterable[Frame], timeline: FrameRange) -> tuple[Fra
 
 
 @dataclass(frozen=True, slots=True)
-class _Snap:
+class Snap:
     """The outcome of trying to put one transition's start on a hard cut."""
 
     #: Where the transition actually starts: a cut, or the raw anchor when none was usable.
@@ -709,7 +713,7 @@ class _Snap:
     runners_up: tuple[Frame, ...] = ()
 
 
-def _snap_to_cut(
+def snap_to_cut(
     anchor: Frame,
     cuts: Sequence[Frame],
     *,
@@ -717,7 +721,7 @@ def _snap_to_cut(
     forward: int,
     usable: Callable[[Frame], bool],
     eligible: Callable[[Frame], bool] | None = None,
-) -> _Snap:
+) -> Snap:
     """Nearest usable hard cut to `anchor`, else `anchor` itself. One rule for every class.
 
     Candidates live in `[anchor - lookback, anchor + forward]` and are ranked by
@@ -738,8 +742,8 @@ def _snap_to_cut(
     ok = [c for c in candidates if usable(c)]
     rejected = tuple(sorted(c for c in candidates if c not in ok))
     if ok:
-        return _Snap(ok[0], ok[0], rejected, tuple(ok[1:]))
-    return _Snap(anchor, None, rejected)
+        return Snap(ok[0], ok[0], rejected, tuple(ok[1:]))
+    return Snap(anchor, None, rejected)
 
 
 def _snap_reason(cut_frame: Frame | None, anchor: Frame, direct: str, back: str, ahead: str) -> str:
@@ -758,7 +762,7 @@ def _choose_reset(
     snap_window: int,
     lookback: int,
     x0_frames: int,
-) -> _Snap | None:
+) -> Snap | None:
     """Where the reset goes: the usable hard cut nearest `base_reset`, else the direct point.
 
     `floor` is the earliest frame this cycle's zoom could start at: a cut at or before it
@@ -768,7 +772,7 @@ def _choose_reset(
     native Media Pool duration plays no part. `None` means no reset fits at all.
     """
 
-    snap = _snap_to_cut(
+    snap = snap_to_cut(
         base_reset,
         cuts,
         lookback=lookback,
@@ -891,7 +895,7 @@ def _zoom_chain(
                 )
             continue
 
-        snap = _snap_to_cut(
+        snap = snap_to_cut(
             anchor, cuts, lookback=lookback, forward=forward, usable=fits
         )
         rejected_cuts += len(snap.rejected_cuts)
@@ -1129,7 +1133,7 @@ def plan_zooms(
 
             return frame >= since and until - frame >= x1_min
 
-        entry = _snap_to_cut(
+        entry = snap_to_cut(
             open_raw, cuts, lookback=zoom_lookback, forward=zoom_window, usable=entry_fits
         )
         rejected_cuts += len(entry.rejected_cuts)

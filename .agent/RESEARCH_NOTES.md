@@ -558,3 +558,57 @@ away. Manual promotions: 1 of 7 on a cut (chance), offsets otherwise 27-89 frame
 resets: 8 of 14, unchanged since Phase 6. So the entry window is worth having and small
 (±120 ms, 8x margin), the promotion window will almost never fire — 1 of 14 cues in the live
 plan — and the reset window stays exactly as D034 left it.
+
+## Phase 9a — measured Resolve behaviour, and the gameplay material
+
+**`DeleteTrack` renumbers *and renames* the survivors.** Studio 21.0.4.5. Deleting audio track
+1 to leave A2+A3 produces tracks named `Audio 1` and `Audio 2` at indices 1 and 2. In
+`davinci-auto-zoom-test` all three audio tracks carry the same 21 items from the same source
+clip, so after the deletion nothing distinguishes them and `_isolate_voice_track`'s
+post-condition genuinely cannot prove which track survived. It refused to render, which is the
+guard working. The complement is now isolated by **emptying** unwanted tracks with
+`DeleteClips` instead (D063) — the dropped tracks end at zero items while every kept track
+keeps its index, name and item count, which is stronger evidence than the delete path had.
+
+**`TimelineItem.ExportFusionComp` is a usable read-only measuring instrument.** Exporting the
+comp of a manual instance and parsing it with `domain/fusion_comp.py` answered the asset-timing
+question exactly, with no timeline mutation. All twelve asset families in this bin keyframe
+`Transform1Size` at t=0 and t=15 — including the six gameplay ones, whose Media Pool length is
+45 and whose animation is therefore 15 (D062). `X0_TO_GAMEPLAY` and `GAMEPLAY_TO_X0` carry a
+single `Path1Displacement` key, i.e. size only and no path travel, which is what you would
+expect of the two moves that do not involve the facecam.
+
+**A video render costs about 18 seconds here** through the built-in `H.264 Master` preset, for
+3555 frames at 1080p60, versus 5-7 seconds for an audio-only render. `FormatWidth`/
+`FormatHeight` were deliberately *not* passed: `SetRenderSettings` is all-or-nothing (D019), so
+an untested key risks the whole call, and ffmpeg downscales for free.
+
+**The gameplay labels are not predicted by anything measured, and the ranges nest.** Over 15
+would-be-X0 windows on `DAZ_OUTPUT_MVP3`:
+
+    silence duration       gameplay 46-222 frames    X0  55-421     nested
+    secondary-audio active gameplay 0-92%            X0  8-81%      nested
+    secondary-audio mean   gameplay -22.5..+4.1 dB   X0  -24.1..-4.5 dB   nested
+    visual motion (mean)   gameplay 0.21-2.52x       X0  0.10-1.77x nested
+    hard cuts in window    flat across both classes
+
+Two individual cases kill any monotone story on their own: gap 0 is fully gameplay with **0%**
+secondary-audio activity, and gap 13 is 62% gameplay with the second-*lowest* motion in the
+whole timeline. Meanwhile gap 11 stays X0 at 81% audio activity and 1.55x motion.
+
+**What the motion curve does show cleanly is structure unrelated to the labels**: motion
+collapses after frame 218767 (0.21x then 0.10x), which is the outro. A real, legible feature of
+the delivery — simply not the one that predicts gameplay.
+
+**Gameplay exits are placed on the voice, not on the cut list.** The nine `gameplay_to_face_x1`
+exits sit -1 to +41 frames from the next burst start, six of them within a single frame, while
+the nearest hard cut is 87-152 frames away in seven of the nine. This is the sharpest
+signal-to-decision link found in the project so far, and it is the mirror image of the facecam
+resets, which *do* snap to cuts (8 of 14).
+
+**Gameplay entries are not explained by anything.** Three of ten sit exactly on a cut; the
+other seven are 23-132 frames from the nearest one. The delay from the start of the silence
+window runs 0 to 166 frames with no cluster. Three entries begin *inside* a detected burst, and
+one of those (-77 frames) is exactly the burst-1 overrun Phase 8c already recorded — the two
+numbers match to the frame, which is independent confirmation that the divergence is the VAD's
+burst end and not the editor's taste.

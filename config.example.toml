@@ -28,20 +28,32 @@ asset_bin = "DAVINCI_AUTO_ZOOM"
 # The keys are the allowed state changes of the visual state graph, not clip names and not
 # levels:
 #
-#     X0      -> FACE_X1      x0_to_face_x1
-#     FACE_X1 -> FACE_X2      face_x1_to_face_x2
-#     FACE_X2 -> FACE_X3      face_x2_to_face_x3
-#     FACE_X1 -> X0           face_x1_to_x0
-#     FACE_X2 -> X0           face_x2_to_x0
-#     FACE_X3 -> X0           face_x3_to_x0
+#     X0       -> FACE_X1      x0_to_face_x1
+#     FACE_X1  -> FACE_X2      face_x1_to_face_x2
+#     FACE_X2  -> FACE_X3      face_x2_to_face_x3
+#     FACE_X1  -> X0           face_x1_to_x0
+#     FACE_X2  -> X0           face_x2_to_x0
+#     FACE_X3  -> X0           face_x3_to_x0
+#
+#     X0       -> GAMEPLAY     x0_to_gameplay
+#     FACE_X1  -> GAMEPLAY     face_x1_to_gameplay
+#     FACE_X2  -> GAMEPLAY     face_x2_to_gameplay
+#     FACE_X3  -> GAMEPLAY     face_x3_to_gameplay
+#     GAMEPLAY -> X0           gameplay_to_x0
+#     GAMEPLAY -> FACE_X1      gameplay_to_face_x1
 #
 # The ladder is climbed one rung at a time and never descended: there is no x0->x2, no x2->x1
-# and no x3->x2. Anything else is an error, not a silently ignored key.
+# and no x3->x2. Coming out of gameplay lands at X0 or at FACE_X1 and nowhere tighter.
+# Anything else is an error, not a silently ignored key.
 #
 # Only `x0_to_face_x1` and `face_x1_to_x0` are required. Omit a promotion role (from BOTH this
 # table and [assets.transition_frames]) and the planner simply never makes that move — which
 # is how a user who has not built a FACE_X3 asset stays on a two-level edit. The two tables
 # must always list exactly the same roles.
+#
+# The six GAMEPLAY roles are optional in exactly the same way, and in Phase 9a they are read
+# by the `gameplay-study` diagnostic ONLY: the production planner places none of them, and a
+# config that omits them produces an identical facecam plan (D054).
 #
 # Names differ per user/edit style; the tool never inspects or rebuilds what these assets do
 # internally. Note that in this bin the promotion clips are named after the state they LAND in
@@ -53,6 +65,12 @@ face_x2_to_face_x3 = "FACE_X3"
 face_x1_to_x0 = "X1_TO_X0"
 face_x2_to_x0 = "X2_TO_X0"
 face_x3_to_x0 = "X3_TO_X0"
+x0_to_gameplay = "X0_TO_GAMEPLAY"
+face_x1_to_gameplay = "X1_TO_GAMEPLAY"
+face_x2_to_gameplay = "X2_TO_GAMEPLAY"
+face_x3_to_gameplay = "X3_TO_GAMEPLAY"
+gameplay_to_x0 = "GAMEPLAY_TO_X0"
+gameplay_to_face_x1 = "GAMEPLAY_TO_X1"
 
 # How many frames each asset needs to finish its own animation. REQUIRED for planning, and
 # deliberately without a default: these are your assets, and the tool never opens their Fusion
@@ -75,6 +93,19 @@ face_x2_to_face_x3 = 15
 face_x1_to_x0 = 15
 face_x2_to_x0 = 15
 face_x3_to_x0 = 15
+# Measured, not assumed (Phase 9a): each of these assets is 45 frames long in the Media Pool
+# but animates over keyframes at t=0 and t=15, exactly like the facecam ones. That came from
+# exporting the Fusion comps of the manual instances in DAZ_OUTPUT_MVP3 read-only — the
+# runtime still never opens a Fusion graph (D007), and still never reads the 45.
+x0_to_gameplay = 15
+face_x1_to_gameplay = 15
+face_x2_to_gameplay = 15
+gameplay_to_x0 = 15
+gameplay_to_face_x1 = 15
+# NOT measured. `X3_TO_GAMEPLAY` has no manual instance anywhere in DAZ_OUTPUT_MVP3, so there
+# was no comp to export and this 15 is inferred from the other five. Confirm it with the
+# creator before Phase 9b places anything with it.
+face_x3_to_gameplay = 15
 
 [speech]
 # Resolve exposes no API to read transcription data back (see .agent/HANDOFF.md), so the
