@@ -6,7 +6,7 @@
 creator's facecam zooms from their own voice, and nothing else. Phase 10 froze that behaviour,
 retired gameplay from the product (D068), and cleaned the tree to match.
 
-    commit          <this session's HEAD on dev>   (previous validated: e817594)
+    commit          810c9a2                        (previous validated: e817594)
     branch          dev                            main untouched
     Resolve tested  DaVinci Resolve Studio 21.0.4.5, Linux
     project         davinci-auto-zoom-test
