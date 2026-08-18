@@ -51,6 +51,14 @@ from davinci_auto_zoom.domain.transitions import (
     Transition,
     is_allowed,
 )
+from davinci_auto_zoom.domain.visual_episodes import (
+    VisualEpisodeFeatures,
+    ZoomUtilitySettings,
+    zoom_utility,
+)
+
+#: A window nothing was measured on. Distinct from "measured and quiet", like `EMPTY_VIDEO`.
+EMPTY_VISUAL = VisualEpisodeFeatures()
 
 #: Verdicts for what the human did with one silence window.
 MANUAL_GAMEPLAY = "gameplay"
@@ -61,6 +69,9 @@ MANUAL_MIXED = "mixed"
 REASON_NOT_TALKING = "creator_not_talking"
 REASON_SECONDARY_AUDIO = "world_is_talking"
 REASON_VISUAL_ACTIVITY = "picture_is_busy"
+REASON_ZOOM_WORTHY = "zoom_would_help"
+REASON_NOT_ZOOM_WORTHY = "zoom_would_not_help"
+REASON_WINDOW_TOO_SHORT_FOR_PRIOR = "silence_shorter_than_the_prior"
 REASON_LONG_SILENCE = "long_creator_silence"
 REASON_TOO_SHORT = "window_shorter_than_the_move"
 REASON_NO_SUPPORT = "no_supporting_activity"
@@ -598,12 +609,16 @@ class GameplayWindowFeatures:
     window: SilenceWindow
     audio: SecondaryAudioFeatures = EMPTY_AUDIO
     video: VideoActivityFeatures = EMPTY_VIDEO
+    #: Phase 9b's spatial reading of the same picture: not "how much moved" but "what shape
+    #: was the change, and would magnifying it help" (D065).
+    visual: VisualEpisodeFeatures = EMPTY_VISUAL
 
     def to_dict(self, frame_rate: Fraction | None = None) -> dict[str, Any]:
         return {
             "window": self.window.to_dict(frame_rate),
             "audio": self.audio.to_dict(),
             "video": self.video.to_dict(),
+            "visual": self.visual.to_dict(),
         }
 
 
@@ -650,6 +665,17 @@ class GameplayPolicySettings:
     #: The head and tail of a timeline are not pauses in a conversation. The tail in
     #: particular is where an outro lives, and the reference edit leaves it at X0.
     gameplay_at_timeline_tail: bool = False
+    #: **Phase 9b.** When on, question A stops being an OR of "something is happening" signals
+    #: and becomes one AND: the picture must hold an episode the GAMEPLAY zoom would actually
+    #: improve (`domain/visual_episodes.zoom_utility`), optionally gated by a silence prior and
+    #: by secondary-audio context. Off by default, because on the reference material it does
+    #: **not** work either (D066) — it exists so the phase's ablation runs one code path.
+    use_zoom_utility: bool = False
+    #: AND-gates applied on top of `use_zoom_utility`, never on their own: neither the world
+    #: talking nor the creator being quiet may trigger a gameplay move by itself (D067).
+    require_secondary_audio: bool = False
+    candidate_silence_ms: int = 0
+    zoom_utility: ZoomUtilitySettings = ZoomUtilitySettings()
     #: Snap windows for the gameplay move, measured separately from the facecam ones (D060).
     entry_snap_lookback_ms: int = 120
     entry_snap_forward_ms: int = 120
@@ -667,6 +693,10 @@ class GameplayPolicySettings:
             "video_active_fraction": self.video_active_fraction,
             "long_silence_ms": self.long_silence_ms,
             "gameplay_at_timeline_tail": self.gameplay_at_timeline_tail,
+            "use_zoom_utility": self.use_zoom_utility,
+            "require_secondary_audio": self.require_secondary_audio,
+            "candidate_silence_ms": self.candidate_silence_ms,
+            "zoom_utility": self.zoom_utility.to_dict(),
             "entry_snap_lookback_ms": self.entry_snap_lookback_ms,
             "entry_snap_forward_ms": self.entry_snap_forward_ms,
             "exit_snap_lookback_ms": self.exit_snap_lookback_ms,
@@ -765,7 +795,25 @@ def decide_gameplay(
     if window.at_timeline_end and not settings.gameplay_at_timeline_tail:
         return GameplayDecision(window.index, False, (REASON_TAIL,))
 
-    if settings.gameplay_by_default:
+    if settings.use_zoom_utility:
+        # Phase 9b's shape: one visual question, plus optional gates that can only ever
+        # *remove* a candidate. Neither gate can produce a gameplay move on its own (D067).
+        verdict = zoom_utility(features.visual, settings.zoom_utility)
+        if not verdict.zoom_worthy:
+            return GameplayDecision(
+                window.index, False, (REASON_NOT_ZOOM_WORTHY, *verdict.reasons)
+            )
+        if window.duration_frames < _ms_to_frames(settings.candidate_silence_ms, frame_rate):
+            return GameplayDecision(
+                window.index, False, (REASON_WINDOW_TOO_SHORT_FOR_PRIOR,)
+            )
+        if settings.require_secondary_audio and not (
+            features.audio.samples
+            and features.audio.active_fraction >= settings.audio_active_fraction
+        ):
+            return GameplayDecision(window.index, False, (REASON_NO_SUPPORT,))
+        reasons.append(REASON_ZOOM_WORTHY)
+    elif settings.gameplay_by_default:
         reasons.append(REASON_NOT_TALKING)
     else:
         if (
@@ -885,17 +933,21 @@ __all__ = [
     "ANCHOR_SNAPPED_FORWARD",
     "EMPTY_AUDIO",
     "EMPTY_VIDEO",
+    "EMPTY_VISUAL",
     "FULL_COVERAGE",
     "MANUAL_GAMEPLAY",
     "MANUAL_MIXED",
     "MANUAL_X0",
     "REASON_LONG_SILENCE",
     "REASON_NOT_TALKING",
+    "REASON_NOT_ZOOM_WORTHY",
     "REASON_NO_SUPPORT",
     "REASON_SECONDARY_AUDIO",
     "REASON_TAIL",
     "REASON_TOO_SHORT",
     "REASON_VISUAL_ACTIVITY",
+    "REASON_WINDOW_TOO_SHORT_FOR_PRIOR",
+    "REASON_ZOOM_WORTHY",
     "GameplayDecision",
     "GameplayEpisode",
     "GameplayEpisodeProposal",

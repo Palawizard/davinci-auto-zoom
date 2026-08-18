@@ -1406,9 +1406,13 @@ Both families are **hold** clips, not fixed-length ones: the shortest `*_TO_GAME
 frames and the shortest `GAMEPLAY_TO_X1` is 23, both far past 15, and the editor varies them
 continuously. So both follow the `FACE_X*` shape (D014/D045), not the `X*_TO_X0` one.
 
-`face_x3_to_gameplay = 15` in `config.example.toml` is **inferred from the other five, not
-measured**, and is flagged as such in the file. Confirm it with the creator before Phase 9b
-places anything with it.
+`face_x3_to_gameplay = 15` was **inferred from the other five** by Phase 9a, because
+`X3_TO_GAMEPLAY` has no manual instance to export a comp from. **Phase 9b closed this: the
+creator confirmed explicitly that `X3_TO_GAMEPLAY` animates fully in 15 frames.** The value is
+no longer flagged as unconfirmed in `config.example.toml`, in the handoff or in the plan.
+Phase 9b also measured what the eleven exportable roles animate *to*, and all four entries
+into gameplay converge on one state, so the endpoint `X3_TO_GAMEPLAY` has to reach is known
+even though its own comp was never read (D064).
 
 ## D063 — `DeleteTrack` renumbers *and renames* survivors, so it cannot isolate a complement
 
@@ -1431,3 +1435,109 @@ rather than one path that is worse for both.
 
 Consequence for the analysis: **which of A2/A3 carries the game and which carries other people
 is not claimed anywhere.** The names are positional and prove nothing.
+
+## D064 — The GAMEPLAY state is a centred 1.25x push-in, and the ROI is derived from it
+
+Measured in Phase 9b, read-only, with `TimelineItem.ExportFusionComp` on one instance of each
+of the eleven roles present in `DAZ_OUTPUT_MVP3` and a parse of the exported `.comp` text. The
+runtime still never opens a Fusion graph (D007); this is a one-off measurement.
+
+Every one of the eleven is the same graph — `Loader -> Transform -> Saver`, `Size` on a
+`BezierSpline`, `Center` on a `PolyPath`, keyframes at `[0]` and `[15]`. **There is no Crop, no
+Mask, no Merge and no second Transform anywhere.** The whole state model is two numbers:
+
+    state       Transform Size    Centre offset (Fusion, y up)
+    X0                 1.00       (0.00, 0.00)
+    GAMEPLAY           1.25       (0.00, 0.00)
+    FACE_X1            1.50       (0.25, 0.25)
+    FACE_X2            2.00       (0.50, 0.50)
+    FACE_X3            2.50       (0.75, 0.75)
+
+All four `*_TO_GAMEPLAY` roles converge on the same final state and both `GAMEPLAY_TO_*` roles
+leave from it, which is what makes `GAMEPLAY` one state rather than a family (D053, confirmed).
+
+A Fusion `Transform` maps output `u` to source `(u - C)/size + 0.5` with `C = 0.5 + offset`, so
+the visible region follows from the two numbers. `domain/visual_episodes.Roi.from_transform`
+performs exactly that arithmetic and `GAMEPLAY_ROI` is its result, not a typed-in rectangle:
+
+    GameplayTargetROI = x [0.10, 0.90], y [0.10, 0.90]   — the central 80%, area 0.64
+
+The derivation is checked against the facecam ladder, which is why it can be trusted:
+`FACE_X1 -> [0, 0.667]`, `FACE_X2 -> [0, 0.5]`, `FACE_X3 -> [0, 0.4]`, a nested family anchored
+in the corner where the facecam inset actually sits (`tests/test_visual_episodes.py`).
+
+**Consequence, and it is a design fact rather than a detail: the gameplay zoom privileges no
+region.** It is symmetric and small. It cannot magnify a corner HUD element — it crops the
+outer 10%, which is exactly where this delivery's HUD lives. Any future rule of the form "the
+interesting thing is inside the zoom's ROI" is therefore nearly content-free for GAMEPLAY,
+though it would be meaningful for the facecam states, whose ROI is a corner.
+
+## D065 — The picture is read spatially by the same measurement, and the runtime stays local
+
+`vision.activity_from_frames` keeps the per-cell values of the identical mean-subtracted
+absolute frame difference that `motion_from_frames` averages away, on a coarser grid (32x18 at
+10 samples/s). One decode of an already-rendered file, no second notion of "motion", and no new
+dependency: still ffmpeg and numpy (D055 extended, not replaced).
+
+Reading those cells as an editorial cue stays entirely in `domain/visual_episodes.py`, which is
+pure — no numpy, no ffmpeg, no file, no clock — exactly as `domain/dynamics.py` is for the
+voice (D050). The boundary is the same one: `vision.py` says *how much this part of the picture
+changed*; only the domain says *whether that deserves a zoom*.
+
+**No VLM, no cloud API, no object detector and no game-specific model is a dependency of DAZ,
+and none was contacted during Phase 9b.** The agent's own vision was used to *inspect* frames
+during the study, which is research, and the report tags every conclusion with whether it came
+from a measurement, from that inspection, or from the creator. A rule DAZ cannot recompute
+locally cannot ship.
+
+## D066 — Motion topology fails exactly as motion amount did, and the reason is nameable
+
+Phase 9b measured nine spatial features per window — activity inside and outside the ROI, their
+ratio, active-cell fraction and its peak, bounding-box area, concentration, region count,
+persistence and novelty — on the same 15 would-be-X0 windows.
+
+    every class range nests; every best single threshold scores 10 or 11 of 15
+    against a majority baseline of 10 (`always gameplay`)
+
+and, more decisively than any threshold table, **each hard negative has a manual-gameplay twin
+within about one standard deviation** in the full nine-dimensional space: gap 8 (GAMEPLAY) and
+gap 11 (X0) are 0.92 apart, gap 5 and gap 10 are 1.19 apart, gap 13 and gap 14 are 1.87 apart.
+The classes are not merely hard to threshold; they contain near-identical pairs.
+
+The ROI feature is inert for the reason D064 predicted: `roi_ratio` spans 0.84-1.23 across both
+classes, because a centred 64%-area region samples the same picture as its complement.
+
+**Why they fail is specific**: in a first-person game, every mouse movement translates the whole
+image, so a frame difference measures the player's camera rather than the game's events. Gaps 11
+and 12 are visually empty corridors and score `active cells 64-66%, bbox 0.99-1.00` — the same
+as gap 10, where an NPC really does charge the camera. Separating the two needs camera-motion
+compensation or a notion of an object, neither of which exists in this pipeline.
+
+**Retired by this decision**: Phase 9a's hypothesis that gaps 10/11/12 were mainly a section or
+recency phenomenon because they are consecutive. The creator's explanations supersede it — gap 1
+"nothing new or interesting is visible", gap 10 "something happens but zooming adds nothing",
+gaps 11 and 12 "the friend is talking about something that is not on screen". Those are four
+statements about the *picture*, not about the timeline's structure.
+
+**No candidate rule is proposed by Phase 9b.** A tuned 12/15 over features whose classes contain
+twins would be fitting noise on n=15, and the honest output is the sharper question instead.
+
+## D067 — Secondary audio is context and creator silence is a prior; neither may trigger GAMEPLAY
+
+Stated by the creator, and now structural in the code rather than a note in a report. In
+`decide_gameplay`, when `use_zoom_utility` is on, the visual verdict is the only thing that can
+say *yes*; `candidate_silence_ms` and `require_secondary_audio` are AND-gates that can only ever
+remove a candidate. Four tests hold the line, including
+`test_secondary_audio_alone_can_never_trigger_a_gameplay_move` and
+`test_a_long_creator_silence_alone_can_never_trigger_a_gameplay_move`.
+
+This is the one durable thing Phase 9b's negative result leaves behind: even without a working
+visual reader, the *shape* of the eventual rule is known —
+
+    would-be-X0 window  ->  candidate (creator quiet, long enough)
+                        ->  is there a visual episode a zoom would improve?
+                        ->  yes: GAMEPLAY,  no: X0
+
+`gameplay_by_default` stays the shipped Phase 9a candidate (11/15, zero fitted parameters) and
+`use_zoom_utility` defaults to **off**, because on the reference material the visual branch
+scores 7/15. Nothing about the production planner changed: it still places no gameplay clip.

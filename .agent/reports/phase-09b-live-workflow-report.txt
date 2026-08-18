@@ -1,0 +1,180 @@
+PHASE 9b — LIVE WORKFLOW REPORT
+=================================
+
+Date: 2026-08-18. DaVinci Resolve Studio 21.0.4.5, project `davinci-auto-zoom-test`,
+source `DAZ_INPUT` [216000, 219555) @ 60 fps, human reference `DAZ_OUTPUT_MVP3`.
+
+Order actually run: read-only Fusion-comp probe -> `gameplay-study` -> `plan-probe` facecam
+regression -> independent post-run audit.
+
+**Phase 9b created no timeline of any kind.** No `DAZ_AUTO_PREVIEW_*`, no recovery copy, no
+gameplay clip anywhere. It is a measurement phase, like 9a.
+
+
+1. READ-ONLY FUSION GEOMETRY PROBE — PASS
+-------------------------------------------
+
+A throwaway script called `TimelineItem.ExportFusionComp(path, 1)` on one instance of each of
+the eleven roles present on `DAZ_OUTPUT_MVP3` V3. `ExportFusionComp` writes a `.comp` file to
+disk and does not modify the item, the timeline or the project; nothing else was called.
+
+    X0_TO_GAMEPLAY  X1_TO_GAMEPLAY  X2_TO_GAMEPLAY  GAMEPLAY_TO_X0  GAMEPLAY_TO_X1
+    FACE_X1  FACE_X2  FACE_X3  X1_TO_X0  X2_TO_X0  X3_TO_X0        -> 11 exports, all True
+
+    X3_TO_GAMEPLAY  -> no instance exists in MVP3, nothing to export (D062, D064)
+
+The exports went to a private `/tmp` directory and were deleted. The measured table is in
+D064 and in `.agent/reports/phase-09b-visual-zoom-utility-analysis.txt` section 1.
+
+
+2. GAMEPLAY-STUDY — PASS
+--------------------------
+
+    .venv/bin/python -m davinci_auto_zoom gameplay-study \
+      --confirm-resolve-render-test \
+      --project davinci-auto-zoom-test \
+      --source-timeline DAZ_INPUT --reference-timeline DAZ_OUTPUT_MVP3 \
+      --config config.example.toml
+
+Three renders in total (the voice render is the shared pipeline's own), each on its own
+scratch duplicate, each through the same `render_voice_track` primitive as `plan-probe`:
+
+    label             kind    scratch                                kept A    emptied A  secs
+    voice (A1)        audio   DAZ_AUDIO_SCRATCH_*                    A1        -           ~7
+    secondary audio   audio   DAZ_AUDIO_SCRATCH_20260818_224405_48…  A2,A3     A1          7.0
+    program video     video   DAZ_AUDIO_SCRATCH_20260818_224442_ee…  A1,A2,A3  -          15.0
+
+Per render, from the JSON payload:
+
+    clean                        : true (all)
+    error                        : null (all)
+    audit_differences            : [] against DAZ_INPUT and DAZ_OUTPUT_MVP3 (all)
+    scratch_absent_after_cleanup : true (all)
+    render_queue_restored        : true (all)
+    delivery_unrestored          : [] (all)
+    render_directory_removed     : true (all)
+
+**Phase 9b added no render.** The spatial reading decodes the *same* program-video file a
+second time on a 32x18 grid (D065) — one extra ffmpeg pass over a file that already existed,
+not a second trip through Resolve.
+
+Result: 11/15 windows classified as the human did by the shipped candidate rule, unchanged
+from Phase 9a; 7/15 by the new spatial rule. Full numbers in the two analysis reports.
+
+    total study wall time  : 86.4 s
+    of which               : 2 Resolve renders 22.0 s, ffmpeg + VAD + envelopes the rest
+
+
+3. RUNTIME COST OF THE NEW LAYER
+----------------------------------
+
+Measured on the 59.25 s of program video this delivery contains:
+
+    motion envelope decode, 64x36 @ 10/s   3.52 s      (Phase 9a, unchanged)
+    spatial grid decode,    32x18 @ 10/s   3.52 s      (Phase 9b, new)
+    spatial statistics over 592 samples    0.11 s      (pure Python, no numpy)
+
+So the whole spatial layer costs **~3.6 s per minute of timeline**, about 6% of realtime, and
+0.1 s of that is the domain code. It scales linearly and needs no GPU. For reference the
+Resolve renders it depends on cost 22 s for the same minute — the analysis is not the
+expensive part, the rendering is.
+
+Judged against what it buys (7/15 versus a no-signal 11/15), the correct engineering verdict
+is not "it is too slow" but "it is cheap and it does not work". It stays in `gameplay-study`
+as measurement and enters no runtime path.
+
+
+4. PLAN-PROBE FACECAM REGRESSION — PASS
+-----------------------------------------
+
+    .venv/bin/python -m davinci_auto_zoom plan-probe \
+      --confirm-resolve-render-test \
+      --project davinci-auto-zoom-test \
+      --source-timeline DAZ_INPUT --reference-timeline DAZ_OUTPUT_MVP3 \
+      --config config.example.toml
+
+    placements                : 42
+    bursts / segments         : 14 / 15
+    voice valleys             : 63
+    decision trace            : 126 lines
+    structural fingerprint    : sha256:a1d107e1fa95b6152dd06be89ccc0fbd39de8d02faa906f91d3d7fc6d46a5483
+
+Every one of those is identical to the Phase 8c/9a baseline, and the fingerprint is unchanged
+since Phase 5. **Nothing Phase 9b added moves a facecam frame** — no X1, X2, X3 or reset
+placement differs, which is the guarantee D054 asks for and
+`tests/test_planner.py::test_configuring_gameplay_assets_does_not_change_the_facecam_plan`
+holds in the pure suite.
+
+
+5. INDEPENDENT POST-RUN AUDIT — PASS
+--------------------------------------
+
+Read-only `snapshot --json` after everything, compared against the same snapshot taken before
+the phase's live runs — name, unique id, frame range and every track's item count:
+
+    OK  DAZ_INPUT                                    c4d7a327-…   105 items
+    OK  DAZ_OUTPUT_MVP                               81df1b0c-…   129
+    OK  DAZ_OUTPUT_MVP2                              ee4eb745-…   140
+    OK  DAZ_OUTPUT_MVP3                              6d23476d-…   147   (the reference)
+    OK  DAZ_AUTO_PREVIEW_20260816_211026_c676d5af    96f30d77-…   133   (Phase 5)
+    OK  DAZ_AUTO_PREVIEW_20260817_132005_77443d7c    6d0bde62-…   133   (Phase 6)
+    OK  DAZ_AUTO_PREVIEW_20260817_163637_e8787ece    9fb7e350-…   133   (Phase 7)
+    OK  DAZ_AUTO_PREVIEW_20260817_233130_203670b0    5a973592-…   145   (Phase 8)
+    OK  DAZ_AUTO_PREVIEW_20260818_005127_086a1483    2848d398-…   147   (Phase 8c)
+
+    protected timelines unchanged : 9/9, each with its original unique id
+    timelines added               : NONE
+    timelines removed             : none
+    leftover scratch / recovery / temp timelines : none
+    Media Pool items              : 12/12 identical
+    render queue                  : 0 jobs, IsRenderingInProgress False
+    temporary DAZ render presets  : none
+    project render format/codec   : mov / ProRes422HQ (the project's own, restored)
+    current timeline              : DAZ_OUTPUT_MVP3 (the user's, restored)
+    snapshot warnings             : none
+    temp directories under /tmp   : none left; the one run that kept its media
+                                    (`--keep-temp-audio`, for the frame extraction of the
+                                    visual review) was deleted by hand afterwards
+
+
+6. MEDIA HANDLING
+-------------------
+
+The visual review needed frames of the user's own gameplay and face. Everything it produced —
+the 277 MB program-video render, the extracted frames and the fifteen contact sheets — lived
+under `/tmp`, was read by the agent, and was **deleted at the end of the session**. This
+repository is public and contains no frame, no sheet, no video and no audio; the only things
+committed are numbers, tables and prose.
+
+
+7. VERIFICATION
+-----------------
+
+    pytest                    642 passed  (615 before Phase 9b, +27)
+    ruff check .              All checks passed
+    mypy (strict)             Success: no issues found in 43 source files
+    gameplay-study live       PASS, 2 clean renders, all audits empty
+    plan-probe live           PASS, fingerprint unchanged
+    post-run audit            PASS, zero timelines added
+
+
+8. COMMANDS, FOR RERUNS
+-------------------------
+
+    .venv/bin/python -m davinci_auto_zoom gameplay-study \
+      --confirm-resolve-render-test \
+      --project davinci-auto-zoom-test \
+      --source-timeline DAZ_INPUT --reference-timeline DAZ_OUTPUT_MVP3 \
+      --config config.example.toml
+
+    .venv/bin/python -m davinci_auto_zoom plan-probe \
+      --confirm-resolve-render-test \
+      --project davinci-auto-zoom-test \
+      --source-timeline DAZ_INPUT --reference-timeline DAZ_OUTPUT_MVP3 \
+      --config config.example.toml
+
+`gameplay-study` takes about a minute and a half. Run it without a short command timeout, for
+the same reason as `apply-preview`: the safety model is transactional against *failures*, not
+against the process being killed. A kill mid-run leaves a `DAZ_AUDIO_SCRATCH_*` timeline and
+possibly a temporary render preset, both disposable by name, because the thing that would
+clean them up is the thing that got killed.

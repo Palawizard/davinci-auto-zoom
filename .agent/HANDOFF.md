@@ -2,200 +2,199 @@
 
 ## Current state
 
-**Phase 9a (gameplay reference analysis, multimodal policy discovery, dry run) is DONE.**
-It is a measurement phase, and **its main result is a negative one**: on the user's own
-gameplay edit, nothing measurable predicts which silence becomes GAMEPLAY. Read
-`.agent/reports/phase-09a-mvp3-gameplay-analysis.txt` before assuming otherwise.
+**Phase 9b (visual relevance / zoom-usefulness study) is DONE, and like 9a its main result is
+a negative one** — but a much sharper one. Read
+`.agent/reports/phase-09b-visual-zoom-utility-analysis.txt` before assuming any visual feature
+predicts gameplay.
 
-**Phase 8c's facecam behaviour is now VISUALLY VALIDATED by the user** and is the stable
-baseline. `X0 -> FACE_X1` on a burst, `FACE_X2` on the first voice valley/recovery, `FACE_X3`
-on the second, cut snapping on every transition, reset to X0, ownership/clean/rebuild/
-idempotence. **Do not change facecam logic without a demonstrated bug.** Every doc that
-described it as unwatched or aesthetically unknown has been corrected.
+**Phase 8c's facecam behaviour is VISUALLY VALIDATED by the user** and remains the stable
+baseline. `X0 -> FACE_X1` on a burst, `FACE_X2`/`FACE_X3` on voice valleys, cut snapping on
+every transition, reset to X0, ownership/clean/rebuild/idempotence. **Do not change facecam
+logic without a demonstrated bug.** Phase 9b changed none of it and proved so (fingerprint
+unchanged, section 4 of `.agent/reports/phase-09b-live-workflow-report.txt`).
 
-Phase 9a added **no timeline of any kind**. There are still exactly five
-`DAZ_AUTO_PREVIEW_*` timelines, unchanged, plus `DAZ_INPUT`, `DAZ_OUTPUT_MVP`,
-`DAZ_OUTPUT_MVP2` and the new human reference `DAZ_OUTPUT_MVP3`. Do not delete any of them.
+Phase 9b added **no timeline of any kind**. Still exactly five `DAZ_AUTO_PREVIEW_*` timelines
+plus `DAZ_INPUT`, `DAZ_OUTPUT_MVP`, `DAZ_OUTPUT_MVP2` and `DAZ_OUTPUT_MVP3`. Do not delete any.
 
-## What Phase 9a found
+## What the user told us, and it supersedes a Phase 9a hypothesis
 
-**`DAZ_OUTPUT_MVP3` respects the announced graph exactly.** All 42 clips on V3 walk cleanly
-from X0 back to X0 through `domain/transitions.py`. Five of the six authorised gameplay moves
-appear; `face_x3_to_gameplay` appears nowhere, so it rests on the user's statement rather than
-on evidence. No forbidden move appears — had one, the analysis would have stopped and reported
-it rather than interpreting it.
+The creator explained the four windows Phase 9a could not:
 
-    42 transitions, 10 gameplay episodes, final state x0
-    entries : x0_to_gameplay 6, face_x1_to_gameplay 3, face_x2_to_gameplay 1
-    exits   : gameplay_to_face_x1 9, gameplay_to_x0 1
+    gap  1   friends are talking, but nothing new or interesting is visible on screen
+    gap 10   something really happens in the game, but zooming would add nothing
+    gap 11   a friend is talking about a subject that is not on screen
+    gap 12   same as 11
 
-**Silence duration does not separate the classes — the ranges NEST** (D056):
+**Retired**: Phase 9a's guess that gaps 10-12 were a section/recency phenomenon because they
+are consecutive. They are four statements about the *picture* (D066).
 
-    gameplay windows: 46, 47, 53, 91, 103, 128, 160, 183, 211, 222 frames
-    X0 windows      : 55, 97, 126, 154, 421 frames
+Two consequences are now structural in the code and tested (D067):
 
-The shortest gap that became gameplay (46) is shorter than the shortest that stayed X0 (55),
-and the **longest silence in the timeline, 421 frames / 7.0 s, stayed X0**. Neither does
-secondary-audio activity, mean level, dynamic range, onset count, mean motion, p90 motion,
-active fraction or hard-cut density — every one has fully nested class ranges, and every
-single-threshold rule scores 10 or 11 of 15 against a majority baseline of 10.
+    secondary audio = context, never a trigger
+    creator silence = candidate population / prior, never a decision
 
-**The ablation says ship neither signal** (D059):
+**`X3_TO_GAMEPLAY = 15` is CONFIRMED by the creator** and is no longer flagged as inferred
+anywhere — config, D062, plan, notes all corrected.
 
-    A silence only            5/15
-    B silence + audio         8/15    false+ 1, 11
-    C silence + video         8/15    false+ 10, 11, 12
-    D silence + audio + video 8/15    false+ 1, 10, 11, 12
-    candidate (no signal)    11/15    false+ 1, 10, 11, 12
+## What Phase 9b measured
 
-B, C and D all land *below* the baseline, and D inherits every false positive of B and of C
-while fixing one false negative — two signals wrong in different places, not two that combine.
-The secondary-audio and video renders stay as measurement in `gameplay-study`; **neither
-belongs in a runtime planner.**
+**The GAMEPLAY zoom's geometry, exactly** (D064, read-only `ExportFusionComp` on 11 roles):
 
-**The candidate rule therefore uses no signal at all** and has zero fitted parameters:
+    state       Transform Size    Centre offset       shows
+    X0                 1.00       (0.00, 0.00)        everything
+    GAMEPLAY           1.25       (0.00, 0.00)        the central 80%
+    FACE_X1/2/3        1.50/2.00/2.50  0.25/0.5/0.75  a corner, tightening onto the facecam
 
-    a would-be-X0 window becomes GAMEPLAY
-      unless it is shorter than 500 ms, or it is the tail of the timeline
+Every role is one `Transform`, keyframes at 0 and 15, no crop and no mask anywhere. All four
+entries into GAMEPLAY converge on one state. `GameplayTargetROI = x[0.1, 0.9], y[0.1, 0.9]`,
+**derived** by `Roi.from_transform` from those two numbers, checked against the facecam ladder.
 
-**One thing is solved sharply: the exit anchor** (D057). Gameplay exits are placed on the
-creator's next burst start — 6 of 10 within one frame, 8 of 10 within 20 — while the nearest
-hard cut is 87-152 frames away in seven of nine cases. The editor is watching the voice, not
-the cut list. This is the mirror image of the facecam resets, which *do* snap to cuts.
+**And that is already half the answer: the gameplay zoom privileges no region.** A centred
+1.25x push-in cannot magnify a corner HUD element — it crops the outer 10% away.
 
-**The entry anchor is not solved at all.** No cluster, no signal; 7 of 10 proposals open the
-game *earlier* than the editor did, by up to 170 frames, mean |delta| 62.
+**Nine spatial features later, the classes still nest** (D066): activity in/out of the ROI,
+their ratio, active-cell fraction and peak, bbox area, concentration, region count,
+persistence, novelty. Best single threshold 10 or 11 of 15 against a 10/15 baseline — exactly
+Phase 9a's numbers with different features. `roi_ratio` spans 0.84-1.23 over *both* classes.
+
+**The decisive form of the result: every hard negative has a manual-gameplay twin.**
+Z-scored over all nine features, gap 8 (GAMEPLAY) and gap 11 (X0) are 0.92 apart, gap 5 and
+gap 10 are 1.19 apart, gap 13 and gap 14 are 1.87 apart. No classifier of any shape separates
+pairs that close.
+
+**Why, specifically**: in a first-person game the mouse moves the whole picture, so a frame
+difference measures the camera and not the game. Gaps 11 and 12 are visually empty corridors
+and score `64-66% of cells active, bbox 0.99` — the same as gap 10, where an NPC charges the
+camera.
+
+**Ablation 2.0, live, one code path:**
+
+    A phase9a silence+audio+video   8/15   false+ 1,10,11,12
+    B visual amount only            8/15   false+ 10,11,12
+    C visual spatial                7/15   false+ none, false- 0,3,4,5,6,7,8,9
+    D spatial+silence prior         6/15
+    E spatial+audio context         6/15
+    F spatial+silence+audio         5/15
+    candidate rule (no signal)     11/15   false+ 1,10,11,12
+    majority baseline              10/15
+
+C to F have zero false positives — and refuse 8 of the 10 positives with them. Precision
+without recall on a 10/5 split is a conservative rule, not a solution. **No candidate rule is
+proposed**, deliberately.
+
+**The one encouraging measurement**: where a visual onset exists (4 of 10 episodes), it sits
+3, 4, 29 and 43 frames from the editor's chosen entry — about twice as close as the start of
+the silence (0, 10, 53, 85) and closer than the nearest cut in three of four. n=4, from an
+onset detector that tracks the camera. A hypothesis for a later phase, not a rule.
+
+**The counterexample nobody should forget**: gap 13 is 62% GAMEPLAY in the human edit and the
+screen is nearly black (the outro). Some gameplay decisions are not about the picture at all.
 
 ## What changed in the code
 
-- **`domain/transitions.py`** — `STATE_GAMEPLAY` and exactly six moves (D053). Closed graph:
-  `GAMEPLAY -> FACE_X2/FACE_X3/GAMEPLAY` raise. `is_promotion` redefined positively (both ends
-  in `FACECAM_LADDER`) so leaving a level *for the game* is not counted as a promotion.
-- **`vision.py` (new)** — rendered video -> ffmpeg -> 64x36 grayscale at 10/s -> motion
-  envelope. No new dependency; frames are mean-subtracted before differencing so a uniform
-  brightness change reads as zero motion (D055). `motion_from_frames` is split out so the
-  metric is testable on hand-built arrays with no ffmpeg anywhere near it.
-- **`domain/gameplay.py` (new)** — pure. Manual state reconstruction, silence windows, relative
-  audio/video features, and `decide_gameplay`, which keeps "gameplay or X0" and "exactly where"
-  apart (D057) and emits no `AssetPlacement` (D061).
-- **`resolve/gameplay_study.py` + `gameplay-study` CLI (new)** — the diagnostic. Three renders
-  through the same `render_voice_track` primitive, so the same audit, cleanup and refusal
-  behaviour. Never calls `AppendToTimeline`.
-- **`resolve/voice_render.py`** — three optional keyword arguments (`keep_audio_tracks`,
-  `export_video`, `render_preset`), each defaulting to Phase 3's exact behaviour. Plus
-  `_silence_audio_tracks`, see below.
-- **`domain/planner.py`** — `_snap_to_cut`/`_Snap` made public as `snap_to_cut`/`Snap` for
-  reuse; `top_state_counts` skips non-ladder states. No behaviour change.
-- **`config.example.toml`** — all twelve roles, with the gameplay six marked optional and
-  `face_x3_to_gameplay = 15` explicitly flagged as *inferred, not measured*.
+- **`domain/visual_episodes.py` (new)** — pure. `Roi.from_transform` (the derivation),
+  `GAMEPLAY_ROI`, `roi_mask`, `spatial_sample` (inside/outside, active fraction, bbox,
+  concentration, connected regions), `visual_episode_features` (persistence, novelty, onset),
+  `zoom_utility`, and `VisualWindowAnnotation` — the study-label model that keeps "the numbers
+  say" and "a human saw" in separate columns.
+- **`vision.py`** — `activity_from_frames` / `activity_frames`: the same mean-subtracted
+  absolute frame difference `motion_from_frames` already computes, kept per cell instead of
+  averaged, on a 32x18 grid. No new dependency, no second render (D065).
+- **`domain/gameplay.py`** — `GameplayWindowFeatures.visual`, and a second shape for question
+  A: `use_zoom_utility` (off by default) makes the visual verdict the only thing that can say
+  yes, with `candidate_silence_ms` and `require_secondary_audio` as gates that can only remove
+  a candidate (D067).
+- **`resolve/gameplay_study.py`** — decodes the same rendered file a second time, measures the
+  15 windows spatially, emits the annotation per window, and runs the six-family ablation.
+- **`config.example.toml`** — `face_x3_to_gameplay = 15` no longer marked unconfirmed; the
+  measured zoom geometry documented next to the roles.
 
-`resolve/executor.py`, `resolve/owned_preview.py`, `domain/ownership.py` and
-`resolve/ownership.py` needed **no change at all** — fourth phase running.
-
-## The guard that fired, and it is the good news
-
-The first secondary-audio render **refused**:
-
-    VoiceRenderFailed: the surviving audio track(s) are [('Audio 1', 21), ('Audio 2', 21)],
-    expected [('Audio 2', 21), ('Audio 3', 21)]
-
-Deleting A1 to leave A2+A3 renumbers *and renames* the survivors on 21.0.4.5, and since all
-three tracks here carry the same 21 items, the post-condition could no longer prove which track
-survived. It stopped rather than analysing a mix it could not identify.
-
-The fix was not to weaken the check. `_silence_audio_tracks` empties unwanted tracks with
-`DeleteClips`, so dropped tracks end at zero items while kept tracks keep index, name and item
-count — strictly stronger, and positional rather than name-based (D063). `_isolate_voice_track`
-is untouched and still runs the proven Phase 3 single-track path.
-
-Consequence: **which of A2/A3 is the game and which is other people is never claimed anywhere.**
+`domain/planner.py`, `resolve/executor.py`, `resolve/owned_preview.py`, `domain/ownership.py`
+and `resolve/ownership.py` needed **no change at all** — fifth phase running.
 
 ## Live results — PERFORMED, 2026-08-18
 
-Full output: `.agent/reports/phase-09a-live-workflow-report.txt`.
+Full output: `.agent/reports/phase-09b-live-workflow-report.txt`.
 
-**`gameplay-study`** — PASS. Three renders (voice 7.0 s, secondary audio 5.0 s, program video
-18.0 s), each on its own scratch duplicate. All three: `clean` true, `error` null,
-`audit_differences` empty, scratch absent after cleanup, render queue restored, no unrestored
-Deliver state, render directory removed. 11/15 windows classified as the human did.
+- **read-only Fusion probe** — 11/11 comps exported and parsed, nothing modified.
+- **`gameplay-study`** — PASS. Two renders (secondary audio 7.0 s, program video 15.0 s), each
+  on its own scratch duplicate: `clean` true, `error` null, `audit_differences` empty, scratch
+  absent after cleanup, render queue restored, no unrestored Deliver state, render directory
+  removed. Total 86.4 s.
+- **`plan-probe` facecam regression** — PASS. 42 placements, 14 bursts, 15 segments, 63
+  valleys, 126 decision lines, fingerprint `sha256:a1d107e1…d46a5483` — every one identical to
+  the Phase 8c/9a baseline.
+- **Independent post-run audit** — PASS. 9/9 protected timelines unchanged with their original
+  unique ids; **zero timelines added**; no leftover scratch/recovery/temp timeline; 12/12 Media
+  Pool items identical; render queue empty; no DAZ render preset; format/codec restored to
+  mov/ProRes422HQ; current timeline restored to `DAZ_OUTPUT_MVP3`; no temp directories left.
 
-**`plan-probe` facecam regression** — PASS, and this is the important one. Before and after:
-
-    42 placements IDENTICAL in (role, start, end, reason, cut_frame, burst_index)
-    14 bursts, 15 segments, 63 valleys / 14 used — identical
-    126-line decision trace — 125 lines identical
-    fingerprint sha256:a1d107e1…d46a5483 — unchanged since Phase 5
-
-The only two differences anywhere are "the config declares more assets": `role_counts` now
-lists the six gameplay roles at **0**, and `PlanSource` records six more configured assets.
-Adding `STATE_GAMEPLAY` moved no frame (D054).
-
-**Independent post-run audit** — PASS. 9/9 protected timelines unchanged with their original
-unique ids; **zero timelines added**; no leftover recovery, scratch or temp timeline; 12/12
-Media Pool items identical; render queue empty; no DAZ render preset left; project
-format/codec restored to mov/ProRes422HQ; current timeline restored to `DAZ_OUTPUT_MVP3`; no
-temp directories under `/tmp`.
+**Media**: the visual review rendered the program video and extracted frames and contact
+sheets under `/tmp`, and all of it was deleted afterwards. Nothing of the user's footage is in
+this public repository, by rule.
 
 ## Verification results (this session)
 
-- `pytest` — **615 passed** (539 before; +76). No Resolve, no network.
+- `pytest` — **642 passed** (615 before; +27). No Resolve, no network.
 - `ruff check .` — All checks passed.
-- `mypy` (strict) — Success: no issues found in 42 source files.
-- `gameplay-study` live — PASS, 3 clean renders, 11/15 agreement.
-- `plan-probe` live — PASS, 42 placements byte-identical to the Phase 8c baseline.
+- `mypy` (strict) — Success: no issues found in 43 source files.
+- `gameplay-study` live — PASS, 2 clean renders.
+- `plan-probe` live — PASS, plan byte-identical to the Phase 8c baseline.
 - independent post-run audit — PASS, zero timelines added.
 
-## Operational note
+## Runtime cost of the new layer
 
-`gameplay-study` takes a few minutes (three renders + VAD + envelope + ffmpeg video decode).
-Run it without a short command timeout, for the same reason as `apply-preview`: the safety
-model is transactional against *failures*, not against the process being killed. A kill mid-run
-leaves a `DAZ_AUDIO_SCRATCH_*` timeline and possibly a temporary render preset, both disposable
-by name, because the thing that would clean them up is the thing that got killed.
+Per minute of timeline: 3.5 s to decode the 32x18 grid, 0.1 s for the pure statistics. About
+6% of realtime, linear, no GPU. Cheap — and it buys 7/15 against a no-signal 11/15, so it
+stays a measurement tool and enters no runtime path.
 
 ## Remaining unknowns
 
-New after Phase 9a:
+New after Phase 9b:
 
-- **the gameplay entry anchor is unexplained.** No cluster, no signal, systematically early.
-  This is the single largest open question in the gameplay model;
-- **the four "whether" errors share a location, not a feature.** Gaps 10, 11 and 12 are three
-  *consecutive* windows in the one stretch where the creator talks in short bursts and the
-  editor never cut to the game; gap 1 is the timeline's second window. Nothing measured sees
-  that stretch. Asking the creator is worth more than another feature;
-- **everything rests on one reference timeline and 15 windows**, 10 of them labelled gameplay.
-  The negative result is robust to that — nested ranges are not a small-sample artifact — but
-  the candidate rule's 11/15 is not;
-- `face_x3_to_gameplay` has **no manual instance**: both its place in the graph and its
-  15-frame length are inferred (D062). Confirm with the creator before Phase 9b uses it;
-- `mixed` windows are scored as gameplay for "whether". Under a stricter reading the rule does
-  worse, and the entry deltas are exactly why: the human fills 9-70% of a mixed window, the
-  proposal fills all of it;
-- the motion metric has never been checked against anyone's eyes, only against clip positions.
+- **"would a zoom help here" is not expressible with frame differences.** The three properties
+  that distinguish the classes — is there a subject at all, how big is it on screen, is it
+  where the zoom keeps it — are all statements about *objects*, and this pipeline has no notion
+  of one. The next classical experiment is camera-motion compensation (see below); after that,
+  only semantics remain;
+- **the entry anchor is still unexplained**, though the visual-onset hypothesis is now on the
+  table with 4 supporting measurements;
+- **gap 13 shows even a perfect visual reader would be insufficient** — the editor cut to a
+  near-black outro;
+- everything still rests on **one reference timeline and 15 windows**.
 
-Carried forward: the rendered voice audio has never been listened to; no hand-labelled speech
-reference; the fingerprint cannot see Fairlight/OFX changes that move no clip; collision
-behaviour is still unmeasured (D032); marker capacity untested at scale; the detector is
-calibrated on one speaker.
+Carried forward from earlier phases: the rendered voice audio has never been listened to; no
+hand-labelled speech reference; burst extent (Phase 8b) is still wrong by up to 77 frames and
+contaminates three of the ten entry measurements; the fingerprint cannot see Fairlight/OFX
+changes that move no clip; collision behaviour unmeasured (D032); marker capacity untested at
+scale; the detector is calibrated on one speaker.
 
-**Retired by this phase:** "no preview has been watched since Phase 6" — the user has now
-watched and validated the Phase 8c preview.
+**Retired by this phase**: "gaps 10/11/12 may be a section effect" (the creator explained
+them); "`X3_TO_GAMEPLAY = 15` is inferred" (confirmed); "the motion metric has never been
+checked against anyone's eyes" (it has now, and it disagrees with them — see D066).
 
-## Next task — NOT Phase 9b, and not automatically Phase 8b either
+## Next task — NOT Phase 9c
 
-Phase 9a's own recommendation, in descending order of expected value:
+In descending order of expected value:
 
-1. **A second reference edit that uses gameplay.** Worth more than everything below combined.
-2. **Ask the creator about gaps 1, 10, 11 and 12** — why did the game not come up there? Four
-   windows, one question.
-3. **Phase 8b (burst extent).** Still open, and now relevant to gameplay too: three of ten
-   manual gameplay entries sit inside a detected burst, and one is exactly Phase 8c's recorded
-   burst-1 overrun of 77 frames. It contaminates the entry measurements.
-4. Only then Phase 9b: the entry-anchor rule and `AssetPlacement` emission.
+1. **A second reference edit that uses gameplay.** Unchanged from Phase 9a's recommendation and
+   now twice as well-founded: two different feature families have failed on the same 15
+   windows. Fifteen windows from one delivery cannot support a rule.
+2. **Camera-motion compensation, the one classical experiment left.** Estimate a global
+   translation per sample (a coarse cross-correlation over the 32x18 grid is pure numpy, no new
+   dependency), subtract it, and re-measure everything in section 5 of the analysis report. It
+   would turn "the whole frame moved" into "the frame moved 6 cells left and this blob did
+   not" — the first measurement in this project that describes an *object*. Cheap, bounded, and
+   the honest prerequisite for any subject-scale feature.
+3. **Phase 8b (burst extent).** Still open, still the cleanest remaining defect, and still
+   contaminating the gameplay entry measurements.
+4. Only after 1 and 2: a Phase 9c that emits gameplay `AssetPlacement`s. **Phase 9b does not
+   recommend it yet** — there is no rule to place with.
 
-Phase 8b is no longer the *imposed* next milestone — the user's facecam rendering is good
-enough — but it is still the cleanest remaining defect, and it now blocks gameplay entry
-modelling as well.
+If 2 fails as well, the recommendation is a semantic study whose classification contract is
+already written down (analysis report, section 10) — and even then it stays offline research:
+DAZ's runtime is ffmpeg + numpy + Silero, and a rule DAZ cannot recompute locally cannot ship
+(D065).
 
 Phase 7b (apply in place) remains open; see `.agent/IMPLEMENTATION_PLAN.md`.
 

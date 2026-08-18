@@ -47,11 +47,23 @@ from davinci_auto_zoom.domain.gameplay import (
 from davinci_auto_zoom.domain.models import Frame, FrameRange
 from davinci_auto_zoom.domain.probe import VoiceRenderTarget
 from davinci_auto_zoom.domain.timebase import Timebase
+from davinci_auto_zoom.domain.visual_episodes import (
+    GAMEPLAY_ROI,
+    GAMEPLAY_TRANSFORM_SIZE,
+    SpatialSample,
+    VisualEpisodeFeatures,
+    VisualWindowAnnotation,
+    ZoomUtilityDecision,
+    roi_mask,
+    spatial_sample,
+    visual_episode_features,
+    zoom_utility,
+)
 from davinci_auto_zoom.resolve.session import snapshot_project
 from davinci_auto_zoom.resolve.voice_render import render_voice_track
 from davinci_auto_zoom.speech.audio import normalized_audio
 from davinci_auto_zoom.speech.energy import energy_envelope
-from davinci_auto_zoom.vision import VisionSettings, motion_envelope
+from davinci_auto_zoom.vision import VisionSettings, activity_frames, motion_envelope
 
 CONFIRM_FLAG = "--confirm-resolve-render-test"
 
@@ -65,12 +77,33 @@ VIDEO_RENDER_PRESET = "H.264 Master"
 AUDIO_REFERENCE_PERCENTILE = 0.75
 MOTION_REFERENCE_PERCENTILE = 0.5
 
-#: The four ablation families of the phase brief, as (label, settings-overrides).
+#: Phase 9b decodes the **same rendered file** a second time on a coarser grid, so the spatial
+#: reading costs one extra ffmpeg pass over an existing file and no extra Resolve render.
+#: 32x18 keeps the 16:9 layout and is still far finer than any editorial decision.
+SPATIAL_GRID = VisionSettings(width=32, height=18, sample_rate=10)
+#: A cell counts as moving relative to the timeline's own median cell, never to a constant.
+CELL_REFERENCE_PERCENTILE = 0.5
+#: How far back "new" is measured against, in frames of timeline (3 s at 60 fps).
+NOVELTY_BASELINE_FRAMES = 180
+
+#: The six ablation families of the Phase 9b brief, as (label, settings-overrides). A and B
+#: are Phase 9a's signals — kept so the comparison is run by the same code, not quoted from an
+#: old report — and C to F are the spatial reading with the two context gates added on top.
+#: Every family runs `decide_gameplay`; none of them is a second implementation.
 ABLATIONS: tuple[tuple[str, dict[str, Any]], ...] = (
-    ("A silence only", {"use_secondary_audio": False, "use_video": False}),
-    ("B silence+audio", {"use_secondary_audio": True, "use_video": False}),
-    ("C silence+video", {"use_secondary_audio": False, "use_video": True}),
-    ("D silence+audio+video", {"use_secondary_audio": True, "use_video": True}),
+    ("A phase9a silence+audio+video", {"use_secondary_audio": True, "use_video": True}),
+    ("B visual amount only", {"use_secondary_audio": False, "use_video": True}),
+    ("C visual spatial", {"use_zoom_utility": True}),
+    ("D spatial+silence prior", {"use_zoom_utility": True, "candidate_silence_ms": 1000}),
+    ("E spatial+audio context", {"use_zoom_utility": True, "require_secondary_audio": True}),
+    (
+        "F spatial+silence+audio",
+        {
+            "use_zoom_utility": True,
+            "candidate_silence_ms": 1000,
+            "require_secondary_audio": True,
+        },
+    ),
 )
 
 
@@ -86,6 +119,9 @@ class WindowRow:
     features: GameplayWindowFeatures
     coverage: ManualCoverage
     decision: GameplayDecision
+    #: Phase 9b: would magnifying the picture here actually help? Reported next to the
+    #: decision rather than folded into it, because on this material it does not decide.
+    zoom: ZoomUtilityDecision | None = None
 
     @property
     def manual_gameplay(self) -> bool:
@@ -117,6 +153,10 @@ class WindowRow:
             "agrees": self.agrees,
             "start_delta": self.start_delta(),
             "end_delta": self.end_delta(),
+            "zoom_utility": self.zoom.to_dict() if self.zoom is not None else None,
+            "annotation": VisualWindowAnnotation.from_features(
+                self.window.index, self.features.visual
+            ).to_dict(),
         }
 
 
@@ -135,6 +175,11 @@ class CutTiming:
     #: For an entry: how far into the silence window it sits. For an exit: how far from the
     #: next burst start. The two numbers the phase brief asks for, by boundary kind.
     delta_to_boundary: int | None
+    #: Phase 9b, entries only: the first frame of the window's longest localized visual
+    #: episode, and how far the editor's own frame sits from it. `None` when the window holds
+    #: no such episode at all — which on this material is most of them (D066).
+    visual_onset: Frame | None = None
+    delta_to_visual_onset: int | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -146,6 +191,8 @@ class CutTiming:
             "nearest_delta": self.nearest_delta,
             "on_cut": self.on_cut,
             "delta_to_boundary": self.delta_to_boundary,
+            "visual_onset": self.visual_onset,
+            "delta_to_visual_onset": self.delta_to_visual_onset,
         }
 
 
@@ -188,6 +235,8 @@ class GameplayStudyReport:
     hard_cuts: int = 0
     audio_reference_db: float | None = None
     motion_reference: float | None = None
+    cell_reference: float | None = None
+    gameplay_roi: dict[str, Any] | None = None
     secondary_audio_tracks: tuple[int, ...] = ()
 
     reference: dict[str, Any] | None = None
@@ -233,6 +282,8 @@ class GameplayStudyReport:
             "hard_cuts": self.hard_cuts,
             "audio_reference_db": self.audio_reference_db,
             "motion_reference": self.motion_reference,
+            "cell_reference": self.cell_reference,
+            "gameplay_roi": self.gameplay_roi,
             "secondary_audio_tracks": list(self.secondary_audio_tracks),
             "reference": self.reference,
             "windows": [row.to_dict(rate) for row in self.rows],
@@ -260,6 +311,10 @@ class GameplayStudyReport:
             f"({'all clean' if self.clean else 'NOT CLEAN — see the audit'})",
             f"  voice     : {self.speech_segments} segment(s) -> {self.bursts} burst(s), "
             f"{self.hard_cuts} hard cut(s)",
+            f"  zoom geometry: GAMEPLAY = Transform Size "
+            f"{GAMEPLAY_TRANSFORM_SIZE}, centre offset (0, 0) -> shows "
+            f"x[{GAMEPLAY_ROI.x0:.2f}, {GAMEPLAY_ROI.x1:.2f}] "
+            f"y[{GAMEPLAY_ROI.y0:.2f}, {GAMEPLAY_ROI.y1:.2f}] of the frame (D064)",
             f"  reference levels: audio p{int(AUDIO_REFERENCE_PERCENTILE * 100)} = "
             f"{self.audio_reference_db:.1f} dBFS, motion median = {self.motion_reference:.4f}"
             if self.audio_reference_db is not None and self.motion_reference is not None
@@ -342,6 +397,19 @@ class GameplayStudyReport:
             f"active={row.features.video.active_fraction * 100:.0f}% "
             f"cuts={row.features.video.hard_cuts} "
             f"({row.features.video.cut_density:.2f}/s)",
+            f"    visual shape   : roi={row.features.visual.roi_activity:.4f} "
+            f"outside={row.features.visual.outside_activity:.4f} "
+            f"ratio={row.features.visual.roi_ratio:.2f} "
+            f"active_cells={row.features.visual.active_cell_fraction * 100:.0f}% "
+            f"bbox={row.features.visual.bbox_area:.2f} "
+            f"conc={row.features.visual.concentration:.2f} "
+            f"regions={row.features.visual.regions:.1f}",
+            f"    zoom utility   : "
+            f"{'WORTH IT' if row.zoom is not None and row.zoom.zoom_worthy else 'no'} "
+            f"({row.zoom.reason if row.zoom is not None else 'not measured'}) "
+            f"persistence={row.features.visual.persistence_seconds:.1f}s "
+            f"novelty={row.features.visual.novelty:.2f} "
+            f"onset={row.features.visual.onset if row.features.visual.onset else '-'}",
         ]
         if decision.use_gameplay:
             lines.extend(
@@ -375,16 +443,34 @@ class GameplayStudyReport:
         lines = [
             "    ep  role                    frame   prev cut   next cut  nearest  "
             + boundary
+            + "   visual onset  delta"
         ]
         for timing in timings:
             nearest = "-" if timing.nearest_delta is None else f"{timing.nearest_delta:+d}"
             boundary_delta = (
                 "-" if timing.delta_to_boundary is None else f"{timing.delta_to_boundary:+d}"
             )
+            onset_delta = (
+                "-"
+                if timing.delta_to_visual_onset is None
+                else f"{timing.delta_to_visual_onset:+d}"
+            )
             lines.append(
                 f"    {timing.episode_index:>2}  {timing.role:22} {timing.frame:>7}  "
                 f"{str(timing.previous_cut):>9}  {str(timing.next_cut):>9}  "
                 f"{nearest:>7}{'*' if timing.on_cut else ' '} {boundary_delta:>9}"
+                f"   {str(timing.visual_onset):>12}  {onset_delta}"
+            )
+        onsets = [
+            t.delta_to_visual_onset for t in timings if t.delta_to_visual_onset is not None
+        ]
+        if onsets:
+            ordered_onsets = sorted(onsets, key=abs)
+            lines.append(
+                f"    against the visual onset ({len(onsets)}/{len(timings)} measurable): "
+                f"|delta| min/median/max = {abs(ordered_onsets[0])} / "
+                f"{abs(ordered_onsets[len(ordered_onsets) // 2])} / "
+                f"{abs(ordered_onsets[-1])} frames"
             )
         on_cut = sum(1 for t in timings if t.on_cut)
         deltas = [t.delta_to_boundary for t in timings if t.delta_to_boundary is not None]
@@ -410,6 +496,7 @@ def _cut_timing(
     role: str,
     cuts: tuple[Frame, ...],
     boundary: Frame | None,
+    visual_onset: Frame | None = None,
 ) -> CutTiming:
     previous_cut, next_cut = _nearest_cuts(frame, cuts)
     candidates = [c for c in (previous_cut, next_cut) if c is not None]
@@ -423,6 +510,8 @@ def _cut_timing(
         nearest_delta=nearest,
         on_cut=frame in cuts,
         delta_to_boundary=None if boundary is None else frame - boundary,
+        visual_onset=visual_onset,
+        delta_to_visual_onset=None if visual_onset is None else frame - visual_onset,
     )
 
 
@@ -577,6 +666,10 @@ def run_gameplay_study(
         (point.frame, point.motion)
         for point in motion_envelope(video_file, timebase, vision).points
     ]
+    # Phase 9b: the same file again, on a coarse grid, so the picture can be read spatially
+    # instead of only as one number per instant (D065). One extra ffmpeg pass, no extra render.
+    grids = activity_frames(video_file, timebase, SPATIAL_GRID)
+    report.gameplay_roi = GAMEPLAY_ROI.to_dict()
 
     if not audio_envelope or not motion:
         raise GameplayStudyRefused(
@@ -588,6 +681,12 @@ def run_gameplay_study(
     report.motion_reference = percentile(
         [value for _, value in motion], MOTION_REFERENCE_PERCENTILE
     )
+    report.cell_reference = percentile(
+        [value for grid in grids for value in grid.cells], CELL_REFERENCE_PERCENTILE
+    )
+    mask = roi_mask(GAMEPLAY_ROI, SPATIAL_GRID.width, SPATIAL_GRID.height)
+    threshold = settings.zoom_utility.active_cell_threshold_ratio * report.cell_reference
+    spatial = [spatial_sample(grid, mask, threshold) for grid in grids]
 
     # --- the human edit, through the graph -------------------------------------------------
     zoom_track = reference.track("video", config.zoom_video_track)
@@ -613,6 +712,7 @@ def run_gameplay_study(
             video=video_activity_features(
                 motion, window, report.motion_reference, hard_cuts, frame_rate
             ),
+            visual=_visual_features(spatial, window, settings),
         )
         report.rows.append(
             WindowRow(
@@ -620,13 +720,38 @@ def run_gameplay_study(
                 features=features,
                 coverage=manual_coverage(window, states.episodes),
                 decision=decide_gameplay(features, hard_cuts, frame_rate, settings),
+                zoom=zoom_utility(features.visual, settings.zoom_utility),
             )
         )
 
     report.ablations = _ablations(report.rows, hard_cuts, frame_rate, settings)
-    report.entry_timing, report.exit_timing = _timings(states, windows, hard_cuts)
+    report.entry_timing, report.exit_timing = _timings(
+        states, windows, hard_cuts, {row.window.index: row.features.visual.onset
+                                     for row in report.rows}
+    )
     report.total_seconds = time.perf_counter() - started
     return report
+
+
+def _visual_features(
+    spatial: list[SpatialSample],
+    window: SilenceWindow,
+    settings: GameplayPolicySettings,
+) -> VisualEpisodeFeatures:
+    """One window's spatial reading, with the seconds before it as the novelty baseline."""
+
+    baseline = [
+        sample
+        for sample in spatial
+        if window.start_frame - NOVELTY_BASELINE_FRAMES <= sample.frame < window.start_frame
+    ]
+    return visual_episode_features(
+        spatial,
+        window.frames,
+        SPATIAL_GRID.sample_rate,
+        baseline=baseline,
+        settings=settings.zoom_utility,
+    )
 
 
 def _audio_features(
@@ -683,6 +808,7 @@ def _timings(
     states: ReferenceStates,
     windows: tuple[SilenceWindow, ...],
     hard_cuts: tuple[Frame, ...],
+    onsets: dict[int, Frame | None],
 ) -> tuple[list[CutTiming], list[CutTiming]]:
     """Where each manual gameplay boundary sits, separated by the role that performed it."""
 
@@ -704,6 +830,7 @@ def _timings(
                 episode.entry_role,
                 hard_cuts,
                 containing.start_frame if containing else None,
+                onsets.get(containing.index) if containing else None,
             )
         )
         exits.append(

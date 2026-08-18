@@ -483,28 +483,87 @@ cases). The entry anchor is untouched — no cluster, no signal, systematically 
 `apply-preview` for gameplay, gameplay ownership/rebuild, apply in place, any semantic CV,
 transcription, learned classifiers, further gameplay states or transitions.
 
-## Phase 9b — Gameplay planning [NEXT ONLY IF A SECOND REFERENCE EXISTS]
+## Phase 9b — Visual relevance / zoom usefulness [DONE — measurement, dry run only]
 
-Turning Phase 9a's proposals into real placements. **Do not start this on the current
-evidence.** Phase 9a says the entry anchor is unsolved and the four "whether" errors are
-unexplained; shipping a planner on 15 windows from one delivery would bake in exactly the
-overfit D056 refused to commit.
+Goal: not "what is moving" (Phase 9a's failed question) but **"is there something on screen the
+GAMEPLAY zoom would actually help show"**, and can that be represented by generic, explainable
+visual features. Delivered; see `.agent/reports/phase-09b-visual-zoom-utility-analysis.txt`,
+`.agent/reports/phase-09b-policy-comparison.txt` and
+`.agent/reports/phase-09b-live-workflow-report.txt`.
+
+- **The zoom's geometry is now measured, not assumed** (D064). Read-only `ExportFusionComp` on
+  one instance of each of the eleven roles that exist in `DAZ_OUTPUT_MVP3`: every one is a
+  single Fusion `Transform`, keyframes at 0 and 15, no crop and no mask anywhere. `GAMEPLAY` is
+  `Size 1.25` with the centre untouched; the facecam ladder is `1.5/2.0/2.5` with the centre
+  walked into the corner the facecam inset occupies. All four entries converge on one state.
+- **`GameplayTargetROI` is derived from those two numbers** by `Roi.from_transform`, not typed
+  in: the central 80% of the frame. The derivation is validated by reproducing the facecam
+  ladder's corner rectangles.
+- **`vision.activity_frames`** keeps the existing frame-difference measurement per cell on a
+  32x18 grid — one extra ffmpeg pass over the file the study already renders, no new
+  dependency, no second Resolve render (D065).
+- **`domain/visual_episodes.py`** — pure: ROI masks, inside/outside activity, active-cell
+  fraction and peak, bounding box, concentration, connected regions, persistence, novelty,
+  `zoom_utility`, and `VisualWindowAnnotation` for the study labels.
+- **`domain/gameplay.py`** gains a second shape for question A (D067): with `use_zoom_utility`
+  on, the visual verdict is the only thing that can say *yes*, while creator silence and
+  secondary audio become gates that can only ever remove a candidate. Off by default.
+
+**The result is negative again, and this time the reason is nameable** (D066). Nine spatial
+features, every class range nested, every best single threshold 10 or 11 of 15 against a 10/15
+baseline — and, decisively, **each hard negative has a manual-gameplay twin within about one
+standard deviation** in the full feature space. The ablation runs A-F live: 8, 8, 7, 6, 6, 5,
+against the no-signal candidate rule's 11. Families C-F have zero false positives *and* refuse
+eight of the ten positives, which is a conservative rule, not a discovery.
+
+Why: in a first-person game the mouse translates the whole picture, so a frame difference
+measures the camera and not the game. Visually empty corridors (gaps 11, 12) score the same
+"activity" as an NPC charging the camera (gap 10). The three properties that actually separate
+the classes — is there a subject, how big is it on screen, is it where the zoom keeps it — are
+all statements about *objects*, and this pipeline has no notion of one.
+
+**No candidate rule is proposed**, deliberately: fitting one to 15 windows whose classes contain
+twins would bake in exactly the overfit D056 refused.
+
+The four user explanations (gaps 1, 10, 11, 12) are recorded in D066 and retire Phase 9a's
+section/recency hypothesis. `X3_TO_GAMEPLAY = 15` is **confirmed by the creator** and no longer
+marked inferred anywhere (D062).
+
+**Explicitly out of scope, and still is:** gameplay placements in a production `ZoomPlan`,
+`apply-preview` for gameplay, gameplay ownership/rebuild, apply in place, VLM or cloud runtime,
+object detectors, game-specific logic, semantic transcription, facecam changes.
+
+## Phase 9c — Gameplay planning [BLOCKED — there is no rule to plan with]
+
+Turning proposals into real placements. **Two phases of measurement have now failed to find a
+rule on the only reference that exists**, so this stays blocked, and the blocking is the point.
 
 In descending order of expected value:
 
 1. **A second reference edit that uses gameplay.** Everything below is worth less than this.
-2. **Ask the creator about gaps 1, 10, 11 and 12** — four windows where the game did not come
-   up, three of them consecutive. One question, and worth more than another feature.
-3. **Phase 8b (burst extent) first.** Three of ten manual gameplay entries sit inside a
-   detected burst, and one of them is exactly Phase 8c's recorded burst-1 overrun. The entry
-   measurements are contaminated by it.
-4. Only then: the entry-anchor rule, and `AssetPlacement` emission for the six gameplay roles.
+2. **Camera-motion compensation** — the one classical experiment not yet run, and the honest
+   prerequisite for any "how big is the subject" feature. Estimate a global translation per
+   sample over the existing 32x18 grid (pure numpy, no new dependency), subtract it, and
+   re-measure Phase 9b's nine features. If activity that does not follow the camera separates
+   the classes, there is a rule; if it does not, the classical approach is exhausted and the
+   next step is the semantic contract in section 10 of the Phase 9b analysis report — as
+   offline research, never as a runtime dependency (D065).
+3. **Phase 8b (burst extent) first.** Three of ten manual gameplay entries sit inside a detected
+   burst, and one of them is exactly Phase 8c's recorded burst-1 overrun. The entry measurements
+   are contaminated by it.
+4. Only then: the entry-anchor rule and `AssetPlacement` emission for the six gameplay roles.
 
-When it is written, the shape is already fixed by the graph and by D062: both gameplay clip
-families are **hold** clips animating in 15 frames, so a `*_to_gameplay` placement runs from
-the move to whatever comes next and a `gameplay_to_*` placement has the same shape — the
-`FACE_X*` rule, not the `X*_TO_X0` one. Confirm `X3_TO_GAMEPLAY`'s length with the creator
-before using it; it has no manual instance to measure.
+Two things are already settled for whenever it is written. The **exit anchor** is the creator's
+next burst start, not a cut (Phase 9a, 6 of 10 within one frame). Both gameplay clip families
+are **hold** clips animating in 15 frames (D062), so a `*_to_gameplay` placement runs from the
+move to whatever comes next and a `gameplay_to_*` placement has the same shape — the `FACE_X*`
+rule, not the `X*_TO_X0` one. `X3_TO_GAMEPLAY`'s 15 frames are confirmed; its endpoint state is
+known from the other three entries (D064).
+
+A third is a hypothesis worth testing rather than a settled fact: where a **visual event onset**
+exists, it predicted the editor's entry frame about twice as closely as the start of the silence
+did (|delta| 3, 4, 29, 43 versus 0, 10, 53, 85) — on four episodes, from a detector that tracks
+the camera. Re-measure it after step 2 before believing it.
 
 ## Phase 8b — Burst extent [OPEN — no longer the imposed next milestone]
 
@@ -567,7 +626,7 @@ Potential shape:
 
 Do not make UI architecture dictate domain logic.
 
-## Phase 9 — Gameplay states [SPLIT: 9a DONE above, 9b OPEN above]
+## Phase 9 — Gameplay states [SPLIT: 9a and 9b DONE above, 9c BLOCKED above]
 
 **The state machine itself now exists** (Phase 8, D044), and as of Phase 9a so do the gameplay
 states in it (D053). This section is kept for the record of what the preconditions were and
@@ -579,9 +638,10 @@ The three preconditions, all of which **are** now met:
    10 gameplay episodes, five of the six authorised moves exercised;
 2. ~~an asset family in the bin with known animation lengths~~ — six assets, all 45 frames in
    the Media Pool, all measured at 15 animation frames via read-only Fusion-comp export
-   (D062). `X3_TO_GAMEPLAY` alone has no manual instance and is inferred;
-3. **evidence about what triggers them** — measured, and the answer is that nothing measurable
-   does (D056). The prediction in the original text ("speech duration will not be the answer")
+   (D062). `X3_TO_GAMEPLAY` alone has no manual instance; its 15 frames are **confirmed by the
+   creator** rather than measured, and Phase 9b measured the state it has to land on (D064);
+3. **evidence about what triggers them** — measured twice, and the answer is that nothing
+   measurable does: not motion amount (D056), not motion topology (D066). The prediction in the original text ("speech duration will not be the answer")
    was right, and so was the reason for making it: guessing here would have repeated D047's
    mistake. What Phase 9a did instead was measure, report the negative, and ship a rule with
    zero fitted parameters.

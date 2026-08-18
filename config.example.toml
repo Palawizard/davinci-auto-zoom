@@ -51,9 +51,15 @@ asset_bin = "DAVINCI_AUTO_ZOOM"
 # is how a user who has not built a FACE_X3 asset stays on a two-level edit. The two tables
 # must always list exactly the same roles.
 #
-# The six GAMEPLAY roles are optional in exactly the same way, and in Phase 9a they are read
-# by the `gameplay-study` diagnostic ONLY: the production planner places none of them, and a
-# config that omits them produces an identical facecam plan (D054).
+# The six GAMEPLAY roles are optional in exactly the same way, and through Phase 9b they are
+# read by the `gameplay-study` diagnostic ONLY: the production planner places none of them,
+# and a config that omits them produces an identical facecam plan (D054).
+#
+# What the GAMEPLAY state actually does to the picture was measured in Phase 9b (D064): a
+# Fusion `Transform` at `Size = 1.25` with its centre left alone, i.e. a centred 1.25x push-in
+# showing the middle 80% of the frame. The facecam states are the same tool at 1.5 / 2.0 / 2.5
+# with the centre walked into the corner the facecam inset sits in. The tool still never opens
+# a Fusion graph at runtime (D007); this is a measurement, not an input.
 #
 # Names differ per user/edit style; the tool never inspects or rebuilds what these assets do
 # internally. Note that in this bin the promotion clips are named after the state they LAND in
@@ -102,9 +108,10 @@ face_x1_to_gameplay = 15
 face_x2_to_gameplay = 15
 gameplay_to_x0 = 15
 gameplay_to_face_x1 = 15
-# NOT measured. `X3_TO_GAMEPLAY` has no manual instance anywhere in DAZ_OUTPUT_MVP3, so there
-# was no comp to export and this 15 is inferred from the other five. Confirm it with the
-# creator before Phase 9b places anything with it.
+# `X3_TO_GAMEPLAY` has no manual instance anywhere in DAZ_OUTPUT_MVP3, so there was no comp to
+# export for it. Phase 9a inferred its 15 frames from the other five and flagged the value as
+# unconfirmed; the creator has since **confirmed it explicitly** — the asset animates fully in
+# 15 frames, like every other transition in this bin. It is no longer an assumption (D062).
 face_x3_to_gameplay = 15
 
 [speech]

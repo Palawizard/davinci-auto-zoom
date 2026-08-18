@@ -31,6 +31,7 @@ import numpy as np
 
 from davinci_auto_zoom.domain.models import Frame
 from davinci_auto_zoom.domain.timebase import Timebase
+from davinci_auto_zoom.domain.visual_episodes import ActivityFrame
 from davinci_auto_zoom.speech.audio import FfmpegError, ffmpeg_executable
 
 
@@ -176,10 +177,63 @@ def motion_from_frames(
     return MotionEnvelope(tuple(points), settings)
 
 
+def activity_from_frames(
+    frames: np.ndarray,
+    timebase: Timebase,
+    settings: VisionSettings | None = None,
+) -> tuple[ActivityFrame, ...]:
+    """The same measurement as `motion_from_frames`, kept **per cell** instead of averaged.
+
+    Phase 9b needs to know *where* the picture changed, not only how much (D065). This is the
+    identical mean-subtracted absolute difference — `motion_from_frames` is exactly the mean
+    of these cells — decoded on a coarser grid so each pixel of the decode *is* a cell. No
+    second pass over the video and no second notion of "motion".
+
+    Reading it as an editorial cue stays in `domain/visual_episodes.py`; this function still
+    only answers "how much did this part of the picture change" (D055).
+    """
+
+    settings = settings or VisionSettings()
+    if frames.shape[0] < 2:
+        return ()
+
+    centred = frames - frames.mean(axis=(1, 2), keepdims=True)
+    cells = np.abs(np.diff(centred, axis=0))
+
+    seconds_per_sample = 1.0 / settings.sample_rate
+    height, width = frames.shape[1], frames.shape[2]
+    result = []
+    for index in range(cells.shape[0]):
+        midpoint_seconds = (index + 0.5) * seconds_per_sample
+        sample = int(round(midpoint_seconds * timebase.sample_rate))
+        result.append(
+            ActivityFrame(
+                frame=timebase.start_frame_of(sample),
+                columns=width,
+                rows=height,
+                cells=tuple(float(value) for value in cells[index].reshape(-1)),
+            )
+        )
+    return tuple(result)
+
+
+def activity_frames(
+    video: Path,
+    timebase: Timebase,
+    settings: VisionSettings | None = None,
+) -> tuple[ActivityFrame, ...]:
+    """Decode `video` on the settings' grid and measure each cell. Decode, then measure."""
+
+    settings = settings or VisionSettings()
+    return activity_from_frames(decode_gray_frames(video, settings), timebase, settings)
+
+
 __all__ = [
     "MotionEnvelope",
     "MotionPoint",
     "VisionSettings",
+    "activity_frames",
+    "activity_from_frames",
     "decode_gray_frames",
     "motion_envelope",
     "motion_from_frames",

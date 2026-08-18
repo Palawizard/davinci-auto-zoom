@@ -200,11 +200,12 @@ Do not add a GUI until the real workflow has been validated from CLI/dry-run.
 - `cli.py`: orchestration only; no business logic
 - `tests/`: primarily pure tests; Resolve integration tests should be opt-in and clearly separated
 
-## Known uncertainty after Phase 9a
+## Known uncertainty after Phase 9a/9b
 
-Phase 9a is a measurement phase and its main result is a negative one. Read
-`.agent/reports/phase-09a-mvp3-gameplay-analysis.txt` before assuming anything about gameplay
-triggers.
+Phases 9a and 9b are both measurement phases and both main results are negative ones. Read
+`.agent/reports/phase-09a-mvp3-gameplay-analysis.txt` and
+`.agent/reports/phase-09b-visual-zoom-utility-analysis.txt` before assuming anything about
+gameplay triggers.
 
 - **the Phase 8c preview has been WATCHED and validated by the user.** The facecam behaviour
   — `X0 -> FACE_X1` on a burst, `FACE_X2` on the first voice valley/recovery, `FACE_X3` on the
@@ -224,12 +225,28 @@ triggers.
   the creator's next burst start (6 of 10 within one frame), not on the cut list (87-152 frames
   away in seven of nine cases). Entries have no cluster and no signal, and the proposal is
   systematically ~62 frames early;
-- **the four "whether" errors share a location, not a feature.** Gaps 10, 11 and 12 are three
-  consecutive windows in the one stretch where the creator talks in short bursts and the editor
-  never cut to the game. Asking the creator why is worth more than another feature;
-- `face_x3_to_gameplay` has **no manual instance anywhere in MVP3**. Both its place in the
-  graph and its 15-frame animation length are inferred rather than measured (D062). Confirm
-  with the creator before Phase 9b places anything with it;
+- **the four "whether" errors are explained by the creator, not by a feature** (D066). Gap 1:
+  friends talk but nothing new is visible. Gap 10: something happens, but zooming would add
+  nothing. Gaps 11 and 12: the friend is talking about something that is not on screen. This
+  *retires* Phase 9a's guess that the three consecutive windows were a section/recency effect;
+- **motion topology fails exactly as motion amount did** (D066). Phase 9b measured activity
+  inside and outside the zoom's own region, their ratio, active-cell fraction and peak,
+  bounding-box area, concentration, region count, persistence and novelty: every class range
+  nests, every best threshold is 10 or 11 of 15, and each hard negative has a manual-gameplay
+  twin within about one standard deviation of it. The ablation A-F scores 8, 8, 7, 6, 6, 5
+  against the no-signal rule's 11;
+- **the reason is nameable**: a frame difference in a first-person game measures the player's
+  camera, not the game's events — visually empty corridors score the same "activity" as an NPC
+  charging the camera. What separates the classes is *subject, apparent size, and position*,
+  and this pipeline has no notion of an object (D066);
+- **the gameplay zoom privileges no region** (D064). Measured from the Fusion comps: a centred
+  1.25x push-in showing the middle 80%. It cannot magnify a corner HUD element; it crops the
+  outer 10%. Any "is the event inside the zoom's ROI" rule is therefore nearly content-free for
+  GAMEPLAY, though meaningful for the facecam states;
+- **secondary audio is context and creator silence is a prior** — neither may ever trigger a
+  gameplay move on its own. Structural in `decide_gameplay` and tested (D067);
+- `face_x3_to_gameplay` has **no manual instance anywhere in MVP3**, but its 15-frame length is
+  now **confirmed by the creator** and the state it must land on is measured (D062, D064);
 - everything above rests on **one reference timeline and 15 windows**. The negative result is
   robust to that (nested ranges are not a small-sample artifact); the candidate rule's 11/15 is
   not.

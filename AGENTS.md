@@ -33,13 +33,20 @@ For the current assignment, also read the prompt file named by the user.
   recovery cues read from it. Pure: no numpy, no ONNX, no file. Every threshold is **relative**,
   in dB against the burst's own voice level, so a gain change cannot change the edit (D051).
 - `vision.py` — the picture's turn at the same boundary: rendered video -> ffmpeg -> small
-  grayscale frames -> a motion envelope. **Objective visual facts only** ("how much did the
-  picture change here"), never "is this an interesting moment". No object detection, no OCR,
-  no game-specific model, no VLM, and no new dependency: ffmpeg and numpy already exist (D055).
-- `domain/gameplay.py` — pure, and the reader of both envelopes for the gameplay question. It
+  grayscale frames -> a motion envelope, and the same measurement kept **per cell** on a coarse
+  grid (D065). **Objective visual facts only** ("how much did this part of the picture change
+  here"), never "is this an interesting moment". No object detection, no OCR, no game-specific
+  model, no VLM, and no new dependency: ffmpeg and numpy already exist (D055).
+- `domain/visual_episodes.py` — pure, and the reader of those cells: the zoom's region of
+  interest **derived from the measured Fusion transform** rather than guessed (D064), the
+  spatial statistics (concentration, scale, persistence, novelty) and `zoom_utility`. An agent
+  may use its own vision to *study* frames; **DAZ's runtime never does**, and a rule DAZ cannot
+  recompute locally with ffmpeg + numpy + Silero cannot ship (D065).
+- `domain/gameplay.py` — pure, and the reader of every envelope for the gameplay question. It
   keeps two things apart on purpose (D057): *whether* a would-be-X0 window should be gameplay,
-  and *where exactly* the move starts and ends. Phase 9a is dry-run only — nothing here emits
-  an `AssetPlacement`, and the production planner does not import it.
+  and *where exactly* the move starts and ends. Secondary audio and creator silence are context
+  and prior: they may remove a candidate, never create one (D067). Phases 9a and 9b are dry-run
+  only — nothing here emits an `AssetPlacement`, and the production planner does not import it.
 - Timeline positions are integer frames internally. Half-open ranges `[start, end)`.
 - **No editorial logic below the planner.** The executor resolves a role to a clip name,
   appends it at the planned frames, verifies and tags. It does not know what a zoom level is,
@@ -69,6 +76,13 @@ For the current assignment, also read the prompt file named by the user.
   or Media Pool asset. The only proof is a DAZ marker with valid `customData` on the
   TimelineItem instance (D035). An item DAZ cannot classify is `ambiguous`, and ambiguity
   means zero deletions.
+
+## User media
+
+The repository is **public**, and the reference material is the creator's own face and
+gameplay. Rendered video, extracted frames, contact sheets, screenshots and audio are always
+temporary, local, gitignored and deleted when the study that needed them ends. Only numbers,
+tables and prose are committed. This holds even when a frame would make a report clearer.
 
 ## Git and documentation
 

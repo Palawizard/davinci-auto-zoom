@@ -612,3 +612,65 @@ window runs 0 to 166 frames with no cluster. Three entries begin *inside* a dete
 one of those (-77 frames) is exactly the burst-1 overrun Phase 8c already recorded — the two
 numbers match to the frame, which is independent confirmation that the divergence is the VAD's
 burst end and not the editor's taste.
+
+## Phase 9b — the zoom's own geometry, and why frame differences cannot see a game event
+
+**`ExportFusionComp` answers geometry as cleanly as it answered timing.** One instance of each
+of the eleven roles present in `DAZ_OUTPUT_MVP3`, exported read-only and parsed. Every comp is
+the same five nodes — `Loader -> Transform -> Saver`, `Size` on a `BezierSpline`, `Center` on a
+`PolyPath` — and there is **no Crop, no Mask, no Merge and no second Transform anywhere** in
+this asset family. The user's whole zoom vocabulary is two numbers per state:
+
+    state       Size    centre offset (Fusion, y up)     shows (source, y down)
+    X0          1.00    (0.00, 0.00)                     everything
+    GAMEPLAY    1.25    (0.00, 0.00)                     x[0.10,0.90] y[0.10,0.90]
+    FACE_X1     1.50    (0.25, 0.25)                     x[0, 0.667] y[0.333, 1]
+    FACE_X2     2.00    (0.50, 0.50)                     x[0, 0.5]   y[0.5, 1]
+    FACE_X3     2.50    (0.75, 0.75)                     x[0, 0.4]   y[0.6, 1]
+
+Two things worth writing down about the `.comp` format itself, both learned the hard way:
+
+  * the `PolyPath` points are **offsets from the tool's default centre**, not absolute
+    coordinates. Reading them as absolute puts `X0` — a state that must be a no-op — at the
+    bottom-left corner of the frame, which is how the mistake announces itself. The facecam
+    ladder is the check: read as offsets it produces a nested family of corner rectangles
+    landing exactly on the facecam inset, which is where the facecam demonstrably is;
+  * Fusion's Y axis points **up** and ffmpeg's decoded rows go **down**, so exactly one flip is
+    needed, in one place (`Roi.from_transform`). The GAMEPLAY rectangle is symmetric, so the
+    flip is invisible there and would have gone unnoticed without the facecam check.
+
+**The gameplay zoom is a centred 1.25x push-in.** It privileges no region; it crops the outer
+10% of the frame — which in this delivery is precisely where the HUD lives (weapon wheel top,
+ammo bottom-right, title card top-left, kill feed top-right) — and enlarges the rest a quarter.
+
+**Frame differencing measures the camera, not the game.** The single most useful measured fact
+of Phase 9b. On 32x18 cells at 10 samples/s, over the 15 would-be-X0 windows:
+
+    gaps 11, 12 — visually EMPTY corridors, the player walking and looking around
+                  active cells 64-66%, bbox 0.99-1.00, concentration 0.34-0.39
+    gap 10      — an NPC charging the camera, a real and obvious event
+                  active cells 64%,     bbox 0.98,      concentration 0.41
+
+The two are indistinguishable because in a first-person game every mouse movement translates
+the entire image. Any spatial statistic built on an uncompensated frame difference is therefore
+a statistic about the player's hand. This is not a threshold problem and no threshold fixes it;
+the fix is to estimate and subtract the global translation first, which is the next experiment
+(pure numpy over the same grid, no new dependency).
+
+**Nested ranges, again, and twins.** All nine spatial features have fully nested class ranges
+and best-threshold scores of 10 or 11 of 15 against a 10/15 baseline — the same numbers Phase
+9a got from completely different features. Z-scored over all nine, each hard negative has a
+manual-gameplay window within ~1 sigma: gap 8 <-> gap 11 at 0.92, gap 5 <-> gap 10 at 1.19,
+gap 13 <-> gap 14 at 1.87.
+
+**Costs, for planning future experiments.** Decoding the already-rendered program video a
+second time on a 32x18 grid costs 3.5 s per minute of timeline; the pure spatial statistics
+over 592 samples cost 0.11 s. The Resolve renders the study depends on cost 22 s for the same
+minute. Analysis is not the expensive part.
+
+**What the agent's own eyes added that no number did.** Looking at extracted frames of all 15
+windows identified the pair that states the target concept: gap 9 (aiming at a small, distant
+enemy — magnification genuinely helps) versus gap 10 (an NPC filling the frame — magnification
+only crops). The distinguishing property is the *apparent size of a subject*, and nothing in
+this pipeline can name a subject. That inspection is research only; DAZ's runtime remains
+ffmpeg + numpy + Silero (D065).

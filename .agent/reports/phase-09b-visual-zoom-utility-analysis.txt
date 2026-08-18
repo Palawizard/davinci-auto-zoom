@@ -1,0 +1,588 @@
+PHASE 9b — IS THERE ANYTHING ON SCREEN THE GAMEPLAY ZOOM WOULD ACTUALLY HELP SHOW?
+====================================================================================
+
+Date: 2026-08-18. DaVinci Resolve Studio 21.0.4.5, project `davinci-auto-zoom-test`.
+Source `DAZ_INPUT` [216000, 219555) @ 60 fps. Reference `DAZ_OUTPUT_MVP3`, V3, 42 items.
+
+Nothing in this report was produced by writing to a reference timeline. The Fusion geometry
+came from `TimelineItem.ExportFusionComp` on manual instances, read-only, into a private temp
+directory that no longer exists. The pixels came from one `gameplay-study` run whose renders
+are audited in `.agent/reports/phase-09b-live-workflow-report.txt`.
+
+**Every conclusion below is tagged with where it came from**:
+
+    [measured]  a number this codebase computed and a reader can recompute
+    [seen]      the agent looked at extracted frames of the delivery (research only —
+                no runtime component of DAZ looks at a picture semantically)
+    [user]      the creator said so
+
+**Read sections 1, 2 and 8 before anything else.** Phase 9b was asked whether "would the zoom
+add value here" can be represented by generic visual features. The answer on this material is
+**no**, and the reason is now specific rather than vague: the zoom is a centred 1.25x push-in
+that privileges no screen region, and frame differencing in a first-person game measures the
+player's mouse, not the game's events.
+
+No media of any kind was committed. The contact sheets, extracted frames and rendered video
+used for section 4 were local, temporary and deleted; this repository is public.
+
+
+1. WHAT THE GAMEPLAY ZOOM ACTUALLY IS — MEASURED, NOT ASSUMED
+---------------------------------------------------------------
+
+[measured] One instance of each of the eleven roles that exist in `DAZ_OUTPUT_MVP3` was
+exported with `TimelineItem.ExportFusionComp` and parsed. Every one of them is the same
+five-node graph — `Loader -> Transform -> Saver`, with the `Transform`'s `Size` on a
+`BezierSpline` and its `Center` on a `PolyPath` — and **there is no Crop, no Mask, no Merge
+and no second Transform anywhere**. The whole state model is two numbers.
+
+    state       Transform Size    Centre offset (Fusion, y up)
+    X0                 1.00       (0.00, 0.00)
+    GAMEPLAY           1.25       (0.00, 0.00)
+    FACE_X1            1.50       (0.25, 0.25)
+    FACE_X2            2.00       (0.50, 0.50)
+    FACE_X3            2.50       (0.75, 0.75)
+
+    role              Size 0 -> 15      Centre path 0 -> 15
+    X0_TO_GAMEPLAY    1.00 -> 1.25      (0,0) held
+    X1_TO_GAMEPLAY    1.50 -> 1.25      (0.25,0.25) -> (0,0)
+    X2_TO_GAMEPLAY    2.00 -> 1.25      (0.50,0.50) -> (0,0)
+    GAMEPLAY_TO_X0    1.25 -> 1.00      (0,0) held
+    GAMEPLAY_TO_X1    1.25 -> 1.50      (0,0) -> (0.25,0.25)
+    FACE_X1/2/3       1.00/1.50/2.00 -> 1.50/2.00/2.50, centre walked one step out
+    X1/X2/X3_TO_X0    1.50/2.00/2.50 -> 1.00, centre walked back to (0,0)
+
+**All four transitions into GAMEPLAY converge on exactly the same final state**, and both
+transitions out of it start from exactly that state. Every keyframe pair is `[0]` and `[15]`.
+
+`X3_TO_GAMEPLAY` still has no manual instance, so its comp could not be exported — but
+[user] the creator has now **confirmed explicitly that it animates fully in 15 frames**, and
+[measured] the other eleven roles are unanimous that the endpoint it must reach is
+`Size 1.25, centre (0,0)`. The value is no longer marked unconfirmed anywhere (D062).
+
+### The GameplayTargetROI, derived
+
+A Fusion `Transform` maps output `u` to source `(u - C)/size + 0.5`, with `C = 0.5 + offset`.
+For `Size 1.25, offset 0` that is `[0.1, 0.9]` on both axes:
+
+    GameplayTargetROI = x [0.10, 0.90], y [0.10, 0.90]   — the central 80%, area 0.64
+
+This is derived in `domain/visual_episodes.Roi.from_transform` from the two measured numbers,
+not typed in, and the derivation is checked against the facecam ladder in
+`tests/test_visual_episodes.py`: `FACE_X1` comes out as `[0, 0.667]`, `FACE_X2` as `[0, 0.5]`,
+`FACE_X3` as `[0, 0.4]` — a nested family of rectangles all anchored in one corner, and
+[seen] that corner is exactly where the facecam inset sits in the delivered picture. A ladder
+that lands on the facecam by construction is strong evidence the arithmetic is right.
+
+### The consequence, and it is the phase's first real result
+
+**The GAMEPLAY zoom is not a spotlight.** It privileges no region: it is symmetric, centred,
+and only 1.25x. What it does is crop the outer 10% of the frame and enlarge the rest by a
+quarter. [seen] The outer 10% of this delivery is where the HUD lives — the weapon wheel
+along the top, the ammo counter bottom-right, the title card top-left, the kill feed top-right
+— so the move trades away UI margin for a slightly bigger middle.
+
+Therefore the phase brief's central hypothesis — *"the zoom is useful when a localized event
+falls inside the region the zoom favours"* — is **structurally weak on this material before
+any window is measured**: there is no favoured region, and a 1.25x magnification cannot make a
+small distant object readable. Section 5 measures it anyway, and the measurement agrees.
+
+
+2. THE FOUR EXPLANATIONS THE CREATOR GAVE
+-------------------------------------------
+
+[user] These supersede Phase 9a's hypothesis that gaps 10-12 were mainly a section/recency
+effect (that hypothesis is retired, see D066):
+
+    gap  1   friends are talking, but **nothing new or interesting is visible on screen**.
+             Friend speech is not a sufficient trigger.
+    gap 10   something really is happening in the game, but **zooming would add nothing**.
+             A visible event is not a sufficient trigger either.
+    gap 11   a friend is talking about a subject **that is not on screen**.
+    gap 12   same as 11.
+
+Read together they state the target concept precisely, and it is not the one Phase 9a chased:
+the editor is not asking "is something happening", they are asking **"would magnifying this
+shot make it better"** — and audio-only relevance never qualifies.
+
+Two rules follow and are now encoded (D067):
+
+    secondary audio  = context, never a trigger
+    creator silence  = candidate population / prior, never a decision
+
+
+3. THE POPULATION
+------------------
+
+Unchanged from Phase 9a: the 15 would-be-X0 windows, positives and negatives, with the human
+verdict read out of `DAZ_OUTPUT_MVP3` through `domain/transitions.py`.
+
+    gap  range                 frames  manual     the creator's own explanation
+      0  [216000, 216046)          46  GAMEPLAY   -                     (timeline head)
+      1  [216139, 216293)         154  X0         nothing new visible
+      2  [216442, 216489)          47  GAMEPLAY   -
+      3  [216519, 216679)         160  mixed      -
+      4  [216797, 216900)         103  mixed      -
+      5  [216930, 216983)          53  GAMEPLAY   -
+      6  [217039, 217250)         211  mixed      -
+      7  [217316, 217499)         183  mixed      -
+      8  [217749, 217877)         128  mixed      -
+      9  [218003, 218094)          91  GAMEPLAY   -
+     10  [218189, 218244)          55  X0         event exists, zoom adds nothing
+     11  [218297, 218394)          97  X0         audio subject not on screen
+     12  [218473, 218599)         126  X0         audio subject not on screen
+     13  [218767, 218989)         222  mixed      -
+     14  [219134, 219555)         421  X0         -                     (timeline tail)
+
+
+4. VISUAL REVIEW OF ALL 15 WINDOWS
+------------------------------------
+
+[seen] The program video was rendered once (H.264, 1920x1080, the same render the study
+already needed) and six frames per window were extracted with ffmpeg into local contact
+sheets — just before the silence, at its start, at the manual GAMEPLAY entry where one
+exists, at the middle, at the end, and 45 frames into the next burst. The agent inspected all
+fifteen sheets. They were deleted afterwards and none of them, or any frame of them, is in
+this repository.
+
+The delivery is two games. Frames 216000-216793 are a dark first-person co-op game (deep
+blues, a teal tool beam, silhouetted team-mates); from 216797 on it is a bright yellow
+"backrooms"-style shooter with a visible HUD. A green-screen facecam inset sits in the
+bottom-left corner throughout, unkeyed.
+
+    gap  what is on screen                                        would 1.25x help?
+      0  dark corridor, teal beam, slow look-around               marginal
+      1  walking and looking around an empty dark room; the       NO — nothing new
+         beam is the only moving thing, no event of any kind
+      2  a huge silhouetted figure sweeps across the whole        no — already vast
+         frame, very close to camera
+      3  a team-mate swings past on the far side of the room;     marginal — small,
+         weapon-wheel UI appears at the end                       but the UI is at the edge
+      4  the game changes; a Sonic character walks up close,      no — near-full-frame
+         then enemies appear far down the corridor
+      5  a group of enemies far down the corridor, plus a         yes in principle —
+         lightning-gun arc                                        small distant subjects
+      6  a dark creature enters from the right edge; later a      partly — the entry is
+         full-screen red damage flash                             at the frame edge, and
+                                                                  the zoom crops it
+      7  empty corridors; at the end another player is killed     no — full-screen event
+         (full-screen red)
+      8  distant figures and a tripod object, then a figure       mixed
+         very close
+      9  aiming down sights at a small, distant enemy             YES — the clearest
+                                                                  "magnification helps" case
+     10  an NPC runs straight at the camera and fills the         NO — already unmistakable,
+         frame                                                    zoom would only crop it
+     11  empty corridors, weapon-wheel UI switching at the top    NO — nothing in the world,
+         of the frame                                             and the UI is outside the ROI
+     12  empty corridors, a ladder, a dark doorway                NO — nothing happens
+     13  the outro: a near-black corridor, a lit tool at the      no — nearly nothing visible,
+         bottom right                                             yet the editor DID zoom
+     14  the outro continues, near-black                          no
+
+The agent's reading agrees with the creator on all four hard negatives, and it found the
+positive counterpart the brief hoped for — **gap 9 versus gap 10 is the textbook pair**: a
+small distant enemy the zoom would genuinely help versus a huge near one it would only crop.
+
+It also found the counterexample that breaks the concept as a *sufficient* rule: **gap 13 is
+62% GAMEPLAY in the human edit and there is essentially nothing to see** — the outro is nearly
+black. Whatever made the editor cut to the game there, no reading of that picture supplies it.
+
+
+5. SPATIAL FEATURES — MOTION TOPOLOGY INSTEAD OF MOTION AMOUNT
+----------------------------------------------------------------
+
+[measured] The same rendered file is decoded a second time on a 32x18 grid at 10 samples per
+second (`vision.activity_frames`); each cell carries the same mean-subtracted absolute frame
+difference `motion_envelope` already used, kept per cell instead of averaged. A cell counts as
+*moving* at 2x the timeline's own median cell activity (0.0042), so the threshold is relative
+and a gain or codec change cannot move it.
+
+    gap manual   roi_act out_act ratio  act%  peak%  bbox  conc  regs  pers  novel   onset
+      0 GAMEPLAY  0.0047  0.0057  0.93  14.0   16.1  0.91  0.66  13.6   0.3   0.00  216003
+      1 X0        0.0085  0.0101  0.92  25.5   39.1  0.92  0.54  15.9   0.6   0.34  216225
+      2 GAMEPLAY  0.0134  0.0133  1.01  20.4   23.6  0.73  0.73   8.1   0.5   0.23  216453
+      3 mixed     0.0106  0.0158  0.84  31.3   92.5  0.95  0.57  15.9   0.1   0.05  216525
+      4 mixed     0.0435  0.0421  1.02  73.2   93.2  1.00  0.38   5.9   0.0   1.37       -
+      5 GAMEPLAY  0.0361  0.0285  1.12  68.8   93.8  0.99  0.39   7.1   0.0   0.04       -
+      6 mixed     0.0404  0.0423  0.98  76.7   97.2  1.00  0.34   4.1   0.0   0.19       -
+      7 mixed     0.0370  0.0328  1.04  73.6   93.9  1.00  0.37   4.4   0.0   0.20       -
+      8 mixed     0.0301  0.0260  1.07  55.7   94.6  0.97  0.41   9.2   0.2   0.21  217845
+      9 GAMEPLAY  0.0166  0.0148  1.08  41.8   75.0  0.95  0.36  16.5   0.3   0.34  218025
+     10 X0        0.0282  0.0266  1.03  64.3   86.3  0.98  0.41   6.4   0.1   0.02  218241
+     11 X0        0.0241  0.0248  1.01  64.8   86.1  0.99  0.39   8.4   0.1   0.22  218379
+     12 X0        0.0252  0.0307  0.92  66.2   98.1  1.00  0.34   5.5   0.1   0.10  218583
+     13 mixed     0.0035  0.0014  1.23   3.1   10.2  0.23  0.76   3.7   1.2   0.05  218823
+     14 X0        0.0015  0.0012  1.13   3.0    9.0  0.27  0.86   4.2   0.8   0.33  219489
+
+    roi_act/out_act  mean cell activity inside / outside the GameplayTargetROI
+    ratio            inside vs the whole frame (1.00 = the ROI is exactly average)
+    act% / peak%     mean and busiest share of cells above the moving threshold
+    bbox             area of the bounding box of the moving cells
+    conc             share of all change carried by the busiest tenth of the cells
+    regs             connected groups of moving cells
+    pers             longest run of samples that were localized AND in the ROI, seconds
+    novel            how far the window's activity sits from the previous 3 seconds
+
+### Every one of them nests, exactly like Phase 9a's
+
+Best single threshold over the 15 windows, majority baseline "always gameplay" = 10/15:
+
+    roi activity         11/15      concentration           11/15
+    outside activity     11/15      regions                 10/15
+    roi ratio            11/15      persistence             11/15
+    active cell fraction 11/15      novelty                 10/15
+    bounding-box area    10/15
+
+Not one of them beats the baseline by more than one window, and every class range nests:
+
+    active cell fraction   gameplay 3.1-76.7%   X0 3.0-66.2%
+    concentration          gameplay 0.34-0.76   X0 0.34-0.86
+    persistence            gameplay 0.0-1.2 s   X0 0.1-0.8 s
+    novelty                gameplay 0.00-1.37   X0 0.02-0.34
+
+### The ROI feature is inert, and the geometry said it would be
+
+`ratio` — activity inside the zoom's region against the whole frame — spans **0.84 to 1.23
+over all fifteen windows**, with the negatives (0.92, 1.03, 1.01, 0.92, 1.13) sitting inside
+the positives' range. It could hardly do anything else: the ROI is 64% of a centred frame, so
+"inside" and "outside" sample the same picture. Inside-vs-outside is a real question for the
+*facecam* states, whose ROI is a corner; for GAMEPLAY it is arithmetic noise.
+
+### The negatives have positive twins, and that is the strongest statement of the result
+
+Z-scoring all nine features and finding each window's nearest neighbour **of the opposite
+class**:
+
+    gap  8 (GAMEPLAY) <-> gap 11 (X0)   distance 0.92
+    gap 10 (X0)       <-> gap  8        distance 1.09
+    gap  5 (GAMEPLAY) <-> gap 10 (X0)   distance 1.19
+    gap  7 (GAMEPLAY) <-> gap 10 (X0)   distance 1.20
+    gap 12 (X0)       <-> gap  7        distance 1.69
+    gap  0 (GAMEPLAY) <-> gap  1 (X0)   distance 1.76
+    gap 13 (GAMEPLAY) <-> gap 14 (X0)   distance 1.87
+
+Every hard negative has a manual-gameplay window within ~1 standard deviation of it in the
+full nine-dimensional feature space. This is not "no threshold was found"; it is **the two
+classes containing near-identical pairs**. No classifier over these features, of any shape,
+can separate them, and reporting a tuned 12/15 on this data would be reporting an accident.
+
+### Why the features fail, specifically
+
+[measured + seen] Gaps 11 and 12 are visually empty corridors — the player walks and looks
+around, nothing happens — and they score `act% 64-66`, `bbox 0.99-1.00`: **the whole frame is
+"moving"**. Gap 10, where an NPC really does run at the camera, scores 64.3% — the same. In a
+first-person game every mouse movement translates the entire image, and a frame difference
+cannot tell that translation from an object crossing the shot.
+
+That is the technical core of the negative result. These features do not measure the game's
+events; **they measure the player's camera**. Fixing that needs motion compensation or object
+detection, i.e. exactly the dependencies Phase 9b was told not to reach for — and the brief
+was right to want the cheap thing tested first, because the cheap thing is now measured to
+fail for a nameable reason rather than an unclear one.
+
+
+6. ZOOM USEFULNESS AS A DECISION, AND THE FOUR HARD NEGATIVES
+---------------------------------------------------------------
+
+`domain/visual_episodes.zoom_utility` turns the features into one boolean plus reasons:
+
+    zoom_worthy  =  something happened at all   (peak active cells >= 2%)
+                and it is not the whole shot    (mean active cells <= 35%, conc >= 0.30)
+                and it is inside the ROI        (ratio >= 1.0)
+                and it lasted                   (>= 0.5 s)
+
+[measured] Applied to the 15 windows it fires on gaps 2, 13 and 14 only. Against the human:
+
+    hard negative   verdict   reason given                    is the reason the right one?
+    gap  1          X0 ok     event_outside_the_zoom_roi      NO — the real reason is
+                                                              "nothing new", and the rule
+                                                              reached the right answer by
+                                                              measuring the wrong thing
+    gap 10          X0 ok     event_covers_the_whole_frame    YES — this is exactly the
+                                                              creator's "zoom adds nothing",
+                                                              mechanically reproduced
+    gap 11          X0 ok     event_covers_the_whole_frame    NO — the screen is empty; the
+                                                              "event" is camera pan
+    gap 12          X0 ok     event_covers_the_whole_frame    NO — same
+    gap 14 (tail)   X0 ok     -- the tail rule, not the visual rule; `zoom_utility` itself
+                              calls the near-black outro zoom-worthy
+
+So **all four hard negatives are gated**, and only one of them for the right reason. Meanwhile
+eight of the ten positives are gated too (0, 3, 4, 5, 6, 7, 8, 9). The rule is not
+discriminating; it is conservative. A rule that says "no" to almost everything gets the
+negatives right for free, and the phase brief's own instruction applies: **this is not a
+solved rule.**
+
+### What separates "action visible" from "action worth a zoom" — as far as it can be stated
+
+[seen + user] Three properties do appear to distinguish the two, and none of them is currently
+measurable from a frame difference:
+
+  * **apparent size of the subject.** gap 9's enemy is a few dozen pixels tall and far away;
+    gap 10's NPC is two-thirds of the frame. Same "activity", opposite editorial value.
+  * **whether the subject is a subject at all.** gaps 11/12 have no subject, only geometry
+    moving because the camera moved.
+  * **whether the interesting thing is where the zoom keeps it.** gap 6's creature enters at
+    the right edge and gap 11's UI lives along the top — both in the 10% the zoom crops away.
+
+Each of those is a statement about *objects*, and the pipeline has no notion of an object.
+
+
+7. THE ENTRY ANCHOR: SILENCE START vs VISUAL ONSET vs CUTS
+------------------------------------------------------------
+
+[measured] `visual_event_onset` is the first frame of a window's longest localized-and-in-ROI
+run. Six of the ten manual episodes start inside a would-be-X0 window; four of those six have
+a measurable onset at all.
+
+    ep  manual   silence start  delta   visual onset  delta   nearest cut  delta
+     0  216000   216000            0    216003          -3    216132       +132
+     2  216529   216519          -10    216525          +4    216641       +112
+     3  216851   216797          -54    none             -    216851         +0
+     5  217196   217039         -157    none             -    217312       +116
+     6  217482   217316         -166    none             -    217413        -69
+     7  217802   217749          -53    217845         -43    217802         +0
+     9  218852   218767          -85    218823         +29    218762        -90
+
+    on the four episodes where an onset exists:
+        |delta| to the visual onset  :  3, 4, 29, 43   mean 19.8   median 16.5
+        |delta| to the silence start :  0, 10, 53, 85  mean 37.0   median 31.5
+        |delta| to the nearest cut   :  0, 90, 112, 132
+
+**This is the phase's one encouraging measurement.** Where a visual onset exists it predicts
+the editor's chosen frame roughly twice as closely as the start of the silence does, and it
+beats the nearest cut on three of the four. It is also n=4, on one timeline, with an onset
+definition that section 5 has just shown to be measuring the camera — so it is a hypothesis
+worth carrying into a phase that can detect events properly, and nothing more. It is **not**
+proposed as a rule here.
+
+### Cuts
+
+[measured] Unchanged from Phase 9a and re-measured: 3 of 10 manual entries are exactly on a
+hard cut (episodes 3, 7, 8); the other seven are 23-132 frames away. Of the four episodes with
+a visual onset, the editor chose the onset over the cut in two (0 and 2, where the cut is 112+
+frames away), and the cut over the onset in one (7, on a cut, onset 43 frames later). **No
+snap policy is derivable from four observations**, and none is proposed. The existing
++-120 ms window would fire on 3 of 10 and is harmless.
+
+### Exit
+
+[measured] Re-confirmed, unchanged, and still the one sharply solved thing: nine
+`GAMEPLAY -> FACE_X1` exits sit at -1, 0, 0, +1, +4, +14, +18, +41 frames from the creator's
+next burst start (6 of 9 within one frame) while the nearest hard cut is 87-152 frames away in
+seven of nine. The single `GAMEPLAY -> X0` exit is on a cut and 38 frames before the voice.
+Phase 9b changes nothing here and proposes nothing new.
+
+
+8. WHAT PHASE 9b CONCLUDES
+----------------------------
+
+1. **The GAMEPLAY zoom's geometry is fully known** [measured]: `Size 1.25`, centre untouched,
+   15-frame animation, four entries converging on one state. `GameplayTargetROI` is the
+   central 80% of the frame and is derived from those numbers.
+2. **The ROI cannot carry the decision**, because a centred 1.25x push-in has no preferred
+   region. This was predicted from the geometry and then measured (`ratio` 0.84-1.23 across
+   both classes).
+3. **Motion topology fails exactly as motion amount did.** Nine spatial features, every class
+   range nested, every best threshold 10 or 11 of 15 against a 10/15 baseline, and each hard
+   negative has a positive twin within ~1 sigma.
+4. **The reason is nameable**: frame differencing in a first-person game measures the camera,
+   not the game. Empty corridors score the same "activity" as a charging NPC.
+5. **The concept the creator described is real and is about objects** — a subject, its
+   apparent size, whether it is where the zoom keeps it. None of that is expressible with
+   ffmpeg + numpy frame differences.
+6. **A zoom-worthiness gate is nevertheless the right shape for the rule** [user]: secondary
+   audio and creator silence can only ever *remove* a candidate, never create one, and that is
+   now encoded and tested (D067).
+7. **Gap 13 says even a perfect visual reader would not be enough**: the human cut to the game
+   over a near-black outro. Some GAMEPLAY decisions are not about what is on screen at all.
+
+**No candidate rule is proposed.** Fabricating one from features whose classes contain twins
+would be fitting noise on n=15, and the brief explicitly asked not to. What Phase 9b delivers
+instead is a much sharper statement of what the next attempt has to be able to see.
+
+
+9. WHAT WOULD ACTUALLY MOVE THIS FORWARD
+------------------------------------------
+
+In descending order of expected value, none of it implemented here:
+
+1. **A second reference edit that uses gameplay.** Still first, still worth more than
+   everything below combined. Fifteen windows from one delivery cannot support a rule, and
+   this phase has now failed to find one twice on the same fifteen.
+2. **Camera-motion compensation before any spatial statistic.** The cheapest honest version is
+   a global translation estimate per sample (a coarse cross-correlation over the 32x18 grid is
+   pure numpy and needs no dependency), subtracted before differencing. It would turn "the
+   whole frame moved" into "the frame moved 6 cells left, and this one blob did not follow" —
+   which is the first measurement in this project that would describe an *object*. It is the
+   one classical experiment that is not yet exhausted.
+3. **A subject-scale reader.** Only after 2: "how big is the thing that is not the camera" is
+   the feature that separates gap 9 from gap 10, and it is the creator's own criterion.
+4. If 2 and 3 both fail, a semantic layer is required, and its contract is in section 10.
+
+
+10. IF A SEMANTIC LAYER IS EVER STUDIED (RESEARCH CONTRACT ONLY)
+------------------------------------------------------------------
+
+Not implemented, not a dependency, not called anywhere, and no external service was contacted
+during this phase. Recorded only so a future study starts from a precise question:
+
+    input   : N frames of the window, 1920x1080, plus the GameplayTargetROI rectangle
+    question: "Is there a subject in this shot — a character, a creature, an object, an
+               event — that (a) was not there in the previous seconds, (b) sits inside the
+               central 80% of the frame, and (c) is small enough on screen that showing it
+               25% larger would materially improve how readable it is?"
+    output  : yes/no + which subject + its bounding box + a confidence
+
+The three sub-questions map one-to-one to the three properties section 6 identified and could
+not measure. Any such study stays **offline research**: DAZ's runtime must remain ffmpeg +
+numpy + Silero, and a rule that cannot be recomputed locally cannot ship (D065).
+
+
+11. PER-WINDOW DOSSIER
+------------------------
+
+Everything above, per window, in one place. `seen` is the agent's visual review of the
+extracted frames; `user` is the creator's own explanation where one exists; every number
+is from the live `gameplay-study` run. `candidate` is what `zoom_utility` decides on the
+numbers alone — it is reported, and it is not proposed as a rule (section 8).
+
+gap 0   [216000, 216046)   46 frames   manual: GAMEPLAY  [216000, 216045)
+  seen    : dark corridor, teal tool beam, slow look-around; no discrete event
+            would 1.25x help? marginal
+  numeric : roi 0.0047  outside 0.0057  ratio 0.93  active 14% (peak 16%)  bbox 0.91  conc 0.66  regions 13.6
+            persistence 0.3s  novelty 0.00  |  secondary audio active 0%  mean -18.5 dB  onsets 0
+  labels  : new_event True  in_roi False localized True  persistent False
+  entry   : manual 216000   silence start 216000 (+0)   visual onset 216003 (+3)   nearest cut 216132 (+132)
+  candidate: X0   event_outside_the_zoom_roi+event_does_not_last
+
+gap 1   [216139, 216293)   154 frames   manual: X0
+  user    : friends are talking, but nothing new or interesting is visible
+  seen    : walking and looking around an empty dark room; the beam is the only moving thing
+            would 1.25x help? NO - nothing new to show
+  numeric : roi 0.0085  outside 0.0101  ratio 0.92  active 26% (peak 39%)  bbox 0.92  conc 0.54  regions 15.9
+            persistence 0.6s  novelty 0.34  |  secondary audio active 71%  mean -6.9 dB  onsets 3
+  labels  : new_event True  in_roi False localized True  persistent True 
+  entry   : no manual entry begins inside this window   (visual onset 216225)
+  candidate: X0   event_outside_the_zoom_roi
+
+gap 2   [216442, 216489)   47 frames   manual: GAMEPLAY  [216365, 216489)
+  seen    : a huge silhouetted figure sweeps across the frame, very close to camera
+            would 1.25x help? no - the figure is already vast
+  numeric : roi 0.0134  outside 0.0133  ratio 1.01  active 20% (peak 24%)  bbox 0.73  conc 0.73  regions 8.1
+            persistence 0.5s  novelty 0.23  |  secondary audio active 74%  mean -4.2 dB  onsets 4
+  labels  : new_event True  in_roi True  localized True  persistent True 
+  entry   : no manual entry begins inside this window   (visual onset 216453)
+  candidate: GAMEPLAY   localized_event_in_roi
+
+gap 3   [216519, 216679)   160 frames   manual: MIXED  [216529, 216641)
+  seen    : a team-mate swings past on the far side of the room; weapon-wheel UI at the end
+            would 1.25x help? marginal - the subject is small, but the UI it competes with is at the edge
+  numeric : roi 0.0106  outside 0.0158  ratio 0.84  active 31% (peak 92%)  bbox 0.95  conc 0.57  regions 15.9
+            persistence 0.1s  novelty 0.05  |  secondary audio active 84%  mean -2.1 dB  onsets 6
+  labels  : new_event True  in_roi False localized True  persistent False
+  entry   : manual 216529   silence start 216519 (-10)   visual onset 216525 (-4)   nearest cut 216641 (+112)
+  candidate: X0   event_outside_the_zoom_roi+event_does_not_last
+
+gap 4   [216797, 216900)   103 frames   manual: MIXED  [216851, 216900)
+  seen    : the game changes; a Sonic character walks up close, then distant enemies appear
+            would 1.25x help? no - the subject is near-full-frame
+  numeric : roi 0.0435  outside 0.0421  ratio 1.02  active 73% (peak 93%)  bbox 1.00  conc 0.38  regions 5.9
+            persistence 0.0s  novelty 1.37  |  secondary audio active 75%  mean -6.2 dB  onsets 8
+  labels  : new_event True  in_roi True  localized False persistent False
+  entry   : manual 216851   silence start 216797 (-54)   visual onset none measurable   nearest cut 216851 (+0)
+  candidate: X0   event_covers_the_whole_frame+event_does_not_last
+
+gap 5   [216930, 216983)   53 frames   manual: GAMEPLAY  [216923, 216987)
+  seen    : a group of enemies far down the corridor, plus a lightning-gun arc
+            would 1.25x help? yes in principle - small distant subjects
+  numeric : roi 0.0361  outside 0.0285  ratio 1.12  active 69% (peak 94%)  bbox 0.99  conc 0.39  regions 7.1
+            persistence 0.0s  novelty 0.04  |  secondary audio active 92%  mean +4.1 dB  onsets 0
+  labels  : new_event True  in_roi True  localized False persistent False
+  entry   : no manual entry begins inside this window   (visual onset None)
+  candidate: X0   event_covers_the_whole_frame+event_does_not_last
+
+gap 6   [217039, 217250)   211 frames   manual: MIXED  [217196, 217264)
+  seen    : a dark creature enters from the right edge; later a full-screen red damage flash
+            would 1.25x help? partly - the creature enters at the right edge, which the zoom crops
+  numeric : roi 0.0404  outside 0.0423  ratio 0.98  active 77% (peak 97%)  bbox 1.00  conc 0.34  regions 4.1
+            persistence 0.0s  novelty 0.19  |  secondary audio active 45%  mean -17.0 dB  onsets 6
+  labels  : new_event True  in_roi False localized False persistent False
+  entry   : manual 217196   silence start 217039 (-157)   visual onset none measurable   nearest cut 217312 (+116)
+  candidate: X0   event_covers_the_whole_frame+event_outside_the_zoom_roi+event_does_not_last
+
+gap 7   [217316, 217499)   183 frames   manual: MIXED  [217482, 217540)
+  seen    : empty corridors; at the end another player is killed (full-screen red)
+            would 1.25x help? no - the event is the whole frame
+  numeric : roi 0.0370  outside 0.0328  ratio 1.04  active 74% (peak 94%)  bbox 1.00  conc 0.37  regions 4.4
+            persistence 0.0s  novelty 0.20  |  secondary audio active 65%  mean -11.3 dB  onsets 8
+  labels  : new_event True  in_roi True  localized False persistent False
+  entry   : manual 217482   silence start 217316 (-166)   visual onset none measurable   nearest cut 217413 (-69)
+  candidate: X0   event_covers_the_whole_frame+event_does_not_last
+
+gap 8   [217749, 217877)   128 frames   manual: MIXED  [217802, 217895)
+  seen    : distant figures and a tripod object, then a figure very close to camera
+            would 1.25x help? mixed - far then very near
+  numeric : roi 0.0301  outside 0.0260  ratio 1.07  active 56% (peak 95%)  bbox 0.97  conc 0.41  regions 9.2
+            persistence 0.2s  novelty 0.21  |  secondary audio active 32%  mean -16.8 dB  onsets 1
+  labels  : new_event True  in_roi True  localized False persistent False
+  entry   : manual 217802   silence start 217749 (-53)   visual onset 217845 (+43)   nearest cut 217802 (+0)
+  candidate: X0   event_covers_the_whole_frame+event_does_not_last
+
+gap 9   [218003, 218094)   91 frames   manual: GAMEPLAY  [217999, 218095)
+  seen    : aiming down sights at a small, distant enemy
+            would 1.25x help? YES - the clearest case in the delivery: small, distant, worth magnifying
+  numeric : roi 0.0166  outside 0.0148  ratio 1.08  active 42% (peak 75%)  bbox 0.95  conc 0.36  regions 16.5
+            persistence 0.3s  novelty 0.34  |  secondary audio active 30%  mean -22.5 dB  onsets 1
+  labels  : new_event True  in_roi True  localized False persistent False
+  entry   : no manual entry begins inside this window   (visual onset 218025)
+  candidate: X0   event_covers_the_whole_frame+event_does_not_last
+
+gap 10   [218189, 218244)   55 frames   manual: X0
+  user    : something really happens in the game, but zooming would add nothing
+  seen    : an NPC runs straight at the camera and fills the frame
+            would 1.25x help? NO - already unmistakable; the zoom would only crop it
+  numeric : roi 0.0282  outside 0.0266  ratio 1.03  active 64% (peak 86%)  bbox 0.98  conc 0.41  regions 6.4
+            persistence 0.1s  novelty 0.02  |  secondary audio active 8%  mean -24.1 dB  onsets 2
+  labels  : new_event True  in_roi True  localized False persistent False
+  entry   : no manual entry begins inside this window   (visual onset 218241)
+  candidate: X0   event_covers_the_whole_frame+event_does_not_last
+
+gap 11   [218297, 218394)   97 frames   manual: X0
+  user    : a friend is talking about a subject that is not on screen
+  seen    : empty corridors; only the weapon-wheel UI changes, along the top edge
+            would 1.25x help? NO - nothing in the world, and the UI is outside the ROI
+  numeric : roi 0.0241  outside 0.0248  ratio 1.01  active 65% (peak 86%)  bbox 0.99  conc 0.39  regions 8.4
+            persistence 0.1s  novelty 0.22  |  secondary audio active 81%  mean -4.5 dB  onsets 0
+  labels  : new_event True  in_roi True  localized False persistent False
+  entry   : no manual entry begins inside this window   (visual onset 218379)
+  candidate: X0   event_covers_the_whole_frame+event_does_not_last
+
+gap 12   [218473, 218599)   126 frames   manual: X0
+  user    : a friend is talking about a subject that is not on screen
+  seen    : empty corridors, a ladder, a dark doorway; nothing happens
+            would 1.25x help? NO - nothing happens
+  numeric : roi 0.0252  outside 0.0307  ratio 0.92  active 66% (peak 98%)  bbox 1.00  conc 0.34  regions 5.5
+            persistence 0.1s  novelty 0.10  |  secondary audio active 34%  mean -22.1 dB  onsets 7
+  labels  : new_event True  in_roi False localized False persistent False
+  entry   : no manual entry begins inside this window   (visual onset 218583)
+  candidate: X0   event_covers_the_whole_frame+event_outside_the_zoom_roi+event_does_not_last
+
+gap 13   [218767, 218989)   222 frames   manual: MIXED  [218852, 218989)
+  seen    : the outro: a near-black corridor, a lit tool bottom right
+            would 1.25x help? no - almost nothing is visible, yet the editor DID zoom
+  numeric : roi 0.0035  outside 0.0014  ratio 1.23  active 3% (peak 10%)  bbox 0.23  conc 0.76  regions 3.7
+            persistence 1.2s  novelty 0.05  |  secondary audio active 45%  mean -16.3 dB  onsets 10
+  labels  : new_event True  in_roi True  localized True  persistent True 
+  entry   : manual 218852   silence start 218767 (-85)   visual onset 218823 (-29)   nearest cut 218762 (-90)
+  candidate: GAMEPLAY   localized_event_in_roi
+
+gap 14   [219134, 219555)   421 frames   manual: X0
+  seen    : the outro continues, near-black; the creator is on camera adjusting his glasses
+            would 1.25x help? no
+  numeric : roi 0.0015  outside 0.0012  ratio 1.13  active 3% (peak 9%)  bbox 0.27  conc 0.86  regions 4.2
+            persistence 0.8s  novelty 0.33  |  secondary audio active 68%  mean -9.2 dB  onsets 19
+  labels  : new_event True  in_roi True  localized True  persistent True 
+  entry   : no manual entry begins inside this window   (visual onset 219489)
+  candidate: GAMEPLAY   localized_event_in_roi
+

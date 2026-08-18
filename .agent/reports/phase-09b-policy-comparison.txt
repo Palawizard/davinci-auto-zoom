@@ -1,0 +1,216 @@
+PHASE 9b — POLICY COMPARISON, PER WINDOW
+==========================================
+
+Date: 2026-08-18, from the live `gameplay-study` run audited in
+`.agent/reports/phase-09b-live-workflow-report.txt`. Full analysis in
+`.agent/reports/phase-09b-visual-zoom-utility-analysis.txt`.
+
+    manual   what the creator did in DAZ_OUTPUT_MVP3
+    phase9a  the shipped candidate rule: gameplay unless the window is shorter than
+             500 ms or is the timeline tail. Zero fitted parameters, 11/15
+    phase9b  `zoom_utility` on the spatial features (ablation family C), 7/15
+
+Neither is proposed for production. Phase 9b places nothing (D061 still holds).
+
+gap 0   [216000, 216046)
+  manual   : GAMEPLAY  entry 216000
+  phase9a  : GAMEPLAY  agrees   (creator_not_talking)
+  phase9b  : X0        DIVERGES   (event_outside_the_zoom_roi+event_does_not_last)
+  why      : 9b sees the change as spread over the frame and too brief; the human opened on it
+  entries  : manual 216000   phase9a proposed 216000   visual anchor 216003   nearest cut 216132
+             deltas: 9a +0   visual +3   cut +132
+
+gap 1   [216139, 216293)
+  manual   : X0      
+  phase9a  : GAMEPLAY  DIVERGES   (creator_not_talking)
+  phase9b  : X0        agrees   (event_outside_the_zoom_roi)
+  why      : both call it X0. 9a by luck (it calls everything gameplay and this is a false +);
+        9b for the wrong reason (`outside the ROI`) — the true reason is that nothing
+        new is visible, and no feature here can say that
+
+gap 2   [216442, 216489)
+  manual   : GAMEPLAY  entry 216365
+  phase9a  : GAMEPLAY  agrees   (creator_not_talking)
+  phase9b  : GAMEPLAY  agrees   (localized_event_in_roi)
+  why      : the one window both agree on for a defensible reason: a concentrated change that lasts
+
+gap 3   [216519, 216679)
+  manual   : MIXED     entry 216529
+  phase9a  : GAMEPLAY  agrees   (creator_not_talking)
+  phase9b  : X0        DIVERGES   (event_outside_the_zoom_roi+event_does_not_last)
+  why      : 9b refuses: the change is one 92%-of-frame spike, not a lasting localized episode
+  entries  : manual 216529   phase9a proposed 216519   visual anchor 216525   nearest cut 216641
+             deltas: 9a -10   visual -4   cut +112
+
+gap 4   [216797, 216900)
+  manual   : MIXED     entry 216851
+  phase9a  : GAMEPLAY  agrees   (creator_not_talking)
+  phase9b  : X0        DIVERGES   (event_covers_the_whole_frame+event_does_not_last)
+  why      : the game itself changes here (novelty 1.37, the highest in the delivery) and 9b still
+        refuses it as full-frame — which it is, because the whole picture changed
+  entries  : manual 216851   phase9a proposed 216793   visual anchor none   nearest cut 216851
+
+gap 5   [216930, 216983)
+  manual   : GAMEPLAY  entry 216923
+  phase9a  : GAMEPLAY  agrees   (creator_not_talking)
+  phase9b  : X0        DIVERGES   (event_covers_the_whole_frame+event_does_not_last)
+  why      : distant enemies, but the camera is moving: 69% of cells active, so 9b sees a global event
+
+gap 6   [217039, 217250)
+  manual   : MIXED     entry 217196
+  phase9a  : GAMEPLAY  agrees   (creator_not_talking)
+  phase9b  : X0        DIVERGES   (event_covers_the_whole_frame+event_outside_the_zoom_roi+event_does_not_last)
+  why      : creature enters at the right edge — outside the ROI the zoom keeps — and the camera pans
+  entries  : manual 217196   phase9a proposed 217039   visual anchor none   nearest cut 217312
+
+gap 7   [217316, 217499)
+  manual   : MIXED     entry 217482
+  phase9a  : GAMEPLAY  agrees   (creator_not_talking)
+  phase9b  : X0        DIVERGES   (event_covers_the_whole_frame+event_does_not_last)
+  why      : camera motion again: 74% active, concentration 0.37
+  entries  : manual 217482   phase9a proposed 217312   visual anchor none   nearest cut 217413
+
+gap 8   [217749, 217877)
+  manual   : MIXED     entry 217802
+  phase9a  : GAMEPLAY  agrees   (creator_not_talking)
+  phase9b  : X0        DIVERGES   (event_covers_the_whole_frame+event_does_not_last)
+  why      : 56% active; the near figure at the end is full-frame
+  entries  : manual 217802   phase9a proposed 217749   visual anchor 217845   nearest cut 217802
+             deltas: 9a -53   visual +43   cut +0
+
+gap 9   [218003, 218094)
+  manual   : GAMEPLAY  entry 217999
+  phase9a  : GAMEPLAY  agrees   (creator_not_talking)
+  phase9b  : X0        DIVERGES   (event_covers_the_whole_frame+event_does_not_last)
+  why      : the clearest human-visible 'zoom helps' case in the delivery, and 9b rejects it:
+        aiming moves the whole picture, so the small distant enemy is invisible to the
+        metric. This single row is the phase's negative result in one line
+
+gap 10   [218189, 218244)
+  manual   : X0      
+  phase9a  : GAMEPLAY  DIVERGES   (creator_not_talking)
+  phase9b  : X0        agrees   (event_covers_the_whole_frame+event_does_not_last)
+  why      : 9b is RIGHT and right for the right reason: the NPC fills the frame, so magnifying it
+        adds nothing. This is the creator's own explanation, reproduced mechanically
+
+gap 11   [218297, 218394)
+  manual   : X0      
+  phase9a  : GAMEPLAY  DIVERGES   (creator_not_talking)
+  phase9b  : X0        agrees   (event_covers_the_whole_frame+event_does_not_last)
+  why      : 9b is right by accident: it calls the empty corridor a full-frame event, because the
+        player is looking around. Visually there is no event at all
+
+gap 12   [218473, 218599)
+  manual   : X0      
+  phase9a  : GAMEPLAY  DIVERGES   (creator_not_talking)
+  phase9b  : X0        agrees   (event_covers_the_whole_frame+event_outside_the_zoom_roi+event_does_not_last)
+  why      : same as 11
+
+gap 13   [218767, 218989)
+  manual   : MIXED     entry 218852
+  phase9a  : GAMEPLAY  agrees   (creator_not_talking)
+  phase9b  : GAMEPLAY  agrees   (localized_event_in_roi)
+  why      : both propose gameplay; 9b's reason (a small persistent thing in a near-black frame) is
+        not the editor's reason, which no measurement here reaches
+  entries  : manual 218852   phase9a proposed 218762   visual anchor 218823   nearest cut 218762
+             deltas: 9a -90   visual -29   cut -90
+
+gap 14   [219134, 219555)
+  manual   : X0      
+  phase9a  : X0        agrees   (timeline_tail)
+  phase9b  : X0        agrees   (localized_event_in_roi)
+  why      : the tail rule keeps this X0 in both. Note `zoom_utility` on its own calls this near-black
+        outro zoom-worthy — the structural rule saves it, not the visual one
+
+    phase9a  11/15
+    phase9b  7/15
+    baseline 10/15 (`always gameplay`)
+
+
+THE FOUR HARD NEGATIVES
+-------------------------
+
+Both policies must explain these, and only one row is explained for the right reason.
+
+    gap  1   creator: friends talk, nothing new visible
+             9a: FALSE POSITIVE (it proposes gameplay everywhere)
+             9b: correct verdict, wrong reason — it reports `outside the ROI` for a
+                 window whose real property is that nothing is happening
+
+    gap 10   creator: an event exists, zooming adds nothing
+             9a: FALSE POSITIVE
+             9b: CORRECT, and for exactly the creator's reason — the event covers the
+                 frame, so `event_covers_the_whole_frame` fires. The one row where a
+                 measurement and the creator's sentence say the same thing
+
+    gap 11   creator: the friend's subject is not on screen
+    gap 12   creator: the friend's subject is not on screen
+             9a: FALSE POSITIVES
+             9b: correct verdict, wrong reason — the corridors are empty, and the
+                 metric calls the player's own camera pan a full-frame event
+
+So Phase 9b gates all four, and eight of the ten positives with them. A rule that
+refuses almost everything gets the negatives for free; that is not a solved rule, and
+it is not proposed as one.
+
+
+ABLATION 2.0 — SIX FAMILIES, ONE CODE PATH
+--------------------------------------------
+
+Every family is `decide_gameplay` with different switches, run live over the same 15
+windows. `gameplay_by_default` is off in all of them, so each measures what its signals
+explain on their own.
+
+    family                            correct   false +              false -
+    A phase9a silence+audio+video      8/15   [1, 10, 11, 12]      [0, 9, 13]
+    B visual amount only               8/15   [10, 11, 12]         [0, 3, 9, 13]
+    C visual spatial                   7/15   []                   [0, 3, 4, 5, 6, 7, 8, 9]
+    D spatial+silence prior            6/15   []                   [0, 2, 3, 4, 5, 6, 7, 8, 9]
+    E spatial+audio context            6/15   []                   [0, 3, 4, 5, 6, 7, 8, 9, 13]
+    F spatial+silence+audio            5/15   []                   [0, 2, 3, 4, 5, 6, 7, 8, 9, 13]
+    candidate rule (no signal)        11/15   [1, 10, 11, 12]      []
+    majority baseline                 10/15
+
+Reading it honestly:
+
+  * nothing beats the no-signal candidate rule, and only the baseline ties it;
+  * adding signals makes it *worse*, monotonically: C 7, D 6, E 6, F 5. Each extra
+    AND-gate removes true positives and no false ones, because C already has none;
+  * C to F have **zero false positives** — every X0 window is refused, including all
+    four hard negatives. That looks like the phase's goal and is not: they also refuse
+    8 of the 10 gameplay windows. Precision without recall on a 10/5 split is just a
+    conservative rule;
+  * B (visual amount only) still scores 8 and still fails on 10/11/12, unchanged from
+    Phase 9a — the spatial reading did not fix what the amount got wrong, it failed
+    somewhere else.
+
+The smallest set that explains the hard negatives is therefore **none of them**. What
+explains the hard negatives is the creator's sentences, and no feature measured in
+Phase 9a or 9b reproduces three of the four.
+
+
+ENTRY ANCHORS
+---------------
+
+    ep  manual   silence start   visual onset      nearest cut
+     0  216000       216000 (+0)        216003 (+3)   216132 (+132)
+     1  216365                 -                  -   216291 (-74)
+     2  216529      216519 (-10)        216525 (-4)   216641 (+112)
+     3  216851      216797 (-54)                  -   216851 (+0)
+     4  216923                 -                  -   216900 (-23)
+     5  217196     217039 (-157)                  -   217312 (+116)
+     6  217482     217316 (-166)                  -   217413 (-69)
+     7  217802      217749 (-53)       217845 (+43)   217802 (+0)
+     8  217999                 -                  -   217999 (+0)
+     9  218852      218767 (-85)       218823 (-29)   218762 (-90)
+
+    on the four episodes where a visual onset exists at all:
+        |delta| to the visual onset   3, 4, 29, 43    mean 19.8
+        |delta| to the silence start  0, 10, 53, 85   mean 37.0
+        |delta| to the nearest cut    0, 90, 112, 132
+
+Where it exists, the visual onset is about twice as close to the editor's frame as the
+start of the silence, and closer than the nearest cut on three of four. That is the one
+encouraging measurement in the phase — and it is n=4, from an onset detector section 5
+has just shown to be tracking the camera. It is recorded as a hypothesis for a phase
+that can detect events properly. No snap policy is derived from it, and none is shipped.

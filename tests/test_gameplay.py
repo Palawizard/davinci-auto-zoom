@@ -7,6 +7,7 @@ look at neutral, relative facts about its own window, and must never be able to 
 which window it is.
 """
 
+from dataclasses import replace
 from fractions import Fraction
 
 import pytest
@@ -20,10 +21,13 @@ from davinci_auto_zoom.domain.gameplay import (
     MANUAL_X0,
     REASON_NO_SUPPORT,
     REASON_NOT_TALKING,
+    REASON_NOT_ZOOM_WORTHY,
     REASON_SECONDARY_AUDIO,
     REASON_TAIL,
     REASON_TOO_SHORT,
     REASON_VISUAL_ACTIVITY,
+    REASON_WINDOW_TOO_SHORT_FOR_PRIOR,
+    REASON_ZOOM_WORTHY,
     GameplayPolicySettings,
     GameplayWindowFeatures,
     SilenceWindow,
@@ -44,6 +48,10 @@ from davinci_auto_zoom.domain.transitions import (
     STATE_FACE_X1,
     STATE_X0,
     ForbiddenTransition,
+)
+from davinci_auto_zoom.domain.visual_episodes import (
+    ZOOM_NO_EVENT,
+    VisualEpisodeFeatures,
 )
 
 FPS = Fraction(60)
@@ -535,3 +543,98 @@ def test_the_next_burst_is_the_one_the_creator_may_already_be_in() -> None:
     episode = states.episodes[0]
     assert episode.next_burst_start == 296
     assert episode.frames_until_voice == -4
+
+
+# ---------------------------------------------------------------------------------------
+# Phase 9b: the zoom-utility branch and its two context gates
+# ---------------------------------------------------------------------------------------
+
+#: A window whose picture holds a small, steady, central episode, and one whose picture holds
+#: nothing at all. Built as features directly: the grids themselves are tested in
+#: `tests/test_visual_episodes.py`, and what matters here is what the policy does with them.
+ZOOM_WORTHY = VisualEpisodeFeatures(
+    samples=10,
+    roi_activity=0.02,
+    outside_activity=0.001,
+    roi_ratio=1.5,
+    active_cell_fraction=0.05,
+    peak_active_cell_fraction=0.06,
+    bbox_area=0.04,
+    concentration=0.9,
+    regions=1.0,
+    persistence_seconds=1.0,
+    novelty=0.5,
+    onset=1120,
+)
+NOTHING_VISIBLE = VisualEpisodeFeatures(samples=10)
+
+SPATIAL = GameplayPolicySettings(gameplay_by_default=False, use_zoom_utility=True)
+
+
+def _visual(
+    start: int, end: int, visual: VisualEpisodeFeatures, *, audio: float = 0.0
+) -> GameplayWindowFeatures:
+    return replace(_features(start, end, audio=audio), visual=visual)
+
+
+def test_a_zoom_worthy_episode_makes_the_window_gameplay() -> None:
+    decision = decide_gameplay(_visual(1000, 1300, ZOOM_WORTHY), (), FPS, SPATIAL)
+    assert decision.use_gameplay
+    assert decision.reasons == (REASON_ZOOM_WORTHY,)
+
+
+def test_a_window_with_nothing_visible_stays_x0_and_says_why() -> None:
+    """Gaps 1, 11 and 12: audible friends, nothing new on the screen (D067)."""
+
+    decision = decide_gameplay(_visual(1000, 1300, NOTHING_VISIBLE), (), FPS, SPATIAL)
+    assert not decision.use_gameplay
+    assert decision.reasons[0] == REASON_NOT_ZOOM_WORTHY
+    assert ZOOM_NO_EVENT in decision.reasons
+
+
+def test_secondary_audio_alone_can_never_trigger_a_gameplay_move() -> None:
+    """The world talking is context, not a trigger (D067)."""
+
+    loud = _visual(1000, 1300, NOTHING_VISIBLE, audio=1.0)
+    assert not decide_gameplay(loud, (), FPS, SPATIAL).use_gameplay
+
+
+def test_a_long_creator_silence_alone_can_never_trigger_a_gameplay_move() -> None:
+    """The silence is the candidate population, not the decision (D067)."""
+
+    long_window = _visual(1000, 3000, NOTHING_VISIBLE)
+    settings = replace(SPATIAL, candidate_silence_ms=1000)
+    assert not decide_gameplay(long_window, (), FPS, settings).use_gameplay
+
+
+def test_the_silence_prior_can_only_remove_a_candidate() -> None:
+    short = _visual(1000, 1030, ZOOM_WORTHY)
+    settings = replace(SPATIAL, candidate_silence_ms=1000)
+    refused = decide_gameplay(short, (), FPS, settings)
+    assert not refused.use_gameplay
+    assert refused.reasons == (REASON_WINDOW_TOO_SHORT_FOR_PRIOR,)
+    assert decide_gameplay(short, (), FPS, SPATIAL).use_gameplay
+
+
+def test_the_audio_gate_can_only_remove_a_candidate() -> None:
+    quiet = _visual(1000, 1300, ZOOM_WORTHY)
+    settings = replace(SPATIAL, require_secondary_audio=True)
+    assert not decide_gameplay(quiet, (), FPS, settings).use_gameplay
+    talking = _visual(1000, 1300, ZOOM_WORTHY, audio=1.0)
+    assert decide_gameplay(talking, (), FPS, settings).use_gameplay
+
+
+def test_the_entry_anchor_is_the_window_edge_and_may_snap_to_a_cut() -> None:
+    """Question B is unchanged by the spatial branch: whether and where stay apart (D057)."""
+
+    decision = decide_gameplay(_visual(1000, 1300, ZOOM_WORTHY), (1004,), FPS, SPATIAL)
+    assert decision.entry_anchor == 1000
+    assert decision.entry_frame == 1004
+    assert decision.entry_cut == 1004
+
+
+def test_the_spatial_branch_is_off_by_default_so_phase_9a_is_unchanged() -> None:
+    assert not GameplayPolicySettings().use_zoom_utility
+    baseline = decide_gameplay(_visual(1000, 1300, NOTHING_VISIBLE), (), FPS)
+    assert baseline.use_gameplay
+    assert baseline.reasons == (REASON_NOT_TALKING,)
