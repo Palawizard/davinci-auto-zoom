@@ -560,7 +560,7 @@ animating in 15 frames (D062); the GAMEPLAY state is a centred 1.25x push-in sho
 compensation. **None of that is an assignment.** It would start from a second reference edit or
 not at all.
 
-## Phase 10 — Facecam MVP consolidation / gameplay retirement / release-ready CLI baseline [CURRENT]
+## Phase 10 — Facecam MVP consolidation / gameplay retirement / release-ready CLI baseline [DONE]
 
 **Supersedes the earlier "Phase 10 — UI / Resolve launcher / packaging" plan**, which is moved
 to *Future work* below.

@@ -6,10 +6,17 @@
 creator's facecam zooms from their own voice, and nothing else. Phase 10 froze that behaviour,
 retired gameplay from the product (D068), and cleaned the tree to match.
 
-    commit          810c9a2                        (previous validated: e817594)
-    branch          dev                            main untouched
-    Resolve tested  DaVinci Resolve Studio 21.0.4.5, Linux
-    project         davinci-auto-zoom-test
+    branch              dev                 main untouched
+    Phase 10 change     810c9a2             the retirement + consolidation
+    doc corrections     aa33d02, and this   on top of it
+    previously validated e817594
+    Resolve tested      DaVinci Resolve Studio 21.0.4.5, Linux
+    project             davinci-auto-zoom-test
+
+A commit cannot name its own SHA, so the last line of this list is always one behind:
+`git log origin/dev` is the authoritative branch tip. Everything else in this file describes
+the state as of `810c9a2`, which is the commit the live validation below was run against —
+the ones after it change documentation only.
 
 ## The graph — all of it
 

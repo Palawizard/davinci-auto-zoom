@@ -14,10 +14,17 @@ voice_audio_track = 1
 # clip at all: DAZ writes only to a dedicated, empty track and never overwrites anything.
 zoom_video_track = 3
 
-# 1-based video track whose cuts the planner may snap a reset to. This is the edited footage
-# track, NOT the zoom track: the zoom track is DAZ's own output and has no cuts of its own.
-# A "hard cut" here means one clip ends exactly where the next begins on this track; entering
-# from black or running out into a gap is not a cut and is never snapped to.
+# 1-based video track whose cuts the planner may snap a transition to. EVERY facecam
+# transition may land on a cut from this track — the entry into X1, each promotion to X2/X3,
+# and the reset back to X0 — because a move that happens exactly on a cut reads as
+# intentional. (An earlier version snapped only the reset; the per-transition windows are
+# configured under [planner] below.)
+#
+# This is the edited footage track, NOT the zoom track: the zoom track is DAZ's own output and
+# has no cuts of its own. A "hard cut" here means one clip ends exactly where the next begins
+# on this track; entering from black or running out into a gap is not a cut and is never
+# snapped to. A cut never CREATES a transition: with no valid cut in the window, the
+# transition stays exactly on its raw audio anchor.
 cut_reference_video_track = 1
 
 # Media Pool bin holding the user's prebuilt zoom assets.
