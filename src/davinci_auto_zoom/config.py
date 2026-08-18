@@ -15,6 +15,7 @@ from davinci_auto_zoom.domain.planner import (
 from davinci_auto_zoom.domain.transitions import (
     BY_ROLE,
     REQUIRED_ROLES,
+    RETIRED_ROLES,
     ROLE_FACE_X1_TO_FACE_X2,
     ROLE_FACE_X1_TO_X0,
     ROLE_FACE_X2_TO_FACE_X3,
@@ -126,12 +127,7 @@ class Config:
         # deliberately configured only the two required roles, and then plan promotions they
         # have no asset for.
         assets = {str(k): str(v) for k, v in (asset_data or defaults.assets).items()}
-        unknown_assets = sorted(set(assets) - set(ROLES))
-        if unknown_assets:
-            raise ValueError(
-                f"unknown transition role(s) in [assets]: {', '.join(unknown_assets)}. "
-                f"Supported: {', '.join(ROLES)}"
-            )
+        _check_roles(assets, "[assets]")
         timing = _asset_timing(timing_data)
         if timing is not None:
             named = set(assets)
@@ -179,6 +175,32 @@ class Config:
         )
 
 
+def _check_roles(data: dict[str, Any], table: str) -> None:
+    """Reject keys that are not transition roles, and name a retirement when that is the cause.
+
+    A retired role gets its own message rather than the generic "unknown key" one: a user whose
+    file still lists `x0_to_gameplay` believes that asset will be placed, and the difference
+    between "you misspelled this" and "this feature was removed from the product" is the whole
+    value of the error.
+    """
+
+    retired = sorted(set(data) & set(RETIRED_ROLES))
+    if retired:
+        raise ValueError(
+            f"{table} lists GAMEPLAY transition role(s) that this build no longer supports: "
+            f"{', '.join(retired)}. Gameplay zoom automation was researched and deliberately "
+            "not shipped — placement proved too context-dependent for the signals available "
+            "(see .agent/reports/phase-09b-visual-zoom-utility-analysis.txt). davinci-auto-zoom "
+            "is facecam-only; remove these lines (see config.example.toml)."
+        )
+    unknown = sorted(set(data) - set(ROLES))
+    if unknown:
+        raise ValueError(
+            f"unknown transition role(s) in {table}: {', '.join(unknown)}. "
+            f"Supported: {', '.join(ROLES)}"
+        )
+
+
 def _asset_timing(data: dict[str, Any]) -> AssetTiming | None:
     """Per-role animation lengths, in frames.
 
@@ -193,12 +215,7 @@ def _asset_timing(data: dict[str, Any]) -> AssetTiming | None:
 
     if not data:
         return None
-    unknown = sorted(set(data) - set(ROLES))
-    if unknown:
-        raise ValueError(
-            f"unknown transition role(s) in [assets.transition_frames]: "
-            f"{', '.join(unknown)}. Supported: {', '.join(ROLES)}"
-        )
+    _check_roles(data, "[assets.transition_frames]")
     missing = [role for role in REQUIRED_ROLES if role not in data]
     if missing:
         raise ValueError(

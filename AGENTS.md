@@ -16,37 +16,46 @@ Read these files before changing code:
 
 For the current assignment, also read the prompt file named by the user.
 
+## Product scope
+
+**davinci-auto-zoom is facecam-only.** The supported product automates the creator's facecam
+zooms — `X0 -> FACE_X1 [-> FACE_X2 [-> FACE_X3]] -> X0` — from their own voice, and nothing
+else. Gameplay zoom automation was researched in Phases 9a/9b and **retired** (D068): no
+generic rule was found, the creator decided not to pursue it, and the active tree carries none
+of its complexity. The measurements stay readable in `.agent/reports/phase-09*` and in Git
+history. Do not reintroduce a gameplay state, role, config key, command or module, and do not
+add speculative hooks for one.
+
 ## Architecture
 
+```
+creator voice track
+  -> one safe Resolve render (scratch duplicate)  resolve/voice_render.py
+  -> 16 kHz mono PCM                              speech/audio.py
+  -> Silero VAD + short-time energy envelope      speech/silero.py, speech/energy.py
+  -> valleys and recovery cues                    domain/dynamics.py
+  -> editorial bursts, levels, cut snapping       domain/planner.py
+  -> PlanSource identity + validation             domain/fingerprint.py, domain/plan_validation.py
+  -> preview executor + ownership markers         resolve/executor.py, domain/ownership.py
+```
+
 - `domain/` — pure editing decisions. Deterministic, testable without Resolve, no Resolve
-  object ever reaches it.
+  object ever reaches it. No numpy, no onnxruntime, no ffmpeg either.
 - `domain/transitions.py` — **the single source of which visual states exist and which moves
-  between them are legal** (D044). The planner reasons in those states and emits transitions;
-  a move outside the table raises rather than planning nothing (D048). Add a state here or
-  nowhere.
-- `resolve/` — the only place Resolve proxy objects are allowed to exist.
-- `speech/` — transcription/VAD implementations behind the `speech/base.py` interfaces, plus
-  the short-time energy envelope. This layer produces **objective audio facts only**: "was
-  there speech here", "how loud was it here". It never decides that a dip in the voice deserves
-  a tighter zoom — that reading lives in `domain/dynamics.py` (D050).
+  between them are legal** (D044). Four states (`x0`, `face_x1`, `face_x2`, `face_x3`) and six
+  transitions, and that is the whole vocabulary. The planner reasons in those states and emits
+  transitions; a move outside the table raises rather than planning nothing (D048). Add a state
+  here or nowhere.
 - `domain/dynamics.py` — the energy envelope as plain `(frame, dB)` pairs, and the valley +
   recovery cues read from it. Pure: no numpy, no ONNX, no file. Every threshold is **relative**,
   in dB against the burst's own voice level, so a gain change cannot change the edit (D051).
-- `vision.py` — the picture's turn at the same boundary: rendered video -> ffmpeg -> small
-  grayscale frames -> a motion envelope, and the same measurement kept **per cell** on a coarse
-  grid (D065). **Objective visual facts only** ("how much did this part of the picture change
-  here"), never "is this an interesting moment". No object detection, no OCR, no game-specific
-  model, no VLM, and no new dependency: ffmpeg and numpy already exist (D055).
-- `domain/visual_episodes.py` — pure, and the reader of those cells: the zoom's region of
-  interest **derived from the measured Fusion transform** rather than guessed (D064), the
-  spatial statistics (concentration, scale, persistence, novelty) and `zoom_utility`. An agent
-  may use its own vision to *study* frames; **DAZ's runtime never does**, and a rule DAZ cannot
-  recompute locally with ffmpeg + numpy + Silero cannot ship (D065).
-- `domain/gameplay.py` — pure, and the reader of every envelope for the gameplay question. It
-  keeps two things apart on purpose (D057): *whether* a would-be-X0 window should be gameplay,
-  and *where exactly* the move starts and ends. Secondary audio and creator silence are context
-  and prior: they may remove a candidate, never create one (D067). Phases 9a and 9b are dry-run
-  only — nothing here emits an `AssetPlacement`, and the production planner does not import it.
+- `domain/planner.py` — bursts, the level ladder, cut snapping, the decision trace. The only
+  place an editorial decision is made.
+- `speech/` — VAD implementations behind the `speech/base.py` interfaces, plus the short-time
+  energy envelope. This layer produces **objective audio facts only**: "was there speech here",
+  "how loud was it here". It never decides that a dip in the voice deserves a tighter zoom —
+  that reading lives in `domain/dynamics.py` (D050).
+- `resolve/` — the only place Resolve proxy objects are allowed to exist.
 - Timeline positions are integer frames internally. Half-open ranges `[start, end)`.
 - **No editorial logic below the planner.** The executor resolves a role to a clip name,
   appends it at the planned frames, verifies and tags. It does not know what a zoom level is,
@@ -60,11 +69,9 @@ For the current assignment, also read the prompt file named by the user.
   methods that are neither deprecated nor unsupported there.
 - **No command may modify a timeline the user already works in.** The write-capable surface
   is exactly:
-  - `probe-write`, `speech-probe`, `plan-probe`, `probe-ownership`, `gameplay-study` — each
-    behind its own opt-in flag, each on a scratch timeline it creates and deletes, each
-    restoring every piece of project state it touched. `gameplay-study` renders more than
-    once (voice, secondary audio, video) but through exactly the same primitive, so it
-    inherits the same audit, cleanup and refusal behaviour rather than reimplementing them;
+  - `probe-write`, `speech-probe`, `plan-probe`, `probe-ownership` — each behind its own
+    opt-in flag, each on a scratch timeline it creates and deletes, each restoring every
+    piece of project state it touched;
   - `apply-preview` — the one command that intentionally leaves something behind: a new
     `DAZ_AUTO_PREVIEW_*` timeline duplicated from the source, carrying the planned zooms;
   - `clean-preview` / `rebuild-preview` — destructive, but only on a `DAZ_AUTO_PREVIEW_*`
@@ -79,8 +86,8 @@ For the current assignment, also read the prompt file named by the user.
 
 ## User media
 
-The repository is **public**, and the reference material is the creator's own face and
-gameplay. Rendered video, extracted frames, contact sheets, screenshots and audio are always
+The repository is **public**, and the reference material is the creator's own face and game
+footage. Rendered video, extracted frames, contact sheets, screenshots and audio are always
 temporary, local, gitignored and deleted when the study that needed them ends. Only numbers,
 tables and prose are committed. This holds even when a frame would make a report clearer.
 
@@ -109,6 +116,9 @@ tables and prose are committed. This holds even when a frame would make a report
 - Live Resolve verification is separate, explicit, and reported with its exact output.
 - Non-trivial logic leaves a runnable check behind. A guard without a test proving it fires is
   not a guard.
+- `tests/test_facecam_golden.py` is the validated facecam edit written out in full, from
+  synthetic inputs. It is allowed to fail only when a facecam rule is deliberately changed,
+  and then the new table has to be typed out and read.
 
 ## Completion discipline
 

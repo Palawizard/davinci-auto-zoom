@@ -445,7 +445,11 @@ place, collision resolution.
 confirmed good editorially, not only structurally, and is now the stable baseline: do not
 change it without a demonstrated bug.
 
-## Phase 9a — Gameplay trigger evidence and policy discovery [DONE — measurement, dry run only]
+## Phase 9a — Gameplay trigger evidence and policy discovery [DONE — ARCHIVED RESEARCH]
+
+> **ARCHIVED RESEARCH — GAMEPLAY IS NOT PART OF THE CURRENT PRODUCT (D068).** The
+> measurements below are valid and worth reading. The code they describe was removed from
+> the active tree in Phase 10; it lives in Git history.
 
 Goal: find out *when* a region that would be X0 deserves to be GAMEPLAY instead, from the
 user's own manual edit, and add the gameplay states to the graph without disturbing the
@@ -483,7 +487,9 @@ cases). The entry anchor is untouched — no cluster, no signal, systematically 
 `apply-preview` for gameplay, gameplay ownership/rebuild, apply in place, any semantic CV,
 transcription, learned classifiers, further gameplay states or transitions.
 
-## Phase 9b — Visual relevance / zoom usefulness [DONE — measurement, dry run only]
+## Phase 9b — Visual relevance / zoom usefulness [DONE — ARCHIVED RESEARCH]
+
+> **ARCHIVED RESEARCH — GAMEPLAY IS NOT PART OF THE CURRENT PRODUCT (D068).**
 
 Goal: not "what is moving" (Phase 9a's failed question) but **"is there something on screen the
 GAMEPLAY zoom would actually help show"**, and can that be represented by generic, explainable
@@ -533,122 +539,132 @@ marked inferred anywhere (D062).
 `apply-preview` for gameplay, gameplay ownership/rebuild, apply in place, VLM or cloud runtime,
 object detectors, game-specific logic, semantic transcription, facecam changes.
 
-## Phase 9c — Gameplay planning [BLOCKED — there is no rule to plan with]
+## Phase 9c — Gameplay planning [CANCELLED / RETIRED]
 
-Turning proposals into real placements. **Two phases of measurement have now failed to find a
-rule on the only reference that exists**, so this stays blocked, and the blocking is the point.
+**Not blocked — cancelled.** Two measurement phases failed to find a rule on the only reference
+that exists, and the creator then made a product decision: gameplay placement depends on
+context the available signals cannot see, so this direction is not pursued for this type of
+video (D068).
 
-In descending order of expected value:
+The distinction matters. A *blocked* phase is waiting for evidence and keeps its scaffolding
+alive. A *cancelled* one does not: `domain/gameplay.py`, `domain/visual_episodes.py`,
+`vision.py`, `resolve/gameplay_study.py`, the `gameplay-study` command, `STATE_GAMEPLAY`, the
+six gameplay transitions and their config keys were all removed in Phase 10. Nothing in the
+runtime anticipates their return.
 
-1. **A second reference edit that uses gameplay.** Everything below is worth less than this.
-2. **Camera-motion compensation** — the one classical experiment not yet run, and the honest
-   prerequisite for any "how big is the subject" feature. Estimate a global translation per
-   sample over the existing 32x18 grid (pure numpy, no new dependency), subtract it, and
-   re-measure Phase 9b's nine features. If activity that does not follow the camera separates
-   the classes, there is a rule; if it does not, the classical approach is exhausted and the
-   next step is the semantic contract in section 10 of the Phase 9b analysis report — as
-   offline research, never as a runtime dependency (D065).
-3. **Phase 8b (burst extent) first.** Three of ten manual gameplay entries sit inside a detected
-   burst, and one of them is exactly Phase 8c's recorded burst-1 overrun. The entry measurements
-   are contaminated by it.
-4. Only then: the entry-anchor rule and `AssetPlacement` emission for the six gameplay roles.
+What was settled and is worth keeping on paper, should anyone ever restart this as **new
+research** with a second reference edit: the exit anchor is the creator's next burst start, not
+a cut (Phase 9a, 6 of 10 within one frame); both gameplay clip families are hold clips
+animating in 15 frames (D062); the GAMEPLAY state is a centred 1.25x push-in showing the middle
+80% of the frame (D064); and the one untried classical experiment is camera-motion
+compensation. **None of that is an assignment.** It would start from a second reference edit or
+not at all.
 
-Two things are already settled for whenever it is written. The **exit anchor** is the creator's
-next burst start, not a cut (Phase 9a, 6 of 10 within one frame). Both gameplay clip families
-are **hold** clips animating in 15 frames (D062), so a `*_to_gameplay` placement runs from the
-move to whatever comes next and a `gameplay_to_*` placement has the same shape — the `FACE_X*`
-rule, not the `X*_TO_X0` one. `X3_TO_GAMEPLAY`'s 15 frames are confirmed; its endpoint state is
-known from the other three entries (D064).
+## Phase 10 — Facecam MVP consolidation / gameplay retirement / release-ready CLI baseline [CURRENT]
 
-A third is a hypothesis worth testing rather than a settled fact: where a **visual event onset**
-exists, it predicted the editor's entry frame about twice as closely as the start of the silence
-did (|delta| 3, 4, 29, 43 versus 0, 10, 53, 85) — on four episodes, from a detector that tracks
-the camera. Re-measure it after step 2 before believing it.
+**Supersedes the earlier "Phase 10 — UI / Resolve launcher / packaging" plan**, which is moved
+to *Future work* below.
 
-## Phase 8b — Burst extent [OPEN — no longer the imposed next milestone]
+Goal: no new editorial logic at all. Turn the repository into a coherent product centred on
+the one thing that works and was validated — facecam X1/X2/X3 from the creator's voice — and
+remove the experimental complexity that only Phases 9a/9b needed.
 
-**Phase 8c raised the value of this phase from "highest available" to "the single remaining
-cause of every level divergence".** Every one of the 5 cycles where Phase 8c disagrees with
-`DAZ_OUTPUT_MVP2` about a level is a cycle whose burst extent disagrees first; every one of the
-9 where the extent matches, the level matches too. The 8c report's section 4 is the table.
+Delivered:
 
-The offsets to explain, from that table: burst 12 opens 123 frames early, burst 7 opens 41
-early, burst 8 opens 18 early, burst 6 opens 14 early, burst 1 closes 77 late.
+- **D068**, the durable retirement decision, with the supersession note over D053-D067;
+- the state graph is exactly four states and six transitions again, with a `RETIRED_ROLES`
+  table so a stale config gets an explanation rather than "unknown key";
+- four modules, one CLI command, six config roles and three test files removed, plus the
+  secondary-audio/video render arguments in `resolve/voice_render.py` that only the study used;
+- `config.example.toml`, `README.md` and `AGENTS.md` rewritten around the facecam product;
+- `tests/test_facecam_golden.py` — the validated edit written out in full from synthetic
+  inputs, so a change to any facecam rule has to be read before it can be merged;
+- ownership/config regression tests proving existing facecam previews stay ownable and a
+  retired role fails closed;
+- baseline and regression reports: `.agent/reports/phase-10-pre-cleanup-baseline.txt`,
+  `.agent/reports/phase-10-live-regression-report.txt`.
 
-Two of the three level divergences of Phase 8 were already this problem:
+The acceptance criterion was that the EDITORIAL plan is byte-identical before and after, live
+on `DAZ_INPUT`. Only plan-identity metadata (the six gameplay asset entries in `PlanSource`,
+the six always-zero keys in `diagnostics.role_counts`) was allowed to change.
 
-1. cycle 1: the automatic reset lands **77 frames** after the human's, turning a 74-frame
-   manual cycle into a 149-frame automatic one, which then promotes twice;
-2. cycle 12: the one burst built from two speech segments. The planner opens it **123 frames**
-   before the human does (40 manual frames against 163 automatic).
+## Phase 8b — Burst extent [DEFERRED — optional calibration research, not a blocker]
 
-Both are pre-existing Phase 6 behaviour that only became visible once level depended on burst
-length. Measure both directions, as Phase 6 should have from the start: for each burst, the
-offset between the automatic and manual start *and* end, against the speech segments and the
-bridged gaps. Do not tune `reset_after_silence_ms` before that measurement exists.
+Against `DAZ_OUTPUT_MVP2` a few automatic bursts still open earlier or close later than the
+human's: burst 12 opens 123 frames early, burst 7 opens 41 early, burst 8 opens 18 early,
+burst 6 opens 14 early, burst 1 closes 77 late. Where the extent matches, the level matches
+(9 of 9); where it does not, it does not (0 of 5).
 
-Note what this phase already closed: **"x1 over-triggering" was not a defect.** 14 planned
-cycles against `DAZ_OUTPUT_MVP`'s 12 was the old reference being looser; `DAZ_OUTPUT_MVP2` has
-14 cycles in the same places. That entry can be struck from the carried-uncertainty list.
+**This is no longer treated as blocking anything.** The creator watched the applied Phase 8c
+preview and validated the facecam behaviour on 2026-08-18. A human reference edit is not a
+golden truth to be reproduced frame-perfect, and the divergences are a **known
+calibration/generalisation limitation — not currently user-visible enough to justify changing
+validated behaviour**.
+
+If it is ever picked up, the method is fixed: measure both directions for each burst (automatic
+vs manual start *and* end, against the speech segments and the bridged gaps) before touching
+any parameter. Do not retune `reset_after_silence_ms` or the VAD before that measurement
+exists.
+
+Note what Phase 8 already closed: **"x1 over-triggering" was not a defect.** 14 planned cycles
+against `DAZ_OUTPUT_MVP`'s 12 was the old reference being looser; `DAZ_OUTPUT_MVP2` has 14
+cycles in the same places.
 
 ## Phase 7b — Apply in place on a user timeline [DEFERRED]
 
-Ownership now exists, which is the precondition D032 was waiting for. The open questions, in
-order:
+The preview workflow is the supported write model, and remains so. Ownership exists, which is
+the precondition D032 was waiting for, but the open questions are unchanged:
 
 1. what does a user timeline look like that DAZ may write into at all — is a dedicated,
    verified-empty zoom track still required, or is "a track holding only DAZ-owned items"
    enough now that the second is provable?
 2. the recovery model. `apply-preview` leaves a preview behind; an in-place apply cannot. Is
-   `DAZ_RECOVERY_*` (D041) sufficient for a timeline the user is actively working in, or does
-   in-place work need something stronger?
+   `DAZ_RECOVERY_*` (D041) sufficient for a timeline the user is actively working in?
 3. collision behaviour is still unmeasured (D032). Either measure it on a scratch or keep
    refusing to depend on it.
 
 Do not weaken any Phase 7 refusal to make in-place work easier. `stale` and `ambiguous` stay
 fail-closed.
 
-Also carried forward from the earlier Phase 7 list, none of it blocking:
+Also carried forward, none of it blocking: partial range processing, backup/test-timeline
+guidance.
 
-- partial range processing
-- config validation
-- backup/test-timeline guidance
+## Future work — NOT active assignments
 
-## Phase 10 — UI / Resolve launcher / packaging
+Listed so nobody has to rediscover them, and deliberately without technical proposals attached.
+Do not start any of these without an explicit assignment.
 
-Only after CLI workflow is stable.
+- **Other video types / profiles.** The creator may later want to study how DAZ could work on a
+  different kind of video. Nothing is designed for this yet, and nothing should be: no profile
+  interface, no video-type enum, no plugin system, no strategy hierarchy. What makes such work
+  possible later is the boundary that already exists — objective facts, then a pure domain
+  planner, then placements, then an executor that makes no editorial decision.
+- **UI / Resolve launcher / distribution** (the old Phase 10). Potential shape: an external
+  PySide6 app for settings and preview, a thin Resolve Scripts menu launcher, package/install
+  helpers for Windows/Linux/macOS. Only after the CLI workflow has been used in anger. Do not
+  let UI architecture dictate domain logic.
+- **Apply in place** (Phase 7b above).
+- **Burst-extent calibration research** (Phase 8b above).
+- **Gameplay**, only ever as new research starting from a second reference edit (D068). It is
+  **not** a next milestone.
 
-Potential shape:
+## Phase 9 — Gameplay states [SPLIT: 9a and 9b DONE above, 9c CANCELLED above]
 
-- external PySide6 app for settings + preview
-- thin Resolve Scripts menu launcher
-- package/install helpers for Windows/Linux/macOS
+> **ARCHIVED — kept for the record of what the preconditions were and how each was met.**
 
-Do not make UI architecture dictate domain logic.
-
-## Phase 9 — Gameplay states [SPLIT: 9a and 9b DONE above, 9c BLOCKED above]
-
-**The state machine itself now exists** (Phase 8, D044), and as of Phase 9a so do the gameplay
-states in it (D053). This section is kept for the record of what the preconditions were and
-how each was met.
-
-The three preconditions, all of which **are** now met:
+The three preconditions were all met:
 
 1. ~~a reference edit that actually uses gameplay zooms~~ — `DAZ_OUTPUT_MVP3`, 42 transitions,
    10 gameplay episodes, five of the six authorised moves exercised;
 2. ~~an asset family in the bin with known animation lengths~~ — six assets, all 45 frames in
-   the Media Pool, all measured at 15 animation frames via read-only Fusion-comp export
-   (D062). `X3_TO_GAMEPLAY` alone has no manual instance; its 15 frames are **confirmed by the
-   creator** rather than measured, and Phase 9b measured the state it has to land on (D064);
+   the Media Pool, all measured at 15 animation frames via read-only Fusion-comp export (D062);
 3. **evidence about what triggers them** — measured twice, and the answer is that nothing
-   measurable does: not motion amount (D056), not motion topology (D066). The prediction in the original text ("speech duration will not be the answer")
-   was right, and so was the reason for making it: guessing here would have repeated D047's
-   mistake. What Phase 9a did instead was measure, report the negative, and ship a rule with
-   zero fitted parameters.
+   measurable does: not motion amount (D056), not motion topology (D066). The prediction in the
+   original text ("speech duration will not be the answer") was right, and so was the reason
+   for making it: guessing here would have repeated D047's mistake. What the phases did instead
+   was measure, report the negative, and refuse to fit a rule to 15 windows.
 
-Deliberately still closed: demotions between facecam levels (D045), and any gameplay state or
-transition beyond the six (D053). Nothing observed so far wants either.
+Meeting all three preconditions and still finding no rule is what turned this from a deferred
+feature into a retired one (D068).
 
-Later rules may depend on transcript semantics, gameplay events or manual annotations. The
-planner chooses states and transitions; the executor only realizes them with assets. That
-boundary is not up for renegotiation.
+Deliberately still closed: demotions between facecam levels (D045).

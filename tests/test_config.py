@@ -177,9 +177,8 @@ def test_the_example_config_carries_this_projects_asset_timing() -> None:
     config = Config.load(example)
     assert config.cut_reference_video_track == 1
     assert config.asset_timing is not None
-    # All twelve animate in 15 frames. The six gameplay ones were measured from the Fusion
-    # comps of the manual instances in DAZ_OUTPUT_MVP3, not assumed from the facecam ones —
-    # their Media Pool length is 45, and the planner never reads that.
+    # All six animate in 15 frames, and the example ships exactly the six facecam roles:
+    # gameplay is retired from the product (D068) and must not reappear here.
     assert config.asset_timing.to_dict() == {
         "x0_to_face_x1": 15,
         "face_x1_to_face_x2": 15,
@@ -187,12 +186,6 @@ def test_the_example_config_carries_this_projects_asset_timing() -> None:
         "face_x1_to_x0": 15,
         "face_x2_to_x0": 15,
         "face_x3_to_x0": 15,
-        "x0_to_gameplay": 15,
-        "face_x1_to_gameplay": 15,
-        "face_x2_to_gameplay": 15,
-        "face_x3_to_gameplay": 15,
-        "gameplay_to_x0": 15,
-        "gameplay_to_face_x1": 15,
     }
     assert config.planner.reset_after_silence_ms == 650
     assert config.assets == {
@@ -202,12 +195,6 @@ def test_the_example_config_carries_this_projects_asset_timing() -> None:
         "face_x1_to_x0": "X1_TO_X0",
         "face_x2_to_x0": "X2_TO_X0",
         "face_x3_to_x0": "X3_TO_X0",
-        "x0_to_gameplay": "X0_TO_GAMEPLAY",
-        "face_x1_to_gameplay": "X1_TO_GAMEPLAY",
-        "face_x2_to_gameplay": "X2_TO_GAMEPLAY",
-        "face_x3_to_gameplay": "X3_TO_GAMEPLAY",
-        "gameplay_to_x0": "GAMEPLAY_TO_X0",
-        "gameplay_to_face_x1": "GAMEPLAY_TO_X1",
     }
     # Calibrated on DAZ_OUTPUT_MVP2 (Phase 8c); see
     # .agent/reports/phase-08c-voice-dynamics-analysis.txt.
@@ -221,3 +208,104 @@ def test_the_example_config_carries_this_projects_asset_timing() -> None:
     assert config.energy.window_ms == 30
     assert config.energy.hop_ms == 10
     assert config.energy.smoothing_ms == 30
+
+
+# --- gameplay retirement (D068) ------------------------------------------------------------
+
+
+def test_a_gameplay_asset_name_is_refused_with_an_explanation(tmp_path) -> None:  # type: ignore[no-untyped-def]
+    """Not a silent ignore and not a bare "unknown key": the user must learn WHY it is gone."""
+
+    path = tmp_path / "config.toml"
+    path.write_text(
+        '[assets]\nx0_to_face_x1 = "FACE_X1"\nface_x1_to_x0 = "X1_TO_X0"\n'
+        'x0_to_gameplay = "X0_TO_GAMEPLAY"\n',
+        encoding="utf-8",
+    )
+    with pytest.raises(ValueError) as caught:
+        Config.load(path)
+    message = str(caught.value)
+    assert "x0_to_gameplay" in message
+    assert "no longer supports" in message
+    assert "facecam-only" in message
+
+
+def test_a_gameplay_transition_frame_is_refused_with_the_same_explanation(tmp_path) -> None:  # type: ignore[no-untyped-def]
+    path = tmp_path / "config.toml"
+    path.write_text(
+        "[assets.transition_frames]\n"
+        "x0_to_face_x1 = 15\nface_x1_to_x0 = 15\ngameplay_to_x0 = 15\n",
+        encoding="utf-8",
+    )
+    with pytest.raises(ValueError) as caught:
+        Config.load(path)
+    assert "gameplay_to_x0" in str(caught.value)
+    assert "no longer supports" in str(caught.value)
+
+
+# --- validation UX -------------------------------------------------------------------------
+
+
+def test_malformed_toml_is_reported_rather_than_raising_a_parser_error(tmp_path) -> None:  # type: ignore[no-untyped-def]
+    path = tmp_path / "config.toml"
+    path.write_text("[assets\nx0_to_face_x1 = \n", encoding="utf-8")
+    with pytest.raises(Exception) as caught:
+        Config.load(path)
+    # tomllib's own error names the line, which is the actionable part. What matters here is
+    # that the loader does not swallow it and return a half-built Config.
+    assert "line" in str(caught.value).lower() or "expected" in str(caught.value).lower()
+
+
+def test_a_role_named_without_an_animation_length_is_refused(tmp_path) -> None:  # type: ignore[no-untyped-def]
+    """A clip name with no animation length cannot be planned."""
+
+    path = tmp_path / "config.toml"
+    path.write_text(
+        '[assets]\nx0_to_face_x1 = "FACE_X1"\nface_x1_to_face_x2 = "FACE_X2"\n'
+        'face_x1_to_x0 = "X1_TO_X0"\n'
+        "[assets.transition_frames]\nx0_to_face_x1 = 15\nface_x1_to_x0 = 15\n",
+        encoding="utf-8",
+    )
+    with pytest.raises(ValueError, match="face_x1_to_face_x2"):
+        Config.load(path)
+
+
+def test_an_animation_length_without_a_clip_name_is_refused(tmp_path) -> None:  # type: ignore[no-untyped-def]
+    """And the mirror image: a role that can be planned but has no clip to place."""
+
+    path = tmp_path / "config.toml"
+    path.write_text(
+        '[assets]\nx0_to_face_x1 = "FACE_X1"\nface_x1_to_x0 = "X1_TO_X0"\n'
+        "[assets.transition_frames]\n"
+        "x0_to_face_x1 = 15\nface_x1_to_x0 = 15\nface_x2_to_x0 = 15\n",
+        encoding="utf-8",
+    )
+    with pytest.raises(ValueError, match="face_x2_to_x0"):
+        Config.load(path)
+
+
+def test_a_zero_or_negative_animation_length_is_refused(tmp_path) -> None:  # type: ignore[no-untyped-def]
+    """A 0-frame animation would place a clip that performs no move at all."""
+
+    path = tmp_path / "config.toml"
+    path.write_text(
+        "[assets.transition_frames]\nx0_to_face_x1 = 0\nface_x1_to_x0 = 15\n",
+        encoding="utf-8",
+    )
+    with pytest.raises(ValueError, match=">= 1 frame"):
+        Config.load(path)
+
+
+def test_the_two_required_facecam_roles_are_a_complete_configuration(tmp_path) -> None:  # type: ignore[no-untyped-def]
+    """The documented minimum: zoom in on speech, return on silence, no tighter levels."""
+
+    path = tmp_path / "config.toml"
+    path.write_text(
+        '[assets]\nx0_to_face_x1 = "FACE_X1"\nface_x1_to_x0 = "X1_TO_X0"\n'
+        "[assets.transition_frames]\nx0_to_face_x1 = 15\nface_x1_to_x0 = 15\n",
+        encoding="utf-8",
+    )
+    config = Config.load(path)
+    assert config.asset_timing is not None
+    assert sorted(config.asset_timing.to_dict()) == ["face_x1_to_x0", "x0_to_face_x1"]
+    assert sorted(config.assets) == ["face_x1_to_x0", "x0_to_face_x1"]

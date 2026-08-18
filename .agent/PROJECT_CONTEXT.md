@@ -28,22 +28,30 @@ generalised that into a real state/transition model** and added the facecam ladd
 **Phase 8c changed what earns a rung of that ladder** (D049-D052): not elapsed talking time, but
 a dip in the voice followed by a clear pick-up, read from an energy envelope of the same PCM the
 VAD consumes. Every transition — entry, promotion and reset — may now land on a nearby hard cut.
+**Phase 10 froze that as the product** and removed everything that was not part of it (D068).
 
-## Explicitly out of scope, but architecture must allow it
+## Scope: facecam-only, and that is a decision rather than a stage
 
-Future behavior includes:
+The supported product is the facecam ladder above and nothing else. **Gameplay zoom automation
+was researched in Phases 9a/9b and retired** (D068): two measurement phases found no generic
+rule on the only reference edit available, and the creator decided placement depends on context
+the available signals cannot see. Phase 9c is cancelled, not blocked.
 
-- zooms toward gameplay
-- transitions from facecam -> gameplay and gameplay -> facecam
-- semantic decisions using actual transcript words/context
+Consequences for anyone changing this repository:
 
-Do **not** implement those now, and do **not** stub them either (D048). They become entries in
-`domain/transitions.py`'s table when there is a reference edit and an asset family to measure
-against — one honest change with evidence behind it, rather than a half-built abstraction that
-constrains the measurement in advance.
+- do not add a gameplay state, role, config key, command or module;
+- do not leave a speculative hook for one either (D048's rule, applied to its own subject): a
+  hook is a claim about the future, and the evidence points the other way;
+- the archived measurements stay readable in `.agent/reports/phase-09*` and in Git history.
 
-Deliberately closed by Phase 8 and **not** reopened: demotions. `x3 -> x2` and `x2 -> x1` do
-not exist and are not planned. The way out of any facecam level is all the way out (D045).
+Also deliberately closed, and **not** reopened: demotions. `x3 -> x2` and `x2 -> x1` do not
+exist and are not planned. The way out of any facecam level is all the way out (D045). And
+semantic decisions using transcript words remain out of scope for the MVP.
+
+If DAZ is ever pointed at a different *type* of video, that is new research starting from new
+reference material — not a profile interface, a video-type enum or a plugin system built in
+advance. The boundary that makes such work possible later is the one that already exists:
+objective facts -> pure domain planner -> placements -> executor.
 
 ## Key design choice: speech activity vs transcription
 
@@ -192,15 +200,44 @@ Do not add a GUI until the real workflow has been validated from CLI/dry-run.
   policy, expected-vs-actual comparison); zero Resolve imports, and no numpy, onnxruntime or
   ffmpeg either
 - `resolve/`: Blackmagic module loading, capability discovery, snapshots, asset resolution,
-  voice-track render, and the executor (`resolve/executor.py`) that applies a validated plan
-  to a preview timeline
+  voice-track render, the executor (`resolve/executor.py`) that applies a validated plan to a
+  preview timeline, and the owned-preview clean/rebuild operations
 - `speech/`: provider interfaces plus the ONNX engine, ffmpeg normalization and the
   analysis pipeline. Usable with no Resolve session at all — that is a requirement, tested,
   not an accident
 - `cli.py`: orchestration only; no business logic
 - `tests/`: primarily pure tests; Resolve integration tests should be opt-in and clearly separated
 
-## Known uncertainty after Phase 9a/9b
+## Known uncertainty after Phase 10
+
+The facecam product is stable and validated. What remains open about it:
+
+- **it is calibrated on one creator and one reference workflow.** The thresholds sit on broad
+  plateaus rather than spikes, which is the best available evidence that they transfer to other
+  material — and still not evidence that they do. One speaker, one timeline, 7 manual
+  promotions;
+- **burst extent (Phase 8b) is a deferred calibration limitation, not a blocker.** A few bursts
+  open earlier or close later than the human's equivalent; the creator watched the result and
+  accepted it. Do not retune the VAD or `reset_after_silence_ms` without first measuring both
+  directions per burst;
+- **the rendered voice audio has never been listened to**, and there is no hand-labelled speech
+  reference. The envelope is calibrated against clip positions in `DAZ_OUTPUT_MVP2`, not
+  against anyone's ears;
+- **the fingerprint cannot see Fairlight or OFX changes that move no clip** (D030);
+- **collision behaviour on a non-empty track is still unmeasured** (D032), by choice: DAZ only
+  ever writes to a track it verified empty;
+- **marker capacity is uncharacterised**, and whether marker metadata survives a project close
+  and reopen is assumed rather than measured;
+- **frame agreement is weaker than level agreement.** Where both promote, the planner takes the
+  *first* usable cue and the human sometimes takes a later one;
+- **no local feature of a single valley separates a used cue from an unused one.** Depth and
+  duration overlap completely across the 63 valleys in the reference material. The separation
+  comes from the ladder having two rungs, not from the detector being clever.
+
+## Known uncertainty after Phase 9a/9b — ARCHIVED
+
+> **These are findings about a retired direction (D068), kept as the evidence for why gameplay
+> automation does not exist.** They are not open questions the product is waiting on.
 
 Phases 9a and 9b are both measurement phases and both main results are negative ones. Read
 `.agent/reports/phase-09a-mvp3-gameplay-analysis.txt` and
@@ -251,17 +288,16 @@ gameplay triggers.
   robust to that (nested ranges are not a small-sample artifact); the candidate rule's 11/15 is
   not.
 
-Still true, and now more sharply: **burst extent (Phase 8b) is not just a facecam problem.**
-Three of the ten manual gameplay entries sit inside a detected burst, and episode 1's -77
-frames is exactly the burst-1 overrun Phase 8c recorded. Fixing burst extent would clean up the
-gameplay entry measurements before anyone tries to model them.
+Burst extent (Phase 8b) also contaminated three of the ten gameplay entry measurements. That
+observation is now moot for the product and is recorded only for completeness.
 
 ## Known uncertainty after Phase 8c
 
-- **the level model is now only as good as the burst extent.** Where the automatic burst
-  matches the human's cycle, the peak level matches 9 times out of 9; where it does not, 0 of 5.
-  Nothing else explains any divergence. Phase 8b is no longer an improvement, it is the
-  remaining defect;
+- **the level model is only as good as the burst extent.** Where the automatic burst matches
+  the human's cycle, the peak level matches 9 times out of 9; where it does not, 0 of 5.
+  Nothing else explains any divergence. (Phase 10 downgraded this from "the remaining defect"
+  to a deferred, accepted calibration limitation: the creator watched the result and validated
+  it.);
 - **no local feature of a single valley separates a used cue from an unused one.** Depth and
   duration overlap completely across the 63 valleys the reference material contains. The
   separation comes from the ladder having two rungs, not from the detector being clever. A

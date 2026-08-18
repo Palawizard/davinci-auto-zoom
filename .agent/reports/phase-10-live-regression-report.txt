@@ -1,0 +1,243 @@
+PHASE 10 — LIVE REGRESSION AND RESOLVE SAFETY AUDIT
+===================================================
+
+Run AFTER the gameplay retirement, against the same project, timeline, tracks and
+config as `.agent/reports/phase-10-pre-cleanup-baseline.txt`.
+
+RESULT: PASS. The EDITORIAL plan is byte-identical. The only differences are the
+three pieces of plan-identity metadata the baseline authorised in advance, all of
+them caused by six roles ceasing to exist.
+
+
+1. ENVIRONMENT
+-----------------
+
+    DaVinci Resolve           Studio 21.0.4.5
+    project                   davinci-auto-zoom-test
+    source timeline           DAZ_INPUT              (voice A1, cuts V1, zooms V3)
+    reference timeline        DAZ_OUTPUT_MVP2        (diagnostics only, read-only)
+    config                    config.example.toml    (facecam-only after Phase 10)
+
+    .venv/bin/python -m davinci_auto_zoom plan-probe \
+      --confirm-resolve-render-test \
+      --project davinci-auto-zoom-test \
+      --source-timeline DAZ_INPUT --reference-timeline DAZ_OUTPUT_MVP2 \
+      --config config.example.toml --json
+
+    exit code                 0
+    succeeded                 true
+    total                     31.4 s   (baseline 38.6 s)
+
+**No `apply-preview` was run, deliberately.** The planner, the executor and the
+ownership write path did not change functionally, and Phase 8c's preview is already
+applied and visually validated. A new live write would add nothing and would leave a
+sixth preview in the project.
+
+
+2. EDITORIAL EQUALITY — PRE vs POST
+--------------------------------------
+
+Compared field by field from the two `--json` payloads:
+
+    speech segments (15)                    IDENTICAL
+    editorial bursts (14)                   IDENTICAL
+    voice valleys (63), all fields          IDENTICAL
+    placements (42): role, start, end,
+      reason, cut_frame, burst_index        IDENTICAL
+    structural_fingerprint                  IDENTICAL
+    decision trace (126 lines)              IDENTICAL *
+    diagnostics (all keys but role_counts)  IDENTICAL
+    role_counts, non-zero entries           IDENTICAL
+    planner_settings                        IDENTICAL
+    energy_settings                         IDENTICAL
+    plan-vs-reference diagnostics           IDENTICAL
+
+    * the trace is 126 lines before and after. One of them — the opening line that
+      inventories the configured animations — legitimately lists 6 assets instead of
+      12. Every line reporting a DECISION is byte-identical.
+
+    structural_fingerprint
+      sha256:a1d107e1fa95b6152dd06be89ccc0fbd39de8d02faa906f91d3d7fc6d46a5483
+
+    unchanged since Phase 8c, through 9a, 9b and now 10. It covers the voice track,
+    the cut-reference track, the range and the frame rate (D030) — none of which the
+    retirement touches.
+
+    role counts, both runs:
+      x0_to_face_x1        14
+      face_x1_to_face_x2    9
+      face_x2_to_face_x3    5
+      face_x1_to_x0         5
+      face_x2_to_x0         4
+      face_x3_to_x0         5
+
+
+3. THE ONLY DIFFERENCES, AND WHY EACH IS EXPECTED
+----------------------------------------------------
+
+    a) diagnostics.role_counts loses six keys that were always 0:
+         face_x1_to_gameplay, face_x2_to_gameplay, face_x3_to_gameplay,
+         gameplay_to_face_x1, gameplay_to_x0, x0_to_gameplay
+       The dictionary is keyed by the configured roles; six roles no longer exist.
+       No count changed.
+
+    b) PlanSource.assets / .asset_transition_frames / .asset_identities lose their
+       six gameplay entries. This is a real change to the plan's IDENTITY, and it is
+       the documented consequence of the retirement (D068): a plan computed before
+       Phase 10 is no longer field-for-field equal to one computed after it, so
+       `rebuild-preview` against a pre-Phase-10 preview would recompute rather than
+       match on those fields.
+
+       No compatibility layer was added, on purpose. Faking an identity to make an
+       old plan acceptable is exactly the class of convenience this project refuses
+       (safety > convenience). What matters is that the EDITORIAL result and the
+       per-clip `placement_id` are unchanged: `placement_id` hashes the source
+       fingerprint, the role, the frames and the asset name — none of which moved —
+       so every existing facecam preview stays recognisable, ownable and cleanable.
+       There is a test for that (`tests/test_ownership.py`).
+
+    c) the trace's asset-inventory line, as noted in section 2.
+
+Nothing else differs. `diff` over the full extracted plan (356 lines: totals,
+diagnostics, identity, segments, bursts, every placement, every valley, the whole
+decision trace) shows those three regions and no other.
+
+
+4. RESOLVE SAFETY AUDIT — INDEPENDENT, READ-ONLY
+---------------------------------------------------
+
+Performed by a separate script that re-reads the project directly and does NOT
+consult DAZ's own report.
+
+    timelines                       : 9
+      DAZ_INPUT                                      c4d7a327-a9eb-4f0d-af14-b1ace8e8a85b
+      DAZ_OUTPUT_MVP                                 81df1b0c-a91d-4d67-88cc-ed6dddeddb95
+      DAZ_AUTO_PREVIEW_20260816_211026_c676d5af      96f30d77-f302-4be5-93f3-c7fbbfd58813
+      DAZ_AUTO_PREVIEW_20260817_132005_77443d7c      6d0bde62-788c-4c04-b32c-685ebd84e9e3
+      DAZ_AUTO_PREVIEW_20260817_163637_e8787ece      9fb7e350-345f-465c-99a8-60ef1c85d972
+      DAZ_OUTPUT_MVP2                                ee4eb745-aa5e-48d3-b4be-8ee8f4c30418
+      DAZ_AUTO_PREVIEW_20260817_233130_203670b0      5a973592-620d-4dff-8063-4c7b97d5673c
+      DAZ_AUTO_PREVIEW_20260818_005127_086a1483      2848d398-2e48-4c9a-97d4-b4031710b55e
+      DAZ_OUTPUT_MVP3                                6d23476d-d1f9-4e63-992e-9e149c0e4f54
+    
+    protected timelines present     : True ['DAZ_INPUT', 'DAZ_OUTPUT_MVP', 'DAZ_OUTPUT_MVP2', 'DAZ_OUTPUT_MVP3']
+    DAZ_AUTO_PREVIEW_* count        : 5
+    leftover scratch/recovery       : none
+    render queue jobs               : 0
+    DAZ render presets left         : none
+    current format / codec          : {'format': 'mov', 'codec': 'H264_NVIDIA'}
+    rendering in progress           : False
+    current timeline                : DAZ_OUTPUT_MVP3
+    asset bin items                 : 12
+       ['FACE_X1', 'FACE_X2', 'FACE_X3', 'GAMEPLAY_TO_X0', 'GAMEPLAY_TO_X1', 'X0_TO_GAMEPLAY', 'X1_TO_GAMEPLAY', 'X1_TO_X0', 'X2_TO_GAMEPLAY', 'X2_TO_X0', 'X3_TO_GAMEPLAY', 'X3_TO_X0']
+
+    VERDICT
+
+    protected timelines unchanged     4/4 present with their original unique ids
+                                      (DAZ_INPUT, DAZ_OUTPUT_MVP, MVP2, MVP3)
+    timelines added                   0
+    timelines removed                 0
+    DAZ_AUTO_PREVIEW_*                5, exactly as before — none created, none
+                                      touched, none deleted
+    leftover scratch timeline         none
+    leftover recovery timeline        none
+    leftover temp render directory    none (render_directory_removed: true)
+    render queue                      0 jobs; 0 before, 0 after; pre-existing jobs
+                                      preserved; DAZ's own job deleted
+    DAZ render preset left behind     none (DAZ_RENDER_RESTORE_730c4030 deleted)
+    Deliver state                     captured and restored; unrestored: []
+                                      mov / H264_NVIDIA / mode 1, the same values it
+                                      held before the run
+    current timeline                  DAZ_OUTPUT_MVP3, restored and verified
+    rendering in progress             false
+    asset bin                         12 items, untouched
+
+    DAZ's own audit, independently: clean=true, error=null,
+    audit_differences=[] against DAZ_INPUT and DAZ_OUTPUT_MVP2,
+    scratch_absent_after_cleanup=true, notes=[].
+
+    Note on the asset bin: the six GAMEPLAY_* / *_TO_GAMEPLAY clips still exist in
+    the user's Media Pool. That is the user's material and Phase 10 does not touch
+    it — the retirement removes them from DAZ's configuration and code, not from the
+    creator's project. DAZ simply no longer resolves or places them.
+
+    Note on MVP3: kept. It is a research archive, and retiring gameplay from the
+    product does not make the reference edit less worth keeping.
+
+
+5. OFFLINE GATES, AFTER THE CLEANUP
+--------------------------------------
+
+    pytest                    563 passed  (642 before)
+    ruff check .              All checks passed
+    mypy (strict)             Success: no issues found in 39 source files
+                              (43 before — four modules removed)
+
+    The count dropped because three whole test files went with the code they
+    covered:
+
+      tests/test_gameplay.py           -66 tests   gameplay decision + features
+      tests/test_visual_episodes.py    -26 tests   ROI, spatial stats, zoom_utility
+      tests/test_vision.py             -12 tests   motion/activity envelopes
+      test_transitions.py / test_planner.py        gameplay-graph assertions removed
+
+    And these were added:
+
+      tests/test_facecam_golden.py     +8 tests    the validated edit, in full
+      tests/test_transitions.py        +2 tests    the four-state vocabulary, the
+                                                   retired-role table
+      tests/test_ownership.py          +3 tests    existing previews stay ownable,
+                                                   a retired role fails closed,
+                                                   placement_id is unchanged
+      tests/test_config.py             +8 tests    retirement errors in both asset
+                                                   tables, malformed TOML, role/timing
+                                                   mismatch both ways, zero-length
+                                                   animation, the two-role minimum
+
+    Non-regression is judged on facecam behaviour, safety, config, CLI, packaging
+    and ownership — all of which gained coverage — not on the total.
+
+
+6. PACKAGING SMOKE
+---------------------
+
+In a throwaway venv built from scratch (Python 3.14, no repo on the path):
+
+    pip install .                     OK
+    davinci-auto-zoom --help          OK, 12 subcommands, no gameplay-study
+    import davinci_auto_zoom          OK
+    command parsers build with no Resolve session
+                                      OK (doctor / snapshot / assets)
+    vendored Silero model present     OK, 2 327 524 bytes
+    model checksum verified           OK, silero-vad v6.2.1 (opset 16)
+    LICENSE + PROVENANCE shipped      OK
+    python -m build --wheel           OK, davinci_auto_zoom-0.0.1-py3-none-any.whl
+    wheel contains models/*.onnx,
+      *.txt, *.md                     OK
+    wheel contains no gameplay,
+      vision or visual_episodes module
+                                      OK
+    config.example.toml loads         OK, exactly the six facecam roles
+
+    Not reproduced, and not simulated: "doctor reports actionable state when Resolve
+    is unavailable". Resolve is installed and running on this machine, so `doctor`
+    connects. That path is covered by `tests/test_resolve_errors.py`, which asserts
+    the graceful message and the non-zero exit without a Resolve session.
+
+    Nothing was published. The version was not bumped.
+
+
+7. SUMMARY
+-------------
+
+    editorial plan PRE vs POST        IDENTICAL
+    structural fingerprint            IDENTICAL
+    plan identity metadata            6 gameplay entries removed, as authorised
+    protected timelines               unchanged
+    timelines added / removed         0 / 0
+    new previews created              0
+    leftover state of any kind        none
+    pytest / ruff / mypy              PASS / PASS / PASS
+    packaging smoke                   PASS
+
+    FACECAM MVP CONSOLIDATION: verified.

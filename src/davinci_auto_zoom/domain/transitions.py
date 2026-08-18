@@ -1,4 +1,4 @@
-"""Phase 8: the visual states DAZ can be in, and the transitions it is allowed to make.
+"""The visual states DAZ can be in, and the transitions it is allowed to make.
 
 Phases 4-7 hard-wired one editorial idea into the type system: there was a `facecam_x1` role
 and a `reset_x0` role, and the planner's job was to alternate them. That model cannot express
@@ -16,7 +16,6 @@ at the frames the plan gives it.
     FACE_X1   facecam, first zoom level
     FACE_X2   facecam, tighter
     FACE_X3   facecam, tightest
-    GAMEPLAY  pushed in on the game, the creator's face out of the way
 
 ## The allowed transitions, and only these
 
@@ -27,30 +26,17 @@ at the frames the plan gives it.
     FACE_X2  -> X0          face_x2_to_x0
     FACE_X3  -> X0          face_x3_to_x0
 
-    X0       -> GAMEPLAY    x0_to_gameplay
-    FACE_X1  -> GAMEPLAY    face_x1_to_gameplay
-    FACE_X2  -> GAMEPLAY    face_x2_to_gameplay
-    FACE_X3  -> GAMEPLAY    face_x3_to_gameplay
-    GAMEPLAY -> X0          gameplay_to_x0
-    GAMEPLAY -> FACE_X1     gameplay_to_face_x1
-
 The facecam ladder is climbed one rung at a time and never descended: there is no
 `FACE_X3 -> FACE_X2`, no `FACE_X2 -> FACE_X1`, and no jump from `X0` straight to `FACE_X2`.
 That is an editorial decision (D046), not an oversight — a zoom that steps back out to a wider
 facecam level mid-sentence reads as a mistake, while dropping all the way to X0 reads as the
 end of a thought.
 
-`GAMEPLAY` is reachable from every state and leaves to only two (D053). Coming *out* of
-gameplay the picture may land at normal framing or at the first facecam level and nowhere
-tighter: `GAMEPLAY -> FACE_X2` and `GAMEPLAY -> FACE_X3` are forbidden, because a level is
-something the voice earns inside a burst and a burst that has not started yet has earned
-nothing. `GAMEPLAY -> GAMEPLAY` is not a transition at all. Every one of the six moves was
-observed in the user's own manual edit (`DAZ_OUTPUT_MVP3`) before it was added here, and no
-move outside this table appears in it.
-
-The gameplay roles are **optional capabilities**: `REQUIRED_ROLES` is unchanged, so a project
-that configures no gameplay asset produces exactly the facecam plan it produced before this
-state existed. Phase 9a measures gameplay and plans none of it.
+A `GAMEPLAY` state and its six moves lived here through Phases 9a and 9b. They are **gone**:
+two measurement phases failed to find any rule that decides where a gameplay zoom belongs, and
+the creator retired the direction from the product (D068). The research is still in Git history
+and in `.agent/reports/phase-09*`. Nothing here anticipates its return — a speculative extension
+hook is a claim about the future this project has no evidence for.
 
 ## The two clip shapes, which are not the same thing
 
@@ -74,20 +60,17 @@ STATE_X0 = "x0"
 STATE_FACE_X1 = "face_x1"
 STATE_FACE_X2 = "face_x2"
 STATE_FACE_X3 = "face_x3"
-STATE_GAMEPLAY = "gameplay"
 
-#: Every state this phase knows about, wide framing first.
+#: Every state this project knows about, wide framing first.
 STATES: tuple[str, ...] = (
     STATE_X0,
     STATE_FACE_X1,
     STATE_FACE_X2,
     STATE_FACE_X3,
-    STATE_GAMEPLAY,
 )
 
 #: The facecam levels in climbing order. `FACECAM_LADDER[0]` is what `X0` enters into; each
-#: further entry is reachable only from the one before it. `GAMEPLAY` is deliberately not a
-#: rung: it is not tighter or wider than a facecam level, it is a different subject.
+#: further entry is reachable only from the one before it.
 FACECAM_LADDER: tuple[str, ...] = (STATE_FACE_X1, STATE_FACE_X2, STATE_FACE_X3)
 
 ROLE_X0_TO_FACE_X1 = "x0_to_face_x1"
@@ -96,13 +79,6 @@ ROLE_FACE_X2_TO_FACE_X3 = "face_x2_to_face_x3"
 ROLE_FACE_X1_TO_X0 = "face_x1_to_x0"
 ROLE_FACE_X2_TO_X0 = "face_x2_to_x0"
 ROLE_FACE_X3_TO_X0 = "face_x3_to_x0"
-
-ROLE_X0_TO_GAMEPLAY = "x0_to_gameplay"
-ROLE_FACE_X1_TO_GAMEPLAY = "face_x1_to_gameplay"
-ROLE_FACE_X2_TO_GAMEPLAY = "face_x2_to_gameplay"
-ROLE_FACE_X3_TO_GAMEPLAY = "face_x3_to_gameplay"
-ROLE_GAMEPLAY_TO_X0 = "gameplay_to_x0"
-ROLE_GAMEPLAY_TO_FACE_X1 = "gameplay_to_face_x1"
 
 
 class ForbiddenTransition(ValueError):
@@ -119,21 +95,13 @@ class Transition:
 
     @property
     def is_reset(self) -> bool:
-        """Does this land back at normal framing? Resets are the only shrinking moves.
-
-        `gameplay_to_x0` is one of them: coming out of the game to nothing is a reset in
-        every sense that matters downstream.
-        """
+        """Does this land back at normal framing? Resets are the only shrinking moves."""
 
         return self.to_state == STATE_X0
 
     @property
     def is_promotion(self) -> bool:
-        """Does this climb the facecam ladder? Both ends have to be rungs of it.
-
-        Defined positively rather than as "not a reset and not from X0", because leaving a
-        facecam level *for gameplay* is not a promotion — it changes subject, not tightness.
-        """
+        """Does this climb the facecam ladder? Both ends have to be rungs of it."""
 
         return self.from_state in FACECAM_LADDER and self.to_state in FACECAM_LADDER
 
@@ -143,18 +111,6 @@ class Transition:
 
         return self.from_state == STATE_X0 and self.to_state == STATE_FACE_X1
 
-    @property
-    def is_gameplay_entry(self) -> bool:
-        """Does this land on the game? Reachable from all four framing states."""
-
-        return self.to_state == STATE_GAMEPLAY
-
-    @property
-    def is_gameplay_exit(self) -> bool:
-        """Does this leave the game? Only to X0 or to the first facecam level."""
-
-        return self.from_state == STATE_GAMEPLAY
-
 
 TRANSITIONS: tuple[Transition, ...] = (
     Transition(ROLE_X0_TO_FACE_X1, STATE_X0, STATE_FACE_X1),
@@ -163,22 +119,6 @@ TRANSITIONS: tuple[Transition, ...] = (
     Transition(ROLE_FACE_X1_TO_X0, STATE_FACE_X1, STATE_X0),
     Transition(ROLE_FACE_X2_TO_X0, STATE_FACE_X2, STATE_X0),
     Transition(ROLE_FACE_X3_TO_X0, STATE_FACE_X3, STATE_X0),
-    Transition(ROLE_X0_TO_GAMEPLAY, STATE_X0, STATE_GAMEPLAY),
-    Transition(ROLE_FACE_X1_TO_GAMEPLAY, STATE_FACE_X1, STATE_GAMEPLAY),
-    Transition(ROLE_FACE_X2_TO_GAMEPLAY, STATE_FACE_X2, STATE_GAMEPLAY),
-    Transition(ROLE_FACE_X3_TO_GAMEPLAY, STATE_FACE_X3, STATE_GAMEPLAY),
-    Transition(ROLE_GAMEPLAY_TO_X0, STATE_GAMEPLAY, STATE_X0),
-    Transition(ROLE_GAMEPLAY_TO_FACE_X1, STATE_GAMEPLAY, STATE_FACE_X1),
-)
-
-#: The six moves that involve the game. Everything else is the untouched facecam graph.
-GAMEPLAY_ROLES: tuple[str, ...] = (
-    ROLE_X0_TO_GAMEPLAY,
-    ROLE_FACE_X1_TO_GAMEPLAY,
-    ROLE_FACE_X2_TO_GAMEPLAY,
-    ROLE_FACE_X3_TO_GAMEPLAY,
-    ROLE_GAMEPLAY_TO_X0,
-    ROLE_GAMEPLAY_TO_FACE_X1,
 )
 
 #: Role -> transition. The lookup the executor and the ownership classifier use.
@@ -191,9 +131,19 @@ ROLES: tuple[str, ...] = tuple(t.role for t in TRANSITIONS)
 
 #: Without these two there is no zoom at all, so a config missing either is an error. The
 #: x2/x3 roles are optional: a user who has not built those assets simply never promotes.
-#: The six gameplay roles are optional for the same reason and one more — a project that
-#: configures none of them must keep producing exactly its previous facecam plan (D054).
 REQUIRED_ROLES: tuple[str, ...] = (ROLE_X0_TO_FACE_X1, ROLE_FACE_X1_TO_X0)
+
+#: Roles that this project used to accept and deliberately no longer does (D068). A config
+#: carrying one is a clear error naming the retirement, never a silently ignored key: a user
+#: who still lists a gameplay asset believes it will be placed, and it will not.
+RETIRED_ROLES: tuple[str, ...] = (
+    "x0_to_gameplay",
+    "face_x1_to_gameplay",
+    "face_x2_to_gameplay",
+    "face_x3_to_gameplay",
+    "gameplay_to_x0",
+    "gameplay_to_face_x1",
+)
 
 
 def transition(from_state: str, to_state: str) -> Transition:
@@ -253,26 +203,19 @@ __all__ = [
     "BY_PAIR",
     "BY_ROLE",
     "FACECAM_LADDER",
-    "GAMEPLAY_ROLES",
     "REQUIRED_ROLES",
+    "RETIRED_ROLES",
     "ROLES",
     "ROLE_FACE_X1_TO_FACE_X2",
-    "ROLE_FACE_X1_TO_GAMEPLAY",
     "ROLE_FACE_X1_TO_X0",
     "ROLE_FACE_X2_TO_FACE_X3",
-    "ROLE_FACE_X2_TO_GAMEPLAY",
     "ROLE_FACE_X2_TO_X0",
-    "ROLE_FACE_X3_TO_GAMEPLAY",
     "ROLE_FACE_X3_TO_X0",
-    "ROLE_GAMEPLAY_TO_FACE_X1",
-    "ROLE_GAMEPLAY_TO_X0",
     "ROLE_X0_TO_FACE_X1",
-    "ROLE_X0_TO_GAMEPLAY",
     "STATES",
     "STATE_FACE_X1",
     "STATE_FACE_X2",
     "STATE_FACE_X3",
-    "STATE_GAMEPLAY",
     "STATE_X0",
     "TRANSITIONS",
     "ForbiddenTransition",

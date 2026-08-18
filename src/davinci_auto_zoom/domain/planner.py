@@ -26,9 +26,10 @@ planner runs offline and already knows how long every pause lasts, so it never p
 by a *hold*: the zoom stays where the animation left it for as long as the clip lasts (D014).
 So an x1 placement spans `[x1_start, x0_start)` — 15 frames or 900, whatever the burst needs —
 and its only hard constraint is that it must last at least as long as its own animation, or
-the move never completes. Symmetrically `FACE_X0_SMOOTH` only needs its animation length to
-do its whole job; the Media Pool item's *native* length (42 frames for this user) is a
-property of the asset file, not a minimum the planner has to honour. Nothing here reads it.
+the move never completes. Symmetrically a reset asset (`X1_TO_X0` and its x2/x3 twins) only
+needs its animation length to do its whole job; the Media Pool item's *native* length (42
+frames for this user) is a property of the asset file, not a minimum the planner has to
+honour. Nothing here reads it.
 
 **Every transition prefers a real cut, and the nearest one.** When the edit cuts around the
 same moment a transition happens, landing on that cut looks intentional. So every facecam
@@ -461,8 +462,8 @@ class ZoomPlan:
         peaks: dict[int, str] = {}
         for placement in self.zoom_placements:
             transition = BY_ROLE[placement.asset_role]
-            # Only rungs of the ladder have a height. A gameplay placement is a change of
-            # subject, not a level, and must not be ranked against face_x1..x3.
+            # Only rungs of the ladder have a height; a reset lands at X0 and ranks
+            # against nothing.
             if transition.to_state not in FACECAM_LADDER:
                 continue
             current = peaks.get(placement.burst_index)

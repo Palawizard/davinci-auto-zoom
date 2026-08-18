@@ -1541,3 +1541,73 @@ visual reader, the *shape* of the eventual rule is known —
 `gameplay_by_default` stays the shipped Phase 9a candidate (11/15, zero fitted parameters) and
 `use_zoom_utility` defaults to **off**, because on the reference material the visual branch
 scores 7/15. Nothing about the production planner changed: it still places no gameplay clip.
+
+## D068 — Gameplay automation is retired from the current product scope
+
+**Superseding note applying to D053-D067.** Those decisions are historically accurate and are
+not rewritten. Where any of them speaks in the present tense about a gameplay state, a gameplay
+role, a gameplay config key or a future gameplay policy, read it as **archived research**: none
+of it exists in the active tree any more, and no part of the runtime anticipates its return.
+
+**What happened.** Phases 9a and 9b were research spikes, dry-run only, and both produced
+negative results — deliberately, and reported as such:
+
+- 9a measured creator silence, secondary-audio activity and visual motion amount. Every class
+  range nested; the ablation put silence+audio, silence+video and all three at 8/15, *below* a
+  majority baseline of 10, while a rule using no signal at all scored 11/15 with zero fitted
+  parameters (D056, D059);
+- 9b measured the zoom's own geometry (D064) and nine spatial features of the picture. Same
+  outcome, with the reason now nameable: a frame difference in a first-person game measures the
+  player's camera, not the game's events, and every hard negative has a manual-gameplay twin
+  within about one standard deviation (D066). Ablation families A-F scored 8, 8, 7, 6, 6, 5.
+
+Both results remain valid as measurements, and their reports stay in `.agent/reports/`.
+
+**The decision, and whose it is.** No robust generic rule for placing a GAMEPLAY zoom was
+found, and the creator decided not to pursue the direction for this type of video: gameplay
+placement depends on context the available signals cannot see. This is a **product decision**,
+not a blocked task waiting for evidence. Phase 9c is therefore CANCELLED, not BLOCKED.
+
+**What the supported product is.** davinci-auto-zoom is **facecam-only**. Four visual states
+(`x0`, `face_x1`, `face_x2`, `face_x3`) and six transitions, driven by the creator's voice.
+
+**What was removed from the active tree**, because it existed only for 9a/9b and no facecam
+path used it:
+
+    domain/gameplay.py              the whether/where decision and its feature model
+    domain/visual_episodes.py       ROI derivation, spatial statistics, zoom_utility
+    vision.py                       the motion/activity envelopes
+    resolve/gameplay_study.py       the study command's implementation
+    CLI gameplay-study              the diagnostic itself
+    STATE_GAMEPLAY + 6 transitions  from domain/transitions.py
+    6 gameplay roles                from [assets] and [assets.transition_frames]
+    render_voice_track's keep_audio_tracks / export_video / render_preset arguments,
+      _silence_audio_tracks, the report's media_kind / kept_audio_tracks fields, and
+      voice_render_preflight_failures' required_preset — the secondary-audio and video
+      render paths, which only 9a/9b ever called
+    tests/test_gameplay.py, tests/test_vision.py, tests/test_visual_episodes.py
+
+Git keeps the history; the working tree does not keep the complexity. **No speculative
+extension hook is left behind** — a hook is a claim about the future, and this project has
+evidence for the opposite claim.
+
+**What was NOT removed**, and must not be: any safety mechanism. Source fingerprinting, plan
+validation, preview ownership, marker metadata, stale/ambiguous refusal, the recovery copy,
+transactional cleanup, active-timeline restoration, Deliver restoration, render-queue
+preservation and the pre/post protected audits are product features, not legacy.
+
+**Consequences a reader should know:**
+
+- a config still naming a gameplay role is a **clear error naming the retirement** (a
+  `RETIRED_ROLES` table in `domain/transitions.py`), never a silently ignored key and never a
+  migration layer;
+- the plan's `PlanSource` identity loses its six gameplay asset entries, so a plan computed
+  before this change is no longer byte-identical in metadata. The `structural_fingerprint`
+  covers the voice track, the cut-reference track, the range and the frame rate (D030) and is
+  **unchanged**; the EDITORIAL plan is unchanged, and that was verified live;
+- **existing facecam previews stay fully ownable.** Every marker on a real preview names a
+  facecam role, because 9a/9b placed nothing at all. A hypothetical marker naming a retired
+  role classifies as `ambiguous` and blocks deletion — fail-closed, as designed. Both are
+  tested;
+- gameplay may be revisited one day as **new research**. If it is, it starts from a second
+  reference edit, not from a hook someone left in the code.

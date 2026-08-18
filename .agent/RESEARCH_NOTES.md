@@ -1,6 +1,23 @@
-# Research notes — initial supervisor research
+# Research notes — measured behaviour and its origins
 
-Date: 2026-08-15
+Date: 2026-08-15, extended each phase.
+
+## How to read this file
+
+It is in two parts, and the split is load-bearing (D068):
+
+**ACTIVE EVIDENCE USED BY THE PRODUCT** — everything from "Blackmagic Design" down to and
+including "Phase 8c". Resolve API discoveries, asset reuse, the render and VAD path, the
+planner, cut snapping, voice dynamics and ownership. These findings are why the shipping
+facecam behaviour is what it is; changing the code without reading them is how a measured
+decision gets silently reverted.
+
+**ARCHIVED RESEARCH / NOT USED BY THE PRODUCT** — the "Phase 9a" and "Phase 9b" sections at the
+end. Gameplay automation was researched and deliberately not shipped; davinci-auto-zoom is
+facecam-only. Those measurements are kept because they explain *why* the feature does not
+exist, and because two of them (the `DeleteTrack` renaming behaviour, `ExportFusionComp` as a
+read-only measuring instrument) are durable facts about Resolve regardless of what they were
+measured for. **Nothing in that part describes code that still exists.**
 
 ## Blackmagic Design
 
@@ -558,6 +575,15 @@ away. Manual promotions: 1 of 7 on a cut (chance), offsets otherwise 27-89 frame
 resets: 8 of 14, unchanged since Phase 6. So the entry window is worth having and small
 (±120 ms, 8x margin), the promotion window will almost never fire — 1 of 14 cues in the live
 plan — and the reset window stays exactly as D034 left it.
+
+---
+
+# ARCHIVED RESEARCH — NOT USED BY THE PRODUCT
+
+Everything below measured the gameplay question. Gameplay automation is retired (D068) and the
+modules described here (`domain/gameplay.py`, `domain/visual_episodes.py`, `vision.py`,
+`resolve/gameplay_study.py`) were removed from the active tree in Phase 10. The numbers stay
+because they are the evidence for the retirement; the code they refer to lives in Git history.
 
 ## Phase 9a — measured Resolve behaviour, and the gameplay material
 

@@ -38,7 +38,6 @@ from davinci_auto_zoom.domain.planner import (
 )
 from davinci_auto_zoom.domain.transitions import (
     FACECAM_LADDER,
-    GAMEPLAY_ROLES,
     ROLE_FACE_X1_TO_FACE_X2,
     ROLE_FACE_X1_TO_X0,
     ROLE_FACE_X2_TO_FACE_X3,
@@ -923,50 +922,15 @@ def test_planning_the_same_material_twice_gives_the_identical_plan() -> None:
 
 
 # ---------------------------------------------------------------------------------------
-# Phase 9a backwards compatibility.
+# Configured capability set.
 #
-# Adding STATE_GAMEPLAY to the graph made six new roles configurable. They are optional
-# capabilities, and the promise attached to them is precise: a project that does not
-# configure a gameplay asset must keep producing exactly the plan it produced before the
-# state existed (D054). These tests are that promise, in code.
+# `AssetTiming`'s key set doubles as "which moves this project can make" (D045), so the
+# minimum configuration and the full one must both produce a valid plan.
 # ---------------------------------------------------------------------------------------
-
-GAMEPLAY_TIMING = AssetTiming(
-    dict(FULL_TIMING.transition_frames)
-    | {role: 15 for role in GAMEPLAY_ROLES}
-)
-
-
-def test_configuring_gameplay_assets_does_not_change_the_facecam_plan() -> None:
-    """Same speech, same cuts, same envelope: the six extra assets must be inert."""
-
-    speech = ((1100, 1900), (2400, 3000), (3400, 4200))
-    energy = envelope((1400, 1420), (1600, 1620), (2600, 2620))
-    without = plan(*speech, timing=FULL_TIMING, cuts=(1099, 2405), energy=energy)
-    with_gameplay = plan(*speech, timing=GAMEPLAY_TIMING, cuts=(1099, 2405), energy=energy)
-    assert [p.to_dict() for p in with_gameplay.placements] == [
-        p.to_dict() for p in without.placements
-    ]
-    assert with_gameplay.cue_outcomes == without.cue_outcomes
-    # The trace's opening line inventories the configured animations, so it legitimately
-    # lists six more assets. Every line that reports a *decision* has to be identical.
-    assert [d for d in with_gameplay.decisions if "transition animations" not in d] == [
-        d for d in without.decisions if "transition animations" not in d
-    ]
-
-
-def test_the_planner_still_places_no_gameplay_role_when_one_is_configured() -> None:
-    """Phase 9a measures gameplay and plans none of it. The planner has not learned it."""
-
-    result = plan((1100, 1900), (2400, 3000), timing=GAMEPLAY_TIMING, energy=envelope())
-    assert result.placements
-    assert not [p for p in result.placements if p.asset_role in GAMEPLAY_ROLES]
-    for role in GAMEPLAY_ROLES:
-        assert result.role_counts[role] == 0
 
 
 def test_a_two_asset_config_is_still_a_complete_configuration() -> None:
-    """The Phase 7 minimum: no x2/x3, no gameplay, and a plan comes out anyway."""
+    """The supported minimum: no x2, no x3, and a plan comes out anyway."""
 
     result = plan((1100, 1900), timing=TIMING)
     assert [p.asset_role for p in result.placements] == [
@@ -975,9 +939,9 @@ def test_a_two_asset_config_is_still_a_complete_configuration() -> None:
     ]
 
 
-def test_the_ladder_peak_count_ignores_states_that_are_not_rungs() -> None:
-    """`top_state_counts` ranks facecam levels; gameplay is a subject, not a height."""
+def test_the_ladder_peak_count_covers_exactly_the_rungs() -> None:
+    """`top_state_counts` ranks facecam levels, one entry per cycle and no more."""
 
-    result = plan((1100, 1900), (2400, 3000), timing=GAMEPLAY_TIMING, energy=envelope())
+    result = plan((1100, 1900), (2400, 3000), timing=FULL_TIMING, energy=envelope())
     assert set(result.top_state_counts) == set(FACECAM_LADDER)
     assert sum(result.top_state_counts.values()) == len(result.entry_placements)

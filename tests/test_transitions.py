@@ -10,26 +10,20 @@ import pytest
 from davinci_auto_zoom.domain.transitions import (
     BY_ROLE,
     FACECAM_LADDER,
-    GAMEPLAY_ROLES,
     REQUIRED_ROLES,
+    RETIRED_ROLES,
     ROLE_FACE_X1_TO_FACE_X2,
-    ROLE_FACE_X1_TO_GAMEPLAY,
     ROLE_FACE_X1_TO_X0,
     ROLE_FACE_X2_TO_FACE_X3,
-    ROLE_FACE_X2_TO_GAMEPLAY,
     ROLE_FACE_X2_TO_X0,
-    ROLE_FACE_X3_TO_GAMEPLAY,
     ROLE_FACE_X3_TO_X0,
-    ROLE_GAMEPLAY_TO_FACE_X1,
-    ROLE_GAMEPLAY_TO_X0,
     ROLE_X0_TO_FACE_X1,
-    ROLE_X0_TO_GAMEPLAY,
     ROLES,
     STATE_FACE_X1,
     STATE_FACE_X2,
     STATE_FACE_X3,
-    STATE_GAMEPLAY,
     STATE_X0,
+    STATES,
     TRANSITIONS,
     ForbiddenTransition,
     is_allowed,
@@ -40,34 +34,17 @@ from davinci_auto_zoom.domain.transitions import (
 )
 
 
-def test_the_graph_is_exactly_the_twelve_documented_transitions() -> None:
+def test_the_graph_is_exactly_the_six_documented_facecam_transitions() -> None:
     assert {(t.from_state, t.to_state) for t in TRANSITIONS} == {
-        # The Phase 8 facecam graph, unchanged.
         (STATE_X0, STATE_FACE_X1),
         (STATE_FACE_X1, STATE_FACE_X2),
         (STATE_FACE_X2, STATE_FACE_X3),
         (STATE_FACE_X1, STATE_X0),
         (STATE_FACE_X2, STATE_X0),
         (STATE_FACE_X3, STATE_X0),
-        # Phase 9a: the six gameplay moves observed in DAZ_OUTPUT_MVP3, and no others.
-        (STATE_X0, STATE_GAMEPLAY),
-        (STATE_FACE_X1, STATE_GAMEPLAY),
-        (STATE_FACE_X2, STATE_GAMEPLAY),
-        (STATE_FACE_X3, STATE_GAMEPLAY),
-        (STATE_GAMEPLAY, STATE_X0),
-        (STATE_GAMEPLAY, STATE_FACE_X1),
     }
-    assert len(ROLES) == len(set(ROLES)) == 12
-    assert GAMEPLAY_ROLES == (
-        ROLE_X0_TO_GAMEPLAY,
-        ROLE_FACE_X1_TO_GAMEPLAY,
-        ROLE_FACE_X2_TO_GAMEPLAY,
-        ROLE_FACE_X3_TO_GAMEPLAY,
-        ROLE_GAMEPLAY_TO_X0,
-        ROLE_GAMEPLAY_TO_FACE_X1,
-    )
-    # Adding gameplay must not have moved a single facecam role.
-    assert ROLES[:6] == (
+    assert len(ROLES) == len(set(ROLES)) == 6
+    assert ROLES == (
         ROLE_X0_TO_FACE_X1,
         ROLE_FACE_X1_TO_FACE_X2,
         ROLE_FACE_X2_TO_FACE_X3,
@@ -75,6 +52,14 @@ def test_the_graph_is_exactly_the_twelve_documented_transitions() -> None:
         ROLE_FACE_X2_TO_X0,
         ROLE_FACE_X3_TO_X0,
     )
+
+
+def test_the_four_states_are_the_whole_vocabulary() -> None:
+    """GAMEPLAY is retired (D068), and not left behind as a speculative extension hook."""
+
+    assert STATES == (STATE_X0, STATE_FACE_X1, STATE_FACE_X2, STATE_FACE_X3)
+    assert "gameplay" not in STATES
+    assert not any("gameplay" in role for role in ROLES)
 
 
 @pytest.mark.parametrize(
@@ -86,12 +71,6 @@ def test_the_graph_is_exactly_the_twelve_documented_transitions() -> None:
         (STATE_FACE_X1, STATE_X0, ROLE_FACE_X1_TO_X0),
         (STATE_FACE_X2, STATE_X0, ROLE_FACE_X2_TO_X0),
         (STATE_FACE_X3, STATE_X0, ROLE_FACE_X3_TO_X0),
-        (STATE_X0, STATE_GAMEPLAY, ROLE_X0_TO_GAMEPLAY),
-        (STATE_FACE_X1, STATE_GAMEPLAY, ROLE_FACE_X1_TO_GAMEPLAY),
-        (STATE_FACE_X2, STATE_GAMEPLAY, ROLE_FACE_X2_TO_GAMEPLAY),
-        (STATE_FACE_X3, STATE_GAMEPLAY, ROLE_FACE_X3_TO_GAMEPLAY),
-        (STATE_GAMEPLAY, STATE_X0, ROLE_GAMEPLAY_TO_X0),
-        (STATE_GAMEPLAY, STATE_FACE_X1, ROLE_GAMEPLAY_TO_FACE_X1),
     ],
 )
 def test_each_allowed_move_resolves_to_its_role(
@@ -117,12 +96,6 @@ def test_each_allowed_move_resolves_to_its_role(
         # And no staying put.
         (STATE_X0, STATE_X0),
         (STATE_FACE_X2, STATE_FACE_X2),
-        # Coming out of gameplay lands at X0 or at the FIRST facecam level, nowhere tighter:
-        # a level is earned by the voice inside a burst, and no burst has started yet.
-        (STATE_GAMEPLAY, STATE_FACE_X2),
-        (STATE_GAMEPLAY, STATE_FACE_X3),
-        # Gameplay is a state, so re-entering it is not a move.
-        (STATE_GAMEPLAY, STATE_GAMEPLAY),
     ],
 )
 def test_forbidden_moves_raise_and_say_what_is_allowed(
@@ -132,6 +105,15 @@ def test_forbidden_moves_raise_and_say_what_is_allowed(
     with pytest.raises(ForbiddenTransition) as caught:
         transition(from_state, to_state)
     assert to_state in str(caught.value)
+
+
+def test_a_retired_gameplay_state_is_now_an_unknown_state() -> None:
+    """It must fail as loudly as any other move outside the table, never silently no-op."""
+
+    with pytest.raises(ForbiddenTransition, match="not a visual state"):
+        transition(STATE_X0, "gameplay")
+    with pytest.raises(ForbiddenTransition, match="not a transition role"):
+        state_after("x0_to_gameplay")
 
 
 def test_an_unknown_state_is_named_as_the_problem() -> None:
@@ -178,45 +160,20 @@ def test_the_classification_helpers_partition_the_graph() -> None:
         ROLE_FACE_X1_TO_X0,
         ROLE_FACE_X2_TO_X0,
         ROLE_FACE_X3_TO_X0,
-        # Coming out of the game to nothing is a reset in every sense downstream cares about.
-        ROLE_GAMEPLAY_TO_X0,
     ]
-    assert [t.role for t in TRANSITIONS if t.is_gameplay_entry] == [
-        ROLE_X0_TO_GAMEPLAY,
-        ROLE_FACE_X1_TO_GAMEPLAY,
-        ROLE_FACE_X2_TO_GAMEPLAY,
-        ROLE_FACE_X3_TO_GAMEPLAY,
-    ]
-    assert [t.role for t in TRANSITIONS if t.is_gameplay_exit] == [
-        ROLE_GAMEPLAY_TO_X0,
-        ROLE_GAMEPLAY_TO_FACE_X1,
-    ]
-    # Leaving a facecam level FOR the game is not a promotion: it changes subject, not
-    # tightness. This is the distinction that keeps `top_state_counts` meaningful.
-    for role in (
-        ROLE_FACE_X1_TO_GAMEPLAY,
-        ROLE_FACE_X2_TO_GAMEPLAY,
-        ROLE_FACE_X3_TO_GAMEPLAY,
-    ):
-        assert not BY_ROLE[role].is_promotion
 
 
-def test_every_facecam_transition_is_exactly_one_of_the_three_classes() -> None:
-    """The Phase 8 partition, still exact. Gameplay adds categories, it does not blur these."""
-
+def test_every_transition_is_exactly_one_of_the_three_classes() -> None:
     for t in TRANSITIONS:
-        if t.role in GAMEPLAY_ROLES:
-            continue
         assert sum((t.is_entry, t.is_promotion, t.is_reset)) == 1
-        assert not t.is_gameplay_entry
-        assert not t.is_gameplay_exit
 
 
-def test_gameplay_roles_are_optional_capabilities() -> None:
-    """A project with no gameplay asset must still be a complete, valid configuration."""
+def test_the_retired_roles_are_named_and_are_not_in_the_graph() -> None:
+    """RETIRED_ROLES exists so a stale config gets an explanation, not "unknown key"."""
 
-    assert not set(GAMEPLAY_ROLES) & set(REQUIRED_ROLES)
-    assert STATE_GAMEPLAY not in FACECAM_LADDER
+    assert len(RETIRED_ROLES) == 6
+    assert not set(RETIRED_ROLES) & set(ROLES)
+    assert all(role not in BY_ROLE for role in RETIRED_ROLES)
 
 
 def test_only_the_two_moves_that_make_a_zoom_possible_are_required() -> None:

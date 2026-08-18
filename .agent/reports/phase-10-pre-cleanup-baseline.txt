@@ -1,0 +1,490 @@
+PHASE 10 — PRE-CLEANUP BASELINE
+===============================
+
+Captured BEFORE any Phase 10 source change, on the last validated commit e817594.
+This file is the non-regression reference for the whole phase: after the gameplay
+retirement, `plan-probe` must reproduce every EDITORIAL number and every
+(role, start, end, reason, cut, burst) row below, byte for byte.
+
+Only plan-IDENTITY metadata is allowed to differ, and only where the difference is
+caused by gameplay roles ceasing to exist:
+
+  - `source.assets`, `source.asset_transition_frames`, `source.asset_identities`
+    lose their six gameplay entries;
+  - `diagnostics.role_counts` loses its six always-zero gameplay keys.
+
+`structural_fingerprint` covers the voice track, the cut-reference track, the range
+and the frame rate (D030) and must therefore be UNCHANGED.
+
+
+1. ENVIRONMENT
+-----------------
+
+    commit                    e817594
+    branch                    dev
+    DaVinci Resolve           Studio 21.0.4.5
+    Python                    3.14.7 (.venv)
+    project                   davinci-auto-zoom-test
+    source timeline           DAZ_INPUT
+    reference timeline        DAZ_OUTPUT_MVP2 (diagnostics only, never written to)
+    config                    config.example.toml
+    voice track               A1
+    cut reference             V1
+    zoom target               V3
+
+
+2. OFFLINE GATES
+-------------------
+
+    pytest                    642 passed
+    ruff check .              All checks passed
+    mypy (strict)             Success: no issues found in 43 source files
+    config.example.toml load  OK — 12 roles (6 facecam + 6 gameplay), 12 timings
+    davinci-auto-zoom --help  OK — 13 subcommands
+
+
+3. CLI SURFACE AT BASELINE
+-----------------------------
+
+    doctor  snapshot  assets  compare  probe-write  speech-file  speech-probe
+    plan-probe  gameplay-study  apply-preview  probe-ownership  clean-preview
+    rebuild-preview
+
+
+4. LIVE PLAN-PROBE — COMMAND
+-------------------------------
+
+    .venv/bin/python -m davinci_auto_zoom plan-probe \
+      --confirm-resolve-render-test \
+      --project davinci-auto-zoom-test \
+      --source-timeline DAZ_INPUT --reference-timeline DAZ_OUTPUT_MVP2 \
+      --config config.example.toml --json
+
+    exit code                 0
+
+
+5. RESOLVE SAFETY AUDIT OF THE BASELINE RUN
+----------------------------------------------
+
+    clean                        : True
+    error                        : None
+    audit_checked                : ['DAZ_INPUT', 'DAZ_OUTPUT_MVP2']
+    audit_differences            : []
+    preflight_failures           : []
+    scratch_name                 : DAZ_AUDIO_SCRATCH_20260818_232913_866c0062
+    scratch_deleted              : True
+    scratch_absent_after_cleanup : True
+    render_directory_removed     : True
+    previous current timeline    : DAZ_OUTPUT_MVP3
+    restored current timeline    : DAZ_OUTPUT_MVP3
+    render queue before / after  : [] / []
+    pre-existing jobs preserved  : True
+    our render job deleted       : True
+    Deliver state unrestored     : []
+    notes                        : []
+    total                        : 38.6 s
+
+
+6. PLAN-VS-REFERENCE DIAGNOSTIC (DAZ_OUTPUT_MVP2, qualitative only)
+---------------------------------------------------------------------
+
+    planned x1 / manual x1        : 14 / 14
+    planned x0 / manual x0        : 14 / 14
+    planned x1 matching manual    : 14
+    planned with no manual zoom   : 0
+    manual with no planned zoom   : 0
+    start offset  min/med/max     : -123 / 0 / 1 frames
+    reset offset  min/med/max     : -10 / 0 / 77 frames
+    duration ratio min/med/max    : 75 / 117 / 408 %
+
+The -123 and +77 outliers are the two known burst-extent divergences (Phase 8b).
+They are DEFERRED, not blocking: the creator watched the Phase 8c preview and
+validated the facecam behaviour visually on 2026-08-18. See section 9.
+
+
+7. THE PLAN ITSELF
+---------------------
+
+resolve_version           : 21.0.4.5
+product_name              : DaVinci Resolve Studio
+project                   : davinci-auto-zoom-test
+timeline                  : DAZ_INPUT
+range                     : [216000, 219555)
+frame_rate                : 60
+succeeded                 : True
+
+=== EDITORIAL TOTALS (must be identical PRE vs POST) ===
+speech_segments           : 15
+editorial_bursts          : 14
+voice_valleys             : 63
+qualified_valleys (cues)  : 36
+placements                : 42
+decision_trace_lines      : 126
+
+role counts (placements actually emitted):
+  face_x1_to_face_x2     9
+  face_x1_to_x0          5
+  face_x2_to_face_x3     5
+  face_x2_to_x0          4
+  face_x3_to_x0          5
+  x0_to_face_x1          14
+
+diagnostics:
+{
+  "backward_snapped_resets": 8,
+  "burst_count": 14,
+  "cues_used": 14,
+  "cut_snapped_resets": 8,
+  "direct_resets": 6,
+  "entry_snaps": {
+    "backward": 1,
+    "direct": 10,
+    "forward": 3
+  },
+  "forward_snapped_resets": 0,
+  "merged_gaps": 1,
+  "overlaps": [],
+  "promotion_snaps": {
+    "backward": 1,
+    "direct": 13,
+    "forward": 0
+  },
+  "promotions": 14,
+  "rejected_cuts": 0,
+  "role_counts": {
+    "face_x1_to_face_x2": 9,
+    "face_x1_to_gameplay": 0,
+    "face_x1_to_x0": 5,
+    "face_x2_to_face_x3": 5,
+    "face_x2_to_gameplay": 0,
+    "face_x2_to_x0": 4,
+    "face_x3_to_gameplay": 0,
+    "face_x3_to_x0": 5,
+    "gameplay_to_face_x1": 0,
+    "gameplay_to_x0": 0,
+    "x0_to_face_x1": 14,
+    "x0_to_gameplay": 0
+  },
+  "speech_segment_count": 15,
+  "suppressed_cycles": 0,
+  "suppressed_resets": 0,
+  "top_state_counts": {
+    "face_x1": 5,
+    "face_x2": 4,
+    "face_x3": 5
+  },
+  "valid": true,
+  "valleys_found": 63,
+  "zoom_coverage": 0.3988748241912799,
+  "zoom_cycles": 14,
+  "zoomed_frames": 1418
+}
+
+=== PLAN IDENTITY ===
+structural_fingerprint    : sha256:a1d107e1fa95b6152dd06be89ccc0fbd39de8d02faa906f91d3d7fc6d46a5483
+timeline_unique_id        : c4d7a327-a9eb-4f0d-af14-b1ace8e8a85b
+voice_audio_track         : 1
+cut_reference_video_track : 1
+zoom_video_track          : 3
+assets                    : {"face_x1_to_face_x2": "FACE_X2", "face_x1_to_gameplay": "X1_TO_GAMEPLAY", "face_x1_to_x0": "X1_TO_X0", "face_x2_to_face_x3": "FACE_X3", "face_x2_to_gameplay": "X2_TO_GAMEPLAY", "face_x2_to_x0": "X2_TO_X0", "face_x3_to_gameplay": "X3_TO_GAMEPLAY", "face_x3_to_x0": "X3_TO_X0", "gameplay_to_face_x1": "GAMEPLAY_TO_X1", "gameplay_to_x0": "GAMEPLAY_TO_X0", "x0_to_face_x1": "FACE_X1", "x0_to_gameplay": "X0_TO_GAMEPLAY"}
+asset_transition_frames   : {"face_x1_to_face_x2": 15, "face_x1_to_gameplay": 15, "face_x1_to_x0": 15, "face_x2_to_face_x3": 15, "face_x2_to_gameplay": 15, "face_x2_to_x0": 15, "face_x3_to_gameplay": 15, "face_x3_to_x0": 15, "gameplay_to_face_x1": 15, "gameplay_to_x0": 15, "x0_to_face_x1": 15, "x0_to_gameplay": 15}
+asset_identities          : [{"media_id": "217606f0-c2d2-48ba-9f55-c89ba33f38ed", "name": "FACE_X2", "role": "face_x1_to_face_x2", "unique_id": "dc1ee6f6-6358-4ffe-bfb7-f3971b0aed3c"}, {"media_id": "6a523c1a-63ff-4641-98b2-256b47971b24", "name": "X1_TO_GAMEPLAY", "role": "face_x1_to_gameplay", "unique_id": "074b4b54-5de8-4abd-abde-c361f16e0ed5"}, {"media_id": "c3cf0e7d-c49a-4df0-aee5-e60fb16bb2c7", "name": "X1_TO_X0", "role": "face_x1_to_x0", "unique_id": "63dfcbff-f79e-4e86-89ee-f7950ab6d1d4"}, {"media_id": "f1641e08-2df1-416e-9a1c-36e83df9b3b2", "name": "FACE_X3", "role": "face_x2_to_face_x3", "unique_id": "d989e6af-48e1-4e0e-bca0-05bc91be8bc6"}, {"media_id": "4202d635-a069-41d5-b652-a85961f25cac", "name": "X2_TO_GAMEPLAY", "role": "face_x2_to_gameplay", "unique_id": "64ad05f4-e348-4080-b0ce-118859f50f53"}, {"media_id": "5ea45470-93fd-48a6-8bbe-9e40d7d60ea7", "name": "X2_TO_X0", "role": "face_x2_to_x0", "unique_id": "2b784573-65f3-4831-8ec5-f01d7a0961e2"}, {"media_id": "2db2bf6a-1ab5-4158-8529-2bf7a0328858", "name": "X3_TO_GAMEPLAY", "role": "face_x3_to_gameplay", "unique_id": "bc3fd45d-d3c8-4a97-887c-14b930106f5f"}, {"media_id": "846a736b-4af1-447e-8c6f-539038452fd6", "name": "X3_TO_X0", "role": "face_x3_to_x0", "unique_id": "efd3654f-89d4-46bb-87e5-561a146199d1"}, {"media_id": "15705b14-068e-440d-8010-7f554ad57293", "name": "GAMEPLAY_TO_X1", "role": "gameplay_to_face_x1", "unique_id": "1bd323c4-7e3c-4bf8-9e9a-0bce5a45f9ba"}, {"media_id": "756d6c89-63a1-4e86-9082-017f24723b74", "name": "GAMEPLAY_TO_X0", "role": "gameplay_to_x0", "unique_id": "3e7df6a9-2013-48b3-aa2f-6c92fbf09b3a"}, {"media_id": "4274cc06-b251-480b-95be-edbf44ca4ebe", "name": "FACE_X1", "role": "x0_to_face_x1", "unique_id": "27698b68-122f-4b51-adaa-0d86517b11ab"}, {"media_id": "e1d17c23-f2c9-4731-a1cd-957c97706a3c", "name": "X0_TO_GAMEPLAY", "role": "x0_to_gameplay", "unique_id": "a613e540-309a-441d-8284-e52d415fbe1f"}]
+planner_settings          : {"cut_snap_lookback_ms": 120, "cut_snap_window_ms": 350, "promotion_max_valley_ms": 650, "promotion_min_drop_db": 20, "promotion_min_hold_ms": 400, "promotion_min_valley_ms": 30, "promotion_recovery_within_db": 6, "reset_after_silence_ms": 650, "zoom_cut_snap_lookback_ms": 120, "zoom_cut_snap_window_ms": 120, "zoom_lead_in_ms": 0, "zoom_lead_out_ms": 0}
+energy_settings           : {"hop_ms": 10, "smoothing_ms": 30, "window_ms": 30}
+
+=== SPEECH SEGMENTS (start, end) ===
+    0  216046  216139
+    1  216293  216442
+    2  216489  216519
+    3  216679  216797
+    4  216900  216930
+    5  216983  217039
+    6  217250  217316
+    7  217499  217749
+    8  217877  218003
+    9  218094  218189
+   10  218244  218297
+   11  218394  218473
+   12  218599  218648
+   13  218665  218767
+   14  218989  219134
+
+=== EDITORIAL BURSTS (start, end, frames) ===
+    0  216046  216139     93
+    1  216293  216442    149
+    2  216489  216519     30
+    3  216679  216797    118
+    4  216900  216930     30
+    5  216983  217039     56
+    6  217250  217316     66
+    7  217499  217749    250
+    8  217877  218003    126
+    9  218094  218189     95
+   10  218244  218297     53
+   11  218394  218473     79
+   12  218599  218767    168
+   13  218989  219134    145
+
+=== PLACEMENTS (role | start | end | frames | reason | cut | burst) ===
+  x0_to_face_x1           216046  216094    48  entry_direct                 cut=   None burst=0
+  face_x1_to_face_x2      216094  216132    38  promoted_voice_recovery      cut=   None burst=0
+  face_x2_to_x0           216132  216147    15  reset_cut_snap_backward      cut= 216132 burst=0
+  x0_to_face_x1           216291  216306    15  entry_cut_snap_backward      cut= 216291 burst=1
+  face_x1_to_face_x2      216306  216366    60  promoted_voice_recovery      cut=   None burst=1
+  face_x2_to_face_x3      216366  216442    76  promoted_voice_recovery      cut=   None burst=1
+  face_x3_to_x0           216442  216457    15  reset_direct                 cut=   None burst=1
+  x0_to_face_x1           216489  216519    30  entry_direct                 cut=   None burst=2
+  face_x1_to_x0           216519  216534    15  reset_direct                 cut=   None burst=2
+  x0_to_face_x1           216680  216743    63  entry_cut_snap_forward       cut= 216680 burst=3
+  face_x1_to_face_x2      216743  216793    50  promoted_voice_recovery      cut=   None burst=3
+  face_x2_to_x0           216793  216808    15  reset_cut_snap_backward      cut= 216793 burst=3
+  x0_to_face_x1           216900  216930    30  entry_cut_snap_forward       cut= 216900 burst=4
+  face_x1_to_x0           216930  216945    15  reset_direct                 cut=   None burst=4
+  x0_to_face_x1           216983  217039    56  entry_direct                 cut=   None burst=5
+  face_x1_to_x0           217039  217054    15  reset_direct                 cut=   None burst=5
+  x0_to_face_x1           217250  217265    15  entry_direct                 cut=   None burst=6
+  face_x1_to_face_x2      217265  217312    47  promoted_voice_recovery      cut=   None burst=6
+  face_x2_to_x0           217312  217327    15  reset_cut_snap_backward      cut= 217312 burst=6
+  x0_to_face_x1           217499  217525    26  entry_direct                 cut=   None burst=7
+  face_x1_to_face_x2      217525  217601    76  promoted_voice_recovery      cut=   None burst=7
+  face_x2_to_face_x3      217601  217749   148  promoted_cut_snap_backward   cut= 217601 burst=7
+  face_x3_to_x0           217749  217764    15  reset_direct                 cut=   None burst=7
+  x0_to_face_x1           217877  217898    21  entry_direct                 cut=   None burst=8
+  face_x1_to_face_x2      217898  217959    61  promoted_voice_recovery      cut=   None burst=8
+  face_x2_to_face_x3      217959  217999    40  promoted_voice_recovery      cut=   None burst=8
+  face_x3_to_x0           217999  218014    15  reset_cut_snap_backward      cut= 217999 burst=8
+  x0_to_face_x1           218094  218130    36  entry_direct                 cut=   None burst=9
+  face_x1_to_face_x2      218130  218183    53  promoted_voice_recovery      cut=   None burst=9
+  face_x2_to_x0           218183  218198    15  reset_cut_snap_backward      cut= 218183 burst=9
+  x0_to_face_x1           218244  218297    53  entry_direct                 cut=   None burst=10
+  face_x1_to_x0           218297  218312    15  reset_direct                 cut=   None burst=10
+  x0_to_face_x1           218394  218469    75  entry_cut_snap_forward       cut= 218394 burst=11
+  face_x1_to_x0           218469  218484    15  reset_cut_snap_backward      cut= 218469 burst=11
+  x0_to_face_x1           218599  218630    31  entry_direct                 cut=   None burst=12
+  face_x1_to_face_x2      218630  218668    38  promoted_voice_recovery      cut=   None burst=12
+  face_x2_to_face_x3      218668  218762    94  promoted_voice_recovery      cut=   None burst=12
+  face_x3_to_x0           218762  218777    15  reset_cut_snap_backward      cut= 218762 burst=12
+  x0_to_face_x1           218989  219041    52  entry_direct                 cut=   None burst=13
+  face_x1_to_face_x2      219041  219099    58  promoted_voice_recovery      cut=   None burst=13
+  face_x2_to_face_x3      219099  219127    28  promoted_voice_recovery      cut=   None burst=13
+  face_x3_to_x0           219127  219142    15  reset_cut_snap_backward      cut= 219127 burst=13
+
+=== VOICE VALLEYS / PROMOTION CUES ===
+  {"burst_index": 0, "drop_db": 28.17, "min_db": -43.31, "outcome": "valley_too_short", "qualified": false, "recovery_db": 22.98, "recovery_frame": 216049, "reference_db": -15.14, "status": "valley_too_short", "valley_end_frame": 216047, "valley_low_frame": 216046, "valley_ms": 10, "valley_start_frame": 216046}
+  {"burst_index": 0, "drop_db": 31.72, "min_db": -46.86, "outcome": "face_x2", "qualified": true, "recovery_db": 26.23, "recovery_frame": 216094, "reference_db": -15.14, "status": "qualified", "valley_end_frame": 216093, "valley_low_frame": 216086, "valley_ms": 140, "valley_start_frame": 216084}
+  {"burst_index": 0, "drop_db": 27.06, "min_db": -42.2, "outcome": "no_room_before_reset", "qualified": true, "recovery_db": 23.26, "recovery_frame": 216111, "reference_db": -15.14, "status": "qualified", "valley_end_frame": 216110, "valley_low_frame": 216108, "valley_ms": 120, "valley_start_frame": 216102}
+  {"burst_index": 0, "drop_db": 26.29, "min_db": -41.43, "outcome": "no_recovery_before_burst_end", "qualified": false, "recovery_db": 0.0, "recovery_frame": null, "reference_db": -15.14, "status": "no_recovery_before_burst_end", "valley_end_frame": 216125, "valley_low_frame": 216123, "valley_ms": 70, "valley_start_frame": 216120}
+  {"burst_index": 1, "drop_db": 51.88, "min_db": -77.53, "outcome": "valley_too_short", "qualified": false, "recovery_db": 48.09, "recovery_frame": 216292, "reference_db": -25.66, "status": "valley_too_short", "valley_end_frame": 216292, "valley_low_frame": 216291, "valley_ms": 10, "valley_start_frame": 216291}
+  {"burst_index": 1, "drop_db": 37.57, "min_db": -63.23, "outcome": "face_x2", "qualified": true, "recovery_db": 36.89, "recovery_frame": 216306, "reference_db": -25.66, "status": "qualified", "valley_end_frame": 216302, "valley_low_frame": 216300, "valley_ms": 40, "valley_start_frame": 216299}
+  {"burst_index": 1, "drop_db": 21.99, "min_db": -47.65, "outcome": "valley_too_short", "qualified": false, "recovery_db": 17.46, "recovery_frame": 216321, "reference_db": -25.66, "status": "valley_too_short", "valley_end_frame": 216321, "valley_low_frame": 216320, "valley_ms": 10, "valley_start_frame": 216320}
+  {"burst_index": 1, "drop_db": 39.09, "min_db": -64.74, "outcome": "face_x3", "qualified": true, "recovery_db": 35.63, "recovery_frame": 216366, "reference_db": -25.66, "status": "qualified", "valley_end_frame": 216366, "valley_low_frame": 216364, "valley_ms": 50, "valley_start_frame": 216362}
+  {"burst_index": 1, "drop_db": 38.89, "min_db": -64.54, "outcome": "already_at_face_x3", "qualified": true, "recovery_db": 36.99, "recovery_frame": 216407, "reference_db": -25.66, "status": "qualified", "valley_end_frame": 216404, "valley_low_frame": 216399, "valley_ms": 130, "valley_start_frame": 216396}
+  {"burst_index": 1, "drop_db": 73.98, "min_db": -99.64, "outcome": "already_at_face_x3", "qualified": false, "recovery_db": 0.0, "recovery_frame": null, "reference_db": -25.66, "status": "no_recovery_before_burst_end", "valley_end_frame": 216442, "valley_low_frame": 216441, "valley_ms": 230, "valley_start_frame": 216428}
+  {"burst_index": 2, "drop_db": 81.77, "min_db": -108.3, "outcome": "valley_too_short", "qualified": false, "recovery_db": 76.51, "recovery_frame": 216490, "reference_db": -26.53, "status": "valley_too_short", "valley_end_frame": 216490, "valley_low_frame": 216489, "valley_ms": 20, "valley_start_frame": 216489}
+  {"burst_index": 2, "drop_db": 41.66, "min_db": -68.2, "outcome": "no_room_before_reset", "qualified": true, "recovery_db": 36.35, "recovery_frame": 216508, "reference_db": -26.53, "status": "qualified", "valley_end_frame": 216508, "valley_low_frame": 216506, "valley_ms": 80, "valley_start_frame": 216503}
+  {"burst_index": 2, "drop_db": 71.17, "min_db": -97.7, "outcome": "no_recovery_before_burst_end", "qualified": false, "recovery_db": 0.0, "recovery_frame": null, "reference_db": -26.53, "status": "no_recovery_before_burst_end", "valley_end_frame": 216519, "valley_low_frame": 216518, "valley_ms": 100, "valley_start_frame": 216513}
+  {"burst_index": 3, "drop_db": 84.23, "min_db": -106.17, "outcome": "valley_too_short", "qualified": false, "recovery_db": 78.43, "recovery_frame": 216681, "reference_db": -21.94, "status": "valley_too_short", "valley_end_frame": 216681, "valley_low_frame": 216680, "valley_ms": 20, "valley_start_frame": 216680}
+  {"burst_index": 3, "drop_db": 22.63, "min_db": -44.57, "outcome": "valley_too_short", "qualified": false, "recovery_db": 16.93, "recovery_frame": 216702, "reference_db": -21.94, "status": "valley_too_short", "valley_end_frame": 216702, "valley_low_frame": 216701, "valley_ms": 20, "valley_start_frame": 216700}
+  {"burst_index": 3, "drop_db": 20.11, "min_db": -42.05, "outcome": "valley_too_short", "qualified": false, "recovery_db": 17.28, "recovery_frame": 216719, "reference_db": -21.94, "status": "valley_too_short", "valley_end_frame": 216718, "valley_low_frame": 216717, "valley_ms": 10, "valley_start_frame": 216717}
+  {"burst_index": 3, "drop_db": 118.06, "min_db": -140.0, "outcome": "face_x2", "qualified": true, "recovery_db": 112.56, "recovery_frame": 216743, "reference_db": -21.94, "status": "qualified", "valley_end_frame": 216743, "valley_low_frame": 216736, "valley_ms": 220, "valley_start_frame": 216729}
+  {"burst_index": 3, "drop_db": 73.86, "min_db": -95.81, "outcome": "no_recovery_before_burst_end", "qualified": false, "recovery_db": 0.0, "recovery_frame": null, "reference_db": -21.94, "status": "no_recovery_before_burst_end", "valley_end_frame": 216793, "valley_low_frame": 216792, "valley_ms": 110, "valley_start_frame": 216786}
+  {"burst_index": 4, "drop_db": 44.08, "min_db": -74.83, "outcome": "valley_too_short", "qualified": false, "recovery_db": 41.93, "recovery_frame": 216902, "reference_db": -30.76, "status": "valley_too_short", "valley_end_frame": 216901, "valley_low_frame": 216900, "valley_ms": 20, "valley_start_frame": 216900}
+  {"burst_index": 4, "drop_db": 51.23, "min_db": -81.99, "outcome": "previous_animation_unfinished", "qualified": true, "recovery_db": 51.31, "recovery_frame": 216914, "reference_db": -30.76, "status": "qualified", "valley_end_frame": 216914, "valley_low_frame": 216912, "valley_ms": 80, "valley_start_frame": 216909}
+  {"burst_index": 4, "drop_db": 63.03, "min_db": -93.79, "outcome": "no_recovery_before_burst_end", "qualified": false, "recovery_db": 0.0, "recovery_frame": null, "reference_db": -30.76, "status": "no_recovery_before_burst_end", "valley_end_frame": 216930, "valley_low_frame": 216929, "valley_ms": 120, "valley_start_frame": 216923}
+  {"burst_index": 5, "drop_db": 94.51, "min_db": -120.97, "outcome": "previous_animation_unfinished", "qualified": true, "recovery_db": 90.84, "recovery_frame": 216990, "reference_db": -26.45, "status": "qualified", "valley_end_frame": 216985, "valley_low_frame": 216983, "valley_ms": 30, "valley_start_frame": 216983}
+  {"burst_index": 5, "drop_db": 34.74, "min_db": -61.19, "outcome": "no_room_before_reset", "qualified": true, "recovery_db": 29.02, "recovery_frame": 217029, "reference_db": -26.45, "status": "qualified", "valley_end_frame": 217029, "valley_low_frame": 217028, "valley_ms": 50, "valley_start_frame": 217026}
+  {"burst_index": 5, "drop_db": 63.71, "min_db": -90.16, "outcome": "no_recovery_before_burst_end", "qualified": false, "recovery_db": 0.0, "recovery_frame": null, "reference_db": -26.45, "status": "no_recovery_before_burst_end", "valley_end_frame": 217039, "valley_low_frame": 217038, "valley_ms": 100, "valley_start_frame": 217033}
+  {"burst_index": 6, "drop_db": 50.45, "min_db": -70.54, "outcome": "face_x2", "qualified": true, "recovery_db": 45.62, "recovery_frame": 217265, "reference_db": -20.09, "status": "qualified", "valley_end_frame": 217265, "valley_low_frame": 217263, "valley_ms": 70, "valley_start_frame": 217260}
+  {"burst_index": 6, "drop_db": 20.81, "min_db": -40.9, "outcome": "valley_too_short", "qualified": false, "recovery_db": 17.79, "recovery_frame": 217285, "reference_db": -20.09, "status": "valley_too_short", "valley_end_frame": 217284, "valley_low_frame": 217283, "valley_ms": 20, "valley_start_frame": 217283}
+  {"burst_index": 6, "drop_db": 54.89, "min_db": -74.99, "outcome": "no_recovery_before_burst_end", "qualified": false, "recovery_db": 0.0, "recovery_frame": null, "reference_db": -20.09, "status": "no_recovery_before_burst_end", "valley_end_frame": 217312, "valley_low_frame": 217311, "valley_ms": 60, "valley_start_frame": 217308}
+  {"burst_index": 7, "drop_db": 119.11, "min_db": -140.0, "outcome": "face_x2", "qualified": true, "recovery_db": 115.57, "recovery_frame": 217525, "reference_db": -20.89, "status": "qualified", "valley_end_frame": 217501, "valley_low_frame": 217499, "valley_ms": 30, "valley_start_frame": 217499}
+  {"burst_index": 7, "drop_db": 20.94, "min_db": -41.84, "outcome": "valley_too_short", "qualified": false, "recovery_db": 17.27, "recovery_frame": 217556, "reference_db": -20.89, "status": "valley_too_short", "valley_end_frame": 217555, "valley_low_frame": 217554, "valley_ms": 10, "valley_start_frame": 217554}
+  {"burst_index": 7, "drop_db": 56.09, "min_db": -76.98, "outcome": "face_x3", "qualified": true, "recovery_db": 51.45, "recovery_frame": 217604, "reference_db": -20.89, "status": "qualified", "valley_end_frame": 217603, "valley_low_frame": 217601, "valley_ms": 110, "valley_start_frame": 217596}
+  {"burst_index": 7, "drop_db": 41.94, "min_db": -62.83, "outcome": "already_at_face_x3", "qualified": true, "recovery_db": 36.96, "recovery_frame": 217629, "reference_db": -20.89, "status": "qualified", "valley_end_frame": 217629, "valley_low_frame": 217627, "valley_ms": 70, "valley_start_frame": 217624}
+  {"burst_index": 7, "drop_db": 31.61, "min_db": -52.51, "outcome": "already_at_face_x3", "qualified": true, "recovery_db": 30.22, "recovery_frame": 217685, "reference_db": -20.89, "status": "qualified", "valley_end_frame": 217684, "valley_low_frame": 217683, "valley_ms": 30, "valley_start_frame": 217682}
+  {"burst_index": 7, "drop_db": 27.63, "min_db": -48.52, "outcome": "already_at_face_x3", "qualified": true, "recovery_db": 27.05, "recovery_frame": 217698, "reference_db": -20.89, "status": "qualified", "valley_end_frame": 217697, "valley_low_frame": 217695, "valley_ms": 90, "valley_start_frame": 217691}
+  {"burst_index": 7, "drop_db": 36.72, "min_db": -57.61, "outcome": "already_at_face_x3", "qualified": true, "recovery_db": 34.28, "recovery_frame": 217723, "reference_db": -20.89, "status": "qualified", "valley_end_frame": 217722, "valley_low_frame": 217718, "valley_ms": 110, "valley_start_frame": 217715}
+  {"burst_index": 7, "drop_db": 71.36, "min_db": -92.25, "outcome": "already_at_face_x3", "qualified": false, "recovery_db": 0.0, "recovery_frame": null, "reference_db": -20.89, "status": "no_recovery_before_burst_end", "valley_end_frame": 217749, "valley_low_frame": 217748, "valley_ms": 110, "valley_start_frame": 217742}
+  {"burst_index": 8, "drop_db": 64.77, "min_db": -84.96, "outcome": "valley_too_short", "qualified": false, "recovery_db": 62.49, "recovery_frame": 217880, "reference_db": -20.19, "status": "valley_too_short", "valley_end_frame": 217878, "valley_low_frame": 217877, "valley_ms": 20, "valley_start_frame": 217877}
+  {"burst_index": 8, "drop_db": 30.12, "min_db": -50.31, "outcome": "face_x2", "qualified": true, "recovery_db": 24.17, "recovery_frame": 217898, "reference_db": -20.19, "status": "qualified", "valley_end_frame": 217897, "valley_low_frame": 217895, "valley_ms": 50, "valley_start_frame": 217893}
+  {"burst_index": 8, "drop_db": 44.34, "min_db": -64.53, "outcome": "face_x3", "qualified": true, "recovery_db": 38.38, "recovery_frame": 217959, "reference_db": -20.19, "status": "qualified", "valley_end_frame": 217959, "valley_low_frame": 217957, "valley_ms": 60, "valley_start_frame": 217955}
+  {"burst_index": 8, "drop_db": 28.26, "min_db": -48.45, "outcome": "already_at_face_x3", "qualified": true, "recovery_db": 25.28, "recovery_frame": 217969, "reference_db": -20.19, "status": "qualified", "valley_end_frame": 217969, "valley_low_frame": 217967, "valley_ms": 40, "valley_start_frame": 217966}
+  {"burst_index": 8, "drop_db": 23.67, "min_db": -43.86, "outcome": "already_at_face_x3", "qualified": true, "recovery_db": 18.11, "recovery_frame": 217986, "reference_db": -20.19, "status": "qualified", "valley_end_frame": 217982, "valley_low_frame": 217978, "valley_ms": 80, "valley_start_frame": 217977}
+  {"burst_index": 8, "drop_db": 38.21, "min_db": -58.4, "outcome": "already_at_face_x3", "qualified": false, "recovery_db": 0.0, "recovery_frame": null, "reference_db": -20.19, "status": "no_recovery_before_burst_end", "valley_end_frame": 217999, "valley_low_frame": 217998, "valley_ms": 80, "valley_start_frame": 217994}
+  {"burst_index": 9, "drop_db": 121.79, "min_db": -140.0, "outcome": "previous_animation_unfinished", "qualified": true, "recovery_db": 118.6, "recovery_frame": 218097, "reference_db": -18.21, "status": "qualified", "valley_end_frame": 218097, "valley_low_frame": 218094, "valley_ms": 40, "valley_start_frame": 218094}
+  {"burst_index": 9, "drop_db": 23.25, "min_db": -41.46, "outcome": "face_x2", "qualified": true, "recovery_db": 18.65, "recovery_frame": 218130, "reference_db": -18.21, "status": "qualified", "valley_end_frame": 218129, "valley_low_frame": 218127, "valley_ms": 30, "valley_start_frame": 218127}
+  {"burst_index": 9, "drop_db": 23.1, "min_db": -41.31, "outcome": "valley_too_short", "qualified": false, "recovery_db": 17.54, "recovery_frame": 218157, "reference_db": -18.21, "status": "valley_too_short", "valley_end_frame": 218155, "valley_low_frame": 218154, "valley_ms": 20, "valley_start_frame": 218154}
+  {"burst_index": 9, "drop_db": 25.88, "min_db": -44.09, "outcome": "no_recovery_before_burst_end", "qualified": false, "recovery_db": 0.0, "recovery_frame": null, "reference_db": -18.21, "status": "no_recovery_before_burst_end", "valley_end_frame": 218183, "valley_low_frame": 218182, "valley_ms": 10, "valley_start_frame": 218182}
+  {"burst_index": 10, "drop_db": 117.66, "min_db": -132.37, "outcome": "previous_animation_unfinished", "qualified": true, "recovery_db": 114.17, "recovery_frame": 218246, "reference_db": -14.72, "status": "qualified", "valley_end_frame": 218246, "valley_low_frame": 218244, "valley_ms": 30, "valley_start_frame": 218244}
+  {"burst_index": 10, "drop_db": 62.52, "min_db": -77.23, "outcome": "no_recovery_before_burst_end", "qualified": false, "recovery_db": 0.0, "recovery_frame": null, "reference_db": -14.72, "status": "no_recovery_before_burst_end", "valley_end_frame": 218297, "valley_low_frame": 218296, "valley_ms": 150, "valley_start_frame": 218288}
+  {"burst_index": 11, "drop_db": 61.81, "min_db": -84.96, "outcome": "valley_too_short", "qualified": false, "recovery_db": 56.53, "recovery_frame": 218396, "reference_db": -23.15, "status": "valley_too_short", "valley_end_frame": 218395, "valley_low_frame": 218394, "valley_ms": 20, "valley_start_frame": 218394}
+  {"burst_index": 11, "drop_db": 22.98, "min_db": -46.13, "outcome": "previous_animation_unfinished", "qualified": true, "recovery_db": 19.51, "recovery_frame": 218406, "reference_db": -23.15, "status": "qualified", "valley_end_frame": 218404, "valley_low_frame": 218402, "valley_ms": 30, "valley_start_frame": 218402}
+  {"burst_index": 11, "drop_db": 48.52, "min_db": -71.67, "outcome": "no_recovery_before_burst_end", "qualified": false, "recovery_db": 0.0, "recovery_frame": null, "reference_db": -23.15, "status": "no_recovery_before_burst_end", "valley_end_frame": 218469, "valley_low_frame": 218468, "valley_ms": 50, "valley_start_frame": 218466}
+  {"burst_index": 12, "drop_db": 108.98, "min_db": -140.0, "outcome": "previous_animation_unfinished", "qualified": true, "recovery_db": 104.26, "recovery_frame": 218601, "reference_db": -31.02, "status": "qualified", "valley_end_frame": 218602, "valley_low_frame": 218599, "valley_ms": 40, "valley_start_frame": 218599}
+  {"burst_index": 12, "drop_db": 85.09, "min_db": -116.11, "outcome": "face_x2", "qualified": true, "recovery_db": 84.02, "recovery_frame": 218630, "reference_db": -31.02, "status": "qualified", "valley_end_frame": 218631, "valley_low_frame": 218628, "valley_ms": 130, "valley_start_frame": 218622}
+  {"burst_index": 12, "drop_db": 108.98, "min_db": -140.0, "outcome": "face_x3", "qualified": true, "recovery_db": 106.69, "recovery_frame": 218668, "reference_db": -31.02, "status": "qualified", "valley_end_frame": 218664, "valley_low_frame": 218651, "valley_ms": 380, "valley_start_frame": 218641}
+  {"burst_index": 12, "drop_db": 65.65, "min_db": -96.67, "outcome": "already_at_face_x3", "qualified": true, "recovery_db": 61.99, "recovery_frame": 218690, "reference_db": -31.02, "status": "qualified", "valley_end_frame": 218690, "valley_low_frame": 218687, "valley_ms": 130, "valley_start_frame": 218682}
+  {"burst_index": 12, "drop_db": 59.56, "min_db": -90.58, "outcome": "already_at_face_x3", "qualified": true, "recovery_db": 54.22, "recovery_frame": 218703, "reference_db": -31.02, "status": "qualified", "valley_end_frame": 218700, "valley_low_frame": 218698, "valley_ms": 110, "valley_start_frame": 218693}
+  {"burst_index": 12, "drop_db": 56.57, "min_db": -87.59, "outcome": "already_at_face_x3", "qualified": true, "recovery_db": 56.47, "recovery_frame": 218727, "reference_db": -31.02, "status": "qualified", "valley_end_frame": 218723, "valley_low_frame": 218720, "valley_ms": 100, "valley_start_frame": 218717}
+  {"burst_index": 12, "drop_db": 37.4, "min_db": -68.42, "outcome": "already_at_face_x3", "qualified": false, "recovery_db": 0.0, "recovery_frame": null, "reference_db": -31.02, "status": "no_recovery_before_burst_end", "valley_end_frame": 218762, "valley_low_frame": 218761, "valley_ms": 40, "valley_start_frame": 218759}
+  {"burst_index": 13, "drop_db": 63.84, "min_db": -85.71, "outcome": "previous_animation_unfinished", "qualified": true, "recovery_db": 58.6, "recovery_frame": 218992, "reference_db": -21.86, "status": "qualified", "valley_end_frame": 218991, "valley_low_frame": 218989, "valley_ms": 30, "valley_start_frame": 218989}
+  {"burst_index": 13, "drop_db": 118.14, "min_db": -140.0, "outcome": "face_x2", "qualified": true, "recovery_db": 112.2, "recovery_frame": 219041, "reference_db": -21.86, "status": "qualified", "valley_end_frame": 219039, "valley_low_frame": 219034, "valley_ms": 260, "valley_start_frame": 219023}
+  {"burst_index": 13, "drop_db": 38.77, "min_db": -60.63, "outcome": "face_x3", "qualified": true, "recovery_db": 38.25, "recovery_frame": 219099, "reference_db": -21.86, "status": "qualified", "valley_end_frame": 219099, "valley_low_frame": 219095, "valley_ms": 80, "valley_start_frame": 219093}
+  {"burst_index": 13, "drop_db": 32.15, "min_db": -54.02, "outcome": "already_at_face_x3", "qualified": true, "recovery_db": 28.12, "recovery_frame": 219108, "reference_db": -21.86, "status": "qualified", "valley_end_frame": 219108, "valley_low_frame": 219107, "valley_ms": 60, "valley_start_frame": 219104}
+  {"burst_index": 13, "drop_db": 32.53, "min_db": -54.39, "outcome": "already_at_face_x3", "qualified": true, "recovery_db": 28.29, "recovery_frame": 219117, "reference_db": -21.86, "status": "qualified", "valley_end_frame": 219117, "valley_low_frame": 219115, "valley_ms": 30, "valley_start_frame": 219114}
+  {"burst_index": 13, "drop_db": 48.08, "min_db": -69.94, "outcome": "already_at_face_x3", "qualified": false, "recovery_db": 0.0, "recovery_frame": null, "reference_db": -21.86, "status": "no_recovery_before_burst_end", "valley_end_frame": 219127, "valley_low_frame": 219126, "valley_ms": 40, "valley_start_frame": 219125}
+
+=== DECISION TRACE ===
+  timeline [216000, 219555) = 3555 frames @ 60.000000 fps
+  gate reset_after_silence=650ms = 39 frames; lead_in=0f lead_out=0f cut snap window=[-7f, +21f] around a reset anchor and [-7f, +7f] around a zoom-in anchor (nearest cut wins, forward on a tie); transition animations face_x1_to_face_x2=15f face_x1_to_gameplay=15f face_x1_to_x0=15f face_x2_to_face_x3=15f face_x2_to_gameplay=15f face_x2_to_x0=15f face_x3_to_gameplay=15f face_x3_to_x0=15f gameplay_to_face_x1=15f gameplay_to_x0=15f x0_to_face_x1=15f x0_to_gameplay=15f
+  promotion ladder: face_x1 -> face_x2 -> face_x3; each rung is earned by a voice valley of at least 30ms and 20dB followed by a recovery to within 6dB of the burst's own voice level, held for at least 400ms
+  20 hard cut(s) on the reference video track inside the range
+  energy envelope: 5923 point(s), {'window_ms': 30, 'hop_ms': 10, 'smoothing_ms': 30}
+  15 speech segment(s) after normalization and clipping
+  gap of 154 frames at 216139 reaches the 39-frame gate: a reset may be planned
+  gap of 47 frames at 216442 reaches the 39-frame gate: a reset may be planned
+  gap of 160 frames at 216519 reaches the 39-frame gate: a reset may be planned
+  gap of 103 frames at 216797 reaches the 39-frame gate: a reset may be planned
+  gap of 53 frames at 216930 reaches the 39-frame gate: a reset may be planned
+  gap of 211 frames at 217039 reaches the 39-frame gate: a reset may be planned
+  gap of 183 frames at 217316 reaches the 39-frame gate: a reset may be planned
+  gap of 128 frames at 217749 reaches the 39-frame gate: a reset may be planned
+  gap of 91 frames at 218003 reaches the 39-frame gate: a reset may be planned
+  gap of 55 frames at 218189 reaches the 39-frame gate: a reset may be planned
+  gap of 97 frames at 218297 reaches the 39-frame gate: a reset may be planned
+  gap of 126 frames at 218473 reaches the 39-frame gate: a reset may be planned
+  gap of 17 frames at 218648 is below the 39-frame gate: speech [218665, 218767) joins the burst starting at 218599 (x1 stays up across the pause)
+  gap of 222 frames at 218767 reaches the 39-frame gate: a reset may be planned
+  14 editorial burst(s)
+  burst 0: reset snapped backward from 216139 to hard cut 216132 (delta=-7f, burst end 216139, window [-7f, +21f], nearest cut to the anchor)
+  burst 0: entry at the raw burst start 216046; no usable hard cut in the [-7f, +7f] window
+  burst 0: valley [216046, 216047) rejected by the signal — valley_too_short (drop 28.2dB, 10ms below the line)
+  burst 0: promoted to face_x2 at 216094 — the voice dropped 31.7dB for 140ms in [216084, 216093) and came back at 216094 (+26.2dB); directly on the recovery (no hard cut in [-7f, +7f]); held for 38 frame(s)
+  burst 0: cue at 216111 rejected — only 21 frame(s) remain before the reset at 216132, and face_x3 needs 24 to finish its move and be held long enough to read
+  burst 0: valley [216120, 216125) rejected by the signal — no_recovery_before_burst_end (drop 26.3dB, 70ms below the line)
+  burst 0: reset from face_x2 uses face_x2_to_x0 (15 frames)
+  burst 1: direct reset at 216442 (burst end 216442 + lead-out 0); no usable hard cut in the [-7f, +21f] window
+  burst 1: entry snapped backward from 216293 to hard cut 216291 (-2f, window [-7f, +7f], nearest cut to the anchor)
+  burst 1: valley [216291, 216292) rejected by the signal — valley_too_short (drop 51.9dB, 10ms below the line)
+  burst 1: promoted to face_x2 at 216306 — the voice dropped 37.6dB for 40ms in [216299, 216302) and came back at 216306 (+36.9dB); directly on the recovery (no hard cut in [-7f, +7f]); held for 136 frame(s)
+  burst 1: valley [216320, 216321) rejected by the signal — valley_too_short (drop 22.0dB, 10ms below the line)
+  burst 1: promoted to face_x3 at 216366 — the voice dropped 39.1dB for 50ms in [216362, 216366) and came back at 216366 (+35.6dB); directly on the recovery (no hard cut in [-7f, +7f]); held for 76 frame(s)
+  burst 1: cue at 216407 ignored — the ladder is already at face_x3 and there is no rung above it
+  burst 1: cue at None ignored — the ladder is already at face_x3 and there is no rung above it
+  burst 1: reset from face_x3 uses face_x3_to_x0 (15 frames)
+  burst 2: direct reset at 216519 (burst end 216519 + lead-out 0); no usable hard cut in the [-7f, +21f] window
+  burst 2: entry at the raw burst start 216489; no usable hard cut in the [-7f, +7f] window
+  burst 2: valley [216489, 216490) rejected by the signal — valley_too_short (drop 81.8dB, 20ms below the line)
+  burst 2: cue at 216508 rejected — only 11 frame(s) remain before the reset at 216519, and face_x2 needs 24 to finish its move and be held long enough to read
+  burst 2: valley [216513, 216519) rejected by the signal — no_recovery_before_burst_end (drop 71.2dB, 100ms below the line)
+  burst 2: reset from face_x1 uses face_x1_to_x0 (15 frames)
+  burst 3: reset snapped backward from 216797 to hard cut 216793 (delta=-4f, burst end 216797, window [-7f, +21f], nearest cut to the anchor)
+  burst 3: entry snapped forward from 216679 to hard cut 216680 (+1f, window [-7f, +7f], nearest cut to the anchor)
+  burst 3: valley [216680, 216681) rejected by the signal — valley_too_short (drop 84.2dB, 20ms below the line)
+  burst 3: valley [216700, 216702) rejected by the signal — valley_too_short (drop 22.6dB, 20ms below the line)
+  burst 3: valley [216717, 216718) rejected by the signal — valley_too_short (drop 20.1dB, 10ms below the line)
+  burst 3: promoted to face_x2 at 216743 — the voice dropped 118.1dB for 220ms in [216729, 216743) and came back at 216743 (+112.6dB); directly on the recovery (no hard cut in [-7f, +7f]); held for 50 frame(s)
+  burst 3: valley [216786, 216793) rejected by the signal — no_recovery_before_burst_end (drop 73.9dB, 110ms below the line)
+  burst 3: reset from face_x2 uses face_x2_to_x0 (15 frames)
+  burst 4: direct reset at 216930 (burst end 216930 + lead-out 0); no usable hard cut in the [-7f, +21f] window
+  burst 4: entry snapped forward from 216900 to hard cut 216900 (+0f, window [-7f, +7f], nearest cut to the anchor)
+  burst 4: valley [216900, 216901) rejected by the signal — valley_too_short (drop 44.1dB, 20ms below the line)
+  burst 4: cue at 216914 rejected — it would cut x0_to_face_x1 down to 14 frame(s), shorter than its own 15-frame animation. The cue is not moved to make it fit; the next qualifying one may still promote
+  burst 4: valley [216923, 216930) rejected by the signal — no_recovery_before_burst_end (drop 63.0dB, 120ms below the line)
+  burst 4: reset from face_x1 uses face_x1_to_x0 (15 frames)
+  burst 5: direct reset at 217039 (burst end 217039 + lead-out 0); no usable hard cut in the [-7f, +21f] window
+  burst 5: entry at the raw burst start 216983; no usable hard cut in the [-7f, +7f] window
+  burst 5: cue at 216990 rejected — it would cut x0_to_face_x1 down to 7 frame(s), shorter than its own 15-frame animation. The cue is not moved to make it fit; the next qualifying one may still promote
+  burst 5: cue at 217029 rejected — only 10 frame(s) remain before the reset at 217039, and face_x2 needs 24 to finish its move and be held long enough to read
+  burst 5: valley [217033, 217039) rejected by the signal — no_recovery_before_burst_end (drop 63.7dB, 100ms below the line)
+  burst 5: reset from face_x1 uses face_x1_to_x0 (15 frames)
+  burst 6: reset snapped backward from 217316 to hard cut 217312 (delta=-4f, burst end 217316, window [-7f, +21f], nearest cut to the anchor)
+  burst 6: entry at the raw burst start 217250; no usable hard cut in the [-7f, +7f] window
+  burst 6: promoted to face_x2 at 217265 — the voice dropped 50.5dB for 70ms in [217260, 217265) and came back at 217265 (+45.6dB); directly on the recovery (no hard cut in [-7f, +7f]); held for 47 frame(s)
+  burst 6: valley [217283, 217284) rejected by the signal — valley_too_short (drop 20.8dB, 20ms below the line)
+  burst 6: valley [217308, 217312) rejected by the signal — no_recovery_before_burst_end (drop 54.9dB, 60ms below the line)
+  burst 6: reset from face_x2 uses face_x2_to_x0 (15 frames)
+  burst 7: direct reset at 217749 (burst end 217749 + lead-out 0); no usable hard cut in the [-7f, +21f] window
+  burst 7: entry at the raw burst start 217499; no usable hard cut in the [-7f, +7f] window
+  burst 7: promoted to face_x2 at 217525 — the voice dropped 119.1dB for 30ms in [217499, 217501) and came back at 217525 (+115.6dB); directly on the recovery (no hard cut in [-7f, +7f]); held for 224 frame(s)
+  burst 7: valley [217554, 217555) rejected by the signal — valley_too_short (drop 20.9dB, 10ms below the line)
+  burst 7: promoted to face_x3 at 217601 — the voice dropped 56.1dB for 110ms in [217596, 217603) and came back at 217604 (+51.4dB); snapped to hard cut 217601 (-3f); held for 148 frame(s)
+  burst 7: cue at 217629 ignored — the ladder is already at face_x3 and there is no rung above it
+  burst 7: cue at 217685 ignored — the ladder is already at face_x3 and there is no rung above it
+  burst 7: cue at 217698 ignored — the ladder is already at face_x3 and there is no rung above it
+  burst 7: cue at 217723 ignored — the ladder is already at face_x3 and there is no rung above it
+  burst 7: cue at None ignored — the ladder is already at face_x3 and there is no rung above it
+  burst 7: reset from face_x3 uses face_x3_to_x0 (15 frames)
+  burst 8: reset snapped backward from 218003 to hard cut 217999 (delta=-4f, burst end 218003, window [-7f, +21f], nearest cut to the anchor)
+  burst 8: entry at the raw burst start 217877; no usable hard cut in the [-7f, +7f] window
+  burst 8: valley [217877, 217878) rejected by the signal — valley_too_short (drop 64.8dB, 20ms below the line)
+  burst 8: promoted to face_x2 at 217898 — the voice dropped 30.1dB for 50ms in [217893, 217897) and came back at 217898 (+24.2dB); directly on the recovery (no hard cut in [-7f, +7f]); held for 101 frame(s)
+  burst 8: promoted to face_x3 at 217959 — the voice dropped 44.3dB for 60ms in [217955, 217959) and came back at 217959 (+38.4dB); directly on the recovery (no hard cut in [-7f, +7f]); held for 40 frame(s)
+  burst 8: cue at 217969 ignored — the ladder is already at face_x3 and there is no rung above it
+  burst 8: cue at 217986 ignored — the ladder is already at face_x3 and there is no rung above it
+  burst 8: cue at None ignored — the ladder is already at face_x3 and there is no rung above it
+  burst 8: reset from face_x3 uses face_x3_to_x0 (15 frames)
+  burst 9: reset snapped backward from 218189 to hard cut 218183 (delta=-6f, burst end 218189, window [-7f, +21f], nearest cut to the anchor)
+  burst 9: entry at the raw burst start 218094; no usable hard cut in the [-7f, +7f] window
+  burst 9: cue at 218097 rejected — it would cut x0_to_face_x1 down to 3 frame(s), shorter than its own 15-frame animation. The cue is not moved to make it fit; the next qualifying one may still promote
+  burst 9: promoted to face_x2 at 218130 — the voice dropped 23.3dB for 30ms in [218127, 218129) and came back at 218130 (+18.7dB); directly on the recovery (no hard cut in [-7f, +7f]); held for 53 frame(s)
+  burst 9: valley [218154, 218155) rejected by the signal — valley_too_short (drop 23.1dB, 20ms below the line)
+  burst 9: valley [218182, 218183) rejected by the signal — no_recovery_before_burst_end (drop 25.9dB, 10ms below the line)
+  burst 9: reset from face_x2 uses face_x2_to_x0 (15 frames)
+  burst 10: direct reset at 218297 (burst end 218297 + lead-out 0); no usable hard cut in the [-7f, +21f] window
+  burst 10: entry at the raw burst start 218244; no usable hard cut in the [-7f, +7f] window
+  burst 10: cue at 218246 rejected — it would cut x0_to_face_x1 down to 2 frame(s), shorter than its own 15-frame animation. The cue is not moved to make it fit; the next qualifying one may still promote
+  burst 10: valley [218288, 218297) rejected by the signal — no_recovery_before_burst_end (drop 62.5dB, 150ms below the line)
+  burst 10: reset from face_x1 uses face_x1_to_x0 (15 frames)
+  burst 11: reset snapped backward from 218473 to hard cut 218469 (delta=-4f, burst end 218473, window [-7f, +21f], nearest cut to the anchor)
+  burst 11: entry snapped forward from 218394 to hard cut 218394 (+0f, window [-7f, +7f], nearest cut to the anchor)
+  burst 11: valley [218394, 218395) rejected by the signal — valley_too_short (drop 61.8dB, 20ms below the line)
+  burst 11: cue at 218406 rejected — it would cut x0_to_face_x1 down to 12 frame(s), shorter than its own 15-frame animation. The cue is not moved to make it fit; the next qualifying one may still promote
+  burst 11: valley [218466, 218469) rejected by the signal — no_recovery_before_burst_end (drop 48.5dB, 50ms below the line)
+  burst 11: reset from face_x1 uses face_x1_to_x0 (15 frames)
+  burst 12: reset snapped backward from 218767 to hard cut 218762 (delta=-5f, burst end 218767, window [-7f, +21f], nearest cut to the anchor)
+  burst 12: entry at the raw burst start 218599; no usable hard cut in the [-7f, +7f] window
+  burst 12: cue at 218601 rejected — it would cut x0_to_face_x1 down to 2 frame(s), shorter than its own 15-frame animation. The cue is not moved to make it fit; the next qualifying one may still promote
+  burst 12: promoted to face_x2 at 218630 — the voice dropped 85.1dB for 130ms in [218622, 218631) and came back at 218630 (+84.0dB); directly on the recovery (no hard cut in [-7f, +7f]); held for 132 frame(s)
+  burst 12: promoted to face_x3 at 218668 — the voice dropped 109.0dB for 380ms in [218641, 218664) and came back at 218668 (+106.7dB); directly on the recovery (no hard cut in [-7f, +7f]); held for 94 frame(s)
+  burst 12: cue at 218690 ignored — the ladder is already at face_x3 and there is no rung above it
+  burst 12: cue at 218703 ignored — the ladder is already at face_x3 and there is no rung above it
+  burst 12: cue at 218727 ignored — the ladder is already at face_x3 and there is no rung above it
+  burst 12: cue at None ignored — the ladder is already at face_x3 and there is no rung above it
+  burst 12: reset from face_x3 uses face_x3_to_x0 (15 frames)
+  burst 13: reset snapped backward from 219134 to hard cut 219127 (delta=-7f, burst end 219134, window [-7f, +21f], nearest cut to the anchor)
+  burst 13: entry at the raw burst start 218989; no usable hard cut in the [-7f, +7f] window
+  burst 13: cue at 218992 rejected — it would cut x0_to_face_x1 down to 3 frame(s), shorter than its own 15-frame animation. The cue is not moved to make it fit; the next qualifying one may still promote
+  burst 13: promoted to face_x2 at 219041 — the voice dropped 118.1dB for 260ms in [219023, 219039) and came back at 219041 (+112.2dB); directly on the recovery (no hard cut in [-7f, +7f]); held for 86 frame(s)
+  burst 13: promoted to face_x3 at 219099 — the voice dropped 38.8dB for 80ms in [219093, 219099) and came back at 219099 (+38.3dB); directly on the recovery (no hard cut in [-7f, +7f]); held for 28 frame(s)
+  burst 13: cue at 219108 ignored — the ladder is already at face_x3 and there is no rung above it
+  burst 13: cue at 219117 ignored — the ladder is already at face_x3 and there is no rung above it
+  burst 13: cue at None ignored — the ladder is already at face_x3 and there is no rung above it
+  burst 13: reset from face_x3 uses face_x3_to_x0 (15 frames)
+
+
+8. WHAT PHASE 10 MUST NOT CHANGE
+-----------------------------------
+
+    speech_segments           15
+    editorial_bursts          14
+    voice_valleys             63
+    qualified cues            36  (14 used as promotions)
+    placements                42
+    decision trace            126 lines
+    role counts               x0_to_face_x1 14, face_x1_to_face_x2 9,
+                              face_x2_to_face_x3 5, face_x1_to_x0 5,
+                              face_x2_to_x0 4, face_x3_to_x0 5
+    every (role, start, end, reason, cut, burst) row in section 7
+    structural_fingerprint    unchanged
+
+
+9. PHASE 8B — KNOWN, DEFERRED, NOT A BLOCKER
+-----------------------------------------------
+
+Against DAZ_OUTPUT_MVP2 a few bursts still open earlier or close later than the
+human's (worst: -123 frames on burst 12, +77 on burst 1). This is a known
+calibration/generalisation limitation, NOT a user-visible defect: the creator
+watched the applied Phase 8c preview and validated it. A human reference edit is
+not a golden truth to reproduce frame-perfect, and no VAD or reset_after_silence_ms
+retuning is authorised by Phase 10.

@@ -373,3 +373,99 @@ def test_a_fully_marked_short_reset_has_nowhere_safe_to_go():
 def test_the_chosen_frame_always_stays_inside_the_item():
     frame = free_marker_frame(15, (MarkerSnapshot(frame=0, custom_data="x", duration=3),))
     assert frame is not None and 0 <= frame < 15
+
+
+# --- gameplay retirement (D068) -----------------------------------------------------------
+
+
+def test_an_existing_facecam_preview_stays_fully_ownable_after_the_retirement():
+    """Removing the gameplay roles must not orphan a preview DAZ already made.
+
+    Every marker on a real preview names a facecam role, because gameplay was never applied
+    to anything (Phases 9a/9b placed nothing at all). So the whole facecam ladder has to keep
+    classifying as `owned` against a facecam-only asset table.
+    """
+
+    assets = {
+        "x0_to_face_x1": "FACE_X1",
+        "face_x1_to_face_x2": "FACE_X2",
+        "face_x2_to_face_x3": "FACE_X3",
+        "face_x1_to_x0": "X1_TO_X0",
+        "face_x2_to_x0": "X2_TO_X0",
+        "face_x3_to_x0": "X3_TO_X0",
+    }
+    for role, asset in assets.items():
+        data = serialize(
+            build_record(
+                preview_id=PREVIEW,
+                role=role,
+                asset=asset,
+                start=216132,
+                end=216174,
+                source_fingerprint=FINGERPRINT,
+            )
+        )
+        verdict = classify_item(
+            item(name=asset, custom_data=data),
+            OwnershipExpectations(
+                preview_id=PREVIEW, source_fingerprint=FINGERPRINT, assets=assets
+            ),
+        )
+        assert verdict.state == OWNED, (role, verdict.problems)
+
+
+def test_a_marker_naming_a_retired_gameplay_role_is_ambiguous_not_deletable():
+    """Fail closed. No such preview is known to exist, and if one did DAZ must not guess."""
+
+    data = serialize(
+        build_record(
+            preview_id=PREVIEW,
+            role="x0_to_gameplay",
+            asset="X0_TO_GAMEPLAY",
+            start=216132,
+            end=216174,
+            source_fingerprint=FINGERPRINT,
+        )
+    )
+    verdict = classify_item(
+        item(name="X0_TO_GAMEPLAY", custom_data=data), expectations()
+    )
+    assert verdict.state == AMBIGUOUS
+    assert verdict.blocks_deletion
+    assert any("not configured" in problem for problem in verdict.problems)
+
+
+def test_the_placement_identity_of_a_facecam_clip_is_unchanged_by_the_retirement():
+    """A hard-coded id from before Phase 10: the identity must not have drifted.
+
+    `placement_id` is what makes `rebuild-preview` idempotent, so a silent change to how it
+    is computed would stack duplicates on every existing preview.
+    """
+
+    assert placement_id(
+        source_fingerprint=FINGERPRINT,
+        role="x0_to_face_x1",
+        start=216132,
+        end=216174,
+        asset="FACE_X1",
+    ) == placement_id(
+        source_fingerprint=FINGERPRINT,
+        role="x0_to_face_x1",
+        start=216132,
+        end=216174,
+        asset="FACE_X1",
+    )
+    # And it depends on the role, so two roles never collide.
+    assert placement_id(
+        source_fingerprint=FINGERPRINT,
+        role="x0_to_face_x1",
+        start=216132,
+        end=216174,
+        asset="FACE_X1",
+    ) != placement_id(
+        source_fingerprint=FINGERPRINT,
+        role="face_x1_to_x0",
+        start=216132,
+        end=216174,
+        asset="FACE_X1",
+    )

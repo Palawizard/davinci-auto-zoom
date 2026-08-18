@@ -192,13 +192,17 @@ def test_the_global_help_states_what_each_class_of_command_may_touch(
     # Claims that used to be there and are now false.
     assert "Every command in this phase is strictly read-only" not in out
     assert "No command places, moves or deletes a zoom" not in out
-    # Which commands are read-only, and that the probes do mutate temporarily.
-    assert "doctor, snapshot, assets, compare, speech-file) are strictly read-only" in out
-    assert "temporary, opt-in changes" in out
-    # Phase 5: one command writes zooms, and it writes them to a new timeline of its own.
-    assert "No command modifies an existing timeline of yours" in out
+    # Which commands are read-only, and that plan-probe is the dry run.
+    assert "doctor, snapshot, assets, compare and speech-file are strictly read-only" in out
+    assert "plan-probe is a dry run" in out
+    # One command writes zooms, and it writes them to a new timeline of its own.
+    assert "NO COMMAND MODIFIES A TIMELINE YOU ALREADY WORK IN" in out
     assert "apply-preview" in out
     assert "DAZ_AUTO_PREVIEW_*" in out
+    # The workflow a normal user follows is stated up front, and the retired command is gone.
+    assert "THE USUAL WORKFLOW: doctor -> assets -> plan-probe -> apply-preview" in out
+    assert "There is no apply-in-place" in out
+    assert "gameplay" not in out.lower()
 
 
 @pytest.mark.skipif(shutil.which("ffmpeg") is None, reason="ffmpeg is not installed")

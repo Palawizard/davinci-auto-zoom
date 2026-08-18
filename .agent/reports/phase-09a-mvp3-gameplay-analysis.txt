@@ -1,3 +1,12 @@
+================================================================================
+ARCHIVED RESEARCH — GAMEPLAY IS NOT PART OF THE CURRENT PRODUCT
+
+davinci-auto-zoom is facecam-only (D068). The measurements in this report are
+valid and are kept as the evidence for WHY gameplay automation was researched
+and deliberately not shipped. The code they describe was removed from the active
+tree in Phase 10 and lives in Git history. Nothing here is a roadmap item.
+================================================================================
+
 PHASE 9a — DAZ_OUTPUT_MVP3, READ-ONLY: WHAT THE HUMAN ACTUALLY DID WITH GAMEPLAY
 ================================================================================
 

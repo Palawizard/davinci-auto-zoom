@@ -29,7 +29,6 @@ from davinci_auto_zoom.domain.speech_report import (
     reference_zooms,
 )
 from davinci_auto_zoom.domain.timebase import Timebase
-from davinci_auto_zoom.domain.transitions import ForbiddenTransition
 from davinci_auto_zoom.resolve.capability_probe import probe_resolve
 from davinci_auto_zoom.resolve.executor import (
     CONFIRM_FLAG as APPLY_CONFIRM_FLAG,
@@ -38,10 +37,6 @@ from davinci_auto_zoom.resolve.executor import (
     ApplyPreviewRefused,
     ApplyReport,
     apply_preview,
-)
-from davinci_auto_zoom.resolve.gameplay_study import (
-    GameplayStudyRefused,
-    run_gameplay_study,
 )
 from davinci_auto_zoom.resolve.owned_preview import (
     CLEAN,
@@ -90,15 +85,17 @@ EXIT_PROBE_FAILED = 4
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="davinci-auto-zoom",
-        description="Speech-driven zoom automation for DaVinci Resolve. "
-        "No command modifies an existing timeline of yours. The everyday commands "
-        "(doctor, snapshot, assets, compare, speech-file) are strictly read-only. The "
-        "development probes (probe-write, speech-probe, plan-probe) make temporary, "
-        "opt-in changes on a scratch timeline they create and delete, restoring every "
-        "piece of project state they touched. apply-preview is the one write-capable "
-        "command that leaves something behind on purpose: it places the planned zooms on "
-        "a NEW DAZ_AUTO_PREVIEW_* timeline duplicated from your source, keeps it on "
-        "success for you to inspect, and deletes it again if anything fails.",
+        description="Automatic facecam zooms for DaVinci Resolve, driven by the creator's "
+        "voice. "
+        "THE USUAL WORKFLOW: doctor -> assets -> plan-probe -> apply-preview -> watch the "
+        "preview -> clean-preview / rebuild-preview. "
+        "NO COMMAND MODIFIES A TIMELINE YOU ALREADY WORK IN. doctor, snapshot, assets, "
+        "compare and speech-file are strictly read-only. plan-probe is a dry run: it "
+        "renders your voice track on a scratch timeline it creates and deletes, then "
+        "prints the plan without placing anything. apply-preview is the one command that "
+        "leaves something behind on purpose — it places the planned zooms on a NEW "
+        "DAZ_AUTO_PREVIEW_* timeline duplicated from your source, keeps it on success for "
+        "you to watch, and deletes it again if anything fails. There is no apply-in-place.",
     )
     subparsers = parser.add_subparsers(dest="command", required=True)
 
@@ -118,7 +115,7 @@ def _build_parser() -> argparse.ArgumentParser:
 
     probe = add(
         "probe-write",
-        "DEVELOPMENT ONLY. Phase 2 spike: WRITES to a scratch timeline it creates and "
+        "DEVELOPMENT ONLY. WRITES to a scratch timeline it creates and "
         "deletes. Requires an explicit confirmation flag and exact expected names.",
     )
     probe.add_argument(
@@ -164,7 +161,7 @@ def _build_parser() -> argparse.ArgumentParser:
 
     speech_probe = add(
         "speech-probe",
-        "DEVELOPMENT ONLY. Phase 3 spike: renders the configured voice track through a "
+        "DEVELOPMENT ONLY. Renders the configured voice track through a "
         "scratch timeline it creates and deletes, then reports speech segments. Requires "
         "an explicit confirmation flag.",
     )
@@ -196,9 +193,11 @@ def _build_parser() -> argparse.ArgumentParser:
 
     plan_probe = add(
         "plan-probe",
-        "Phase 4 dry run: voice render -> speech -> hard cuts -> deterministic zoom plan. "
-        "Reports the plan and NEVER inserts a zoom clip. Uses the same temporary, opt-in "
-        "render as speech-probe, so it requires the same confirmation flag.",
+        "THE DRY RUN, and the command to read before applying anything: voice render -> "
+        "speech -> voice dynamics -> nearby cuts -> the facecam zoom plan, printed with the "
+        "reason for every transition. It NEVER inserts a zoom clip. The temporary voice "
+        "render happens on a scratch timeline it creates and deletes, so it needs the "
+        "render confirmation flag.",
     )
     plan_probe.add_argument(
         VOICE_CONFIRM_FLAG,
@@ -224,41 +223,9 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Keep the rendered and normalized audio and print exactly where they are.",
     )
 
-    gameplay_study = add(
-        "gameplay-study",
-        "DEVELOPMENT DIAGNOSTIC. Phase 9a: measures the creator's silences, the secondary "
-        "audio and the picture's motion, reads the GAMEPLAY decisions out of a human "
-        "reference edit, and compares the two. Renders three times through the same "
-        "temporary, opt-in scratch pipeline as plan-probe, so it needs the same "
-        "confirmation flag. It NEVER places a gameplay clip and never creates a preview.",
-    )
-    gameplay_study.add_argument(
-        VOICE_CONFIRM_FLAG,
-        action="store_true",
-        dest="confirmed",
-        help="Required. Covers the temporary renders only; nothing is ever placed.",
-    )
-    gameplay_study.add_argument("--project", required=True, help="Exact expected project name.")
-    gameplay_study.add_argument(
-        "--source-timeline",
-        required=True,
-        help="Timeline to measure. Never modified; duplicates are rendered.",
-    )
-    gameplay_study.add_argument(
-        "--reference-timeline",
-        required=True,
-        help="REQUIRED here: the human edit whose GAMEPLAY decisions are the study's "
-        "subject. Read-only, and never written to.",
-    )
-    gameplay_study.add_argument(
-        "--keep-temp-audio",
-        action="store_true",
-        help="Keep the rendered and normalized media and print exactly where they are.",
-    )
-
     apply_preview = add(
         "apply-preview",
-        "WRITE-CAPABLE. Phase 5: runs the full pipeline and places the planned zooms on a "
+        "WRITE-CAPABLE. Runs the full pipeline and places the planned zooms on a "
         "NEW timeline duplicated from the source. Your timelines are never modified, and on "
         "success the preview is deliberately KEPT for you to inspect.",
     )
@@ -295,7 +262,7 @@ def _build_parser() -> argparse.ArgumentParser:
 
     ownership_probe = add(
         "probe-ownership",
-        "DEVELOPMENT ONLY. Phase 7 spike: proves that TimelineItem markers work as "
+        "DEVELOPMENT ONLY. Proves that TimelineItem markers work as "
         "persistent DAZ ownership on real generator clips. WRITES to scratch timelines it "
         "creates and deletes, restoring every piece of project state it touched.",
     )
@@ -317,7 +284,7 @@ def _build_parser() -> argparse.ArgumentParser:
 
     clean = add(
         "clean-preview",
-        "DESTRUCTIVE. Phase 7: removes from ONE named DAZ_AUTO_PREVIEW_* timeline exactly "
+        "DESTRUCTIVE. Removes from ONE named DAZ_AUTO_PREVIEW_* timeline exactly "
         "the clips DAZ can prove it created, and nothing else. Foreign clips are left "
         "untouched and reported. Refuses protected timelines, legacy previews with no "
         "ownership metadata, and any track whose ownership is not fully classifiable. A "
@@ -349,7 +316,7 @@ def _build_parser() -> argparse.ArgumentParser:
 
     rebuild = add(
         "rebuild-preview",
-        "DESTRUCTIVE. Phase 7: recomputes the plan from the source, removes the DAZ-owned "
+        "DESTRUCTIVE. Recomputes the plan from the source, removes the DAZ-owned "
         "clips from ONE named DAZ_AUTO_PREVIEW_* timeline and re-applies the fresh plan onto "
         "it. Repeating it produces the same structural result with no duplicates. Refuses if "
         "the target track holds anything DAZ did not create.",
@@ -641,48 +608,6 @@ def _owned_preview(
     return report.to_dict(), report.to_text(), report.succeeded
 
 
-def _gameplay_study(
-    args: Any,
-    config: Config,
-    resolve: Any,
-    project: Any,
-    directory: Path,
-    zoom_plan: ZoomPlan,
-    speech_segments: int,
-) -> tuple[dict[str, Any], str, bool]:
-    """Run the Phase 9a diagnostic on top of the plan the pipeline just produced.
-
-    The bursts and hard cuts come from the plan rather than being recomputed, so the study
-    and the facecam planner can never disagree about where the creator was talking.
-
-    A refusal is a normal, reportable outcome — the study needs a reference edit and a clean
-    render, and saying so is more useful than a traceback. Nothing is placed either way.
-    """
-
-    try:
-        study = run_gameplay_study(
-            resolve,
-            project,
-            config,
-            VoiceRenderTarget(
-                project=args.project,
-                source_timeline=args.source_timeline,
-                voice_audio_track=config.voice_audio_track,
-            ),
-            directory,
-            reference_timeline=args.reference_timeline,
-            bursts=zoom_plan.bursts,
-            speech_segments=speech_segments,
-            timeline=zoom_plan.timeline,
-            frame_rate=zoom_plan.frame_rate,
-            timeline_frame_rate=str(zoom_plan.frame_rate),
-            confirmed=args.confirmed,
-        )
-    except (GameplayStudyRefused, ForbiddenTransition) as exc:
-        return {"refused": str(exc)}, f"refused: {exc}", False
-    return study.to_dict(), study.to_text(), study.succeeded
-
-
 def _speech_probe(
     args: Any,
     config: Config,
@@ -690,7 +615,6 @@ def _speech_probe(
     plan: bool = False,
     apply_plan: bool = False,
     rebuild: bool = False,
-    gameplay: bool = False,
 ) -> int:
     try:
         resolve = connect()
@@ -749,15 +673,7 @@ def _speech_probe(
                     text += "\n" + _plan_reference_text(comparison)
                 # A plan with overlapping placements is a bug, not a result.
                 succeeded = succeeded and zoom_plan.valid
-                if gameplay and succeeded:
-                    study_payload, study_text, studied = _gameplay_study(
-                        args, config, resolve, project, directory, zoom_plan,
-                        len(result.segments),
-                    )
-                    payload["gameplay_study"] = study_payload
-                    text += "\n\n" + study_text
-                    succeeded = studied
-                elif apply_plan and succeeded:
+                if apply_plan and succeeded:
                     apply_payload, apply_text, applied = _apply_preview(
                         args, config, resolve, project, zoom_plan
                     )
@@ -777,7 +693,7 @@ def _speech_probe(
                     payload["rebuild"] = rebuild_payload
                     text += "\n\n" + rebuild_text
                     succeeded = rebuilt
-                elif apply_plan or rebuild or gameplay:
+                elif apply_plan or rebuild:
                     text += (
                         "\n\nrefused: the pipeline did not produce a usable plan, so nothing "
                         "was created and nothing was deleted"
@@ -882,7 +798,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         _emit(clean_payload, clean_text, args.as_json)
         return EXIT_OK if cleaned else EXIT_PROBE_FAILED
 
-    if args.command in ("plan-probe", "apply-preview", "rebuild-preview", "gameplay-study"):
+    if args.command in ("plan-probe", "apply-preview", "rebuild-preview"):
         if config.asset_timing is None:
             print(
                 "error: the planner needs to know how long your zoom assets take to animate. "
@@ -892,8 +808,6 @@ def main(argv: Sequence[str] | None = None) -> int:
             return EXIT_BAD_REQUEST
         if args.command == "plan-probe":
             return _speech_probe(args, config, plan=True)
-        if args.command == "gameplay-study":
-            return _speech_probe(args, config, plan=True, gameplay=True)
         if args.command == "rebuild-preview":
             if not args.confirmed_rebuild:
                 print(

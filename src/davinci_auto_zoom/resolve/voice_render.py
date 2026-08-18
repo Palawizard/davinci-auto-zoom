@@ -232,12 +232,6 @@ class VoiceRenderReport:
     timeline_end_frame: int | None = None
     timeline_sample_rate: int | None = None
 
-    #: "audio" (the Phase 3 voice render and its Phase 9a secondary-audio twin) or "video".
-    #: Only the success rule differs; every safety guarantee is shared.
-    media_kind: str = "audio"
-    #: The audio tracks left on the scratch timeline. `(1,)` is the classic voice render.
-    kept_audio_tracks: tuple[int, ...] = ()
-
     wrote: bool = False
     scratch_name: str | None = None
     scratch_unique_id: str | None = None
@@ -284,10 +278,6 @@ class VoiceRenderReport:
 
     @property
     def succeeded(self) -> bool:
-        if self.media_kind == "video":
-            # A video render has no VAD downstream, so there is no normalized waveform and
-            # no duration check to pass — only a file, and a clean restoration.
-            return self.clean and self.error is None and bool(self.audio.rendered_path)
         return (
             self.clean
             and self.error is None
@@ -304,7 +294,7 @@ class VoiceRenderReport:
     def to_text(self) -> str:
         audio = self.audio
         lines = [
-            "davinci-auto-zoom voice render (Phase 3 spike)",
+            "davinci-auto-zoom voice render",
             f"  product   : {self.product_name} {self.resolve_version}",
             f"  project   : {self.project_name}",
             f"  timeline  : {self.timeline_name} "
@@ -473,75 +463,6 @@ def _job_ids(project: Any) -> tuple[str, ...]:
     )
 
 
-def _silence_audio_tracks(
-    scratch: Any, keep: tuple[int, ...], report: VoiceRenderReport
-) -> None:
-    """Leave `keep` audible on the *scratch* timeline by **emptying** every other track.
-
-    Phase 9a needs the complement of the voice track — "everything the viewer hears when A1
-    is muted" — and `_isolate_voice_track`'s `DeleteTrack` cannot express it. Measured on
-    Studio 21.0.4.5: deleting A1 renumbers the survivors *and* renames them, so the track
-    that was `Audio 2` comes back as `Audio 1`. In a project where every audio track carries
-    the same 21 items (this one), the post-condition check can then no longer tell which
-    track survived — and it correctly refused to render rather than guess.
-
-    Emptying has the property `SetTrackEnable` lacks (D017) and `DeleteTrack` loses here: its
-    effect is observable *and* positional. The dropped tracks end with zero items while the
-    kept tracks keep their index, their name and their exact item count, so the proof that
-    the right audio was rendered survives the operation.
-    """
-
-    count = int(scratch.GetTrackCount("audio") or 0)
-    if not keep:
-        raise VoiceRenderFailed("refusing to silence every audio track: nothing would render")
-    missing = [index for index in keep if not 1 <= index <= count]
-    if missing:
-        raise VoiceRenderFailed(
-            f"audio track(s) {missing} do not exist on the scratch timeline "
-            f"({count} audio tracks)"
-        )
-    before = {
-        index: (
-            str(scratch.GetTrackName("audio", index)),
-            len(scratch.GetItemListInTrack("audio", index) or []),
-        )
-        for index in range(1, count + 1)
-    }
-    report.voice_track_name = before[min(keep)][0]
-    report.audio_tracks_before = count
-
-    emptied: list[int] = []
-    for index in range(1, count + 1):
-        if index in keep:
-            continue
-        items = scratch.GetItemListInTrack("audio", index) or []
-        if items and not scratch.DeleteClips(list(items), False):
-            raise VoiceRenderFailed(
-                f"DeleteClips on audio track A{index} of the scratch timeline failed; "
-                "refusing to render a mix that may still contain it"
-            )
-        emptied.append(index)
-    report.removed_audio_tracks = tuple(emptied)
-    report.audio_tracks_after = int(scratch.GetTrackCount("audio") or 0)
-
-    problems: list[str] = []
-    for index in range(1, count + 1):
-        name = str(scratch.GetTrackName("audio", index))
-        items = len(scratch.GetItemListInTrack("audio", index) or [])
-        if index in keep:
-            if (name, items) != before[index]:
-                problems.append(
-                    f"kept track A{index} changed from {before[index]} to {(name, items)}"
-                )
-        elif items:
-            problems.append(f"silenced track A{index} still holds {items} item(s)")
-    if problems:
-        raise VoiceRenderFailed(
-            "the scratch timeline's audio is not what was asked for, so the wrong mix would "
-            "have been analysed: " + "; ".join(problems)
-        )
-
-
 def _isolate_voice_track(
     scratch: Any, keep: tuple[int, ...], report: VoiceRenderReport
 ) -> None:
@@ -558,10 +479,9 @@ def _isolate_voice_track(
     matched against what was captured before. It is only ever applied to a duplicate this
     run created and deletes; the configured source timeline keeps all of its tracks.
 
-    It is only used to keep **one** track, and specifically the lowest-numbered one it needs
-    to survive. Deleting a lower-indexed track renumbers *and* renames the survivors on
-    Studio 21.0.4.5, which destroys the evidence this function's post-condition rests on;
-    `_silence_audio_tracks` exists for every other set.
+    It keeps exactly **one** track, the configured voice one. Deleting a lower-indexed track
+    renumbers *and* renames the survivors on Studio 21.0.4.5 (D063), which is why the proof
+    below compares names and item counts rather than trusting the index alone.
     """
 
     count = int(scratch.GetTrackCount("audio") or 0)
@@ -627,14 +547,8 @@ def _render_audio(
     *,
     timeout_seconds: float,
     poll_seconds: float,
-    export_video: bool = False,
 ) -> Path:
-    """Queue exactly one render job, run it, and return the file it produced.
-
-    `export_video` swaps the audio-only export for a video-only one. Everything that makes
-    the render *safe* — one job, restored Deliver state, scratch timeline, temp directory —
-    is identical, which is the whole reason this is a flag rather than a second module.
-    """
+    """Queue exactly one render job, run it, and return the file it produced."""
 
     if not project.LoadRenderPreset(preset):
         raise VoiceRenderFailed(f"LoadRenderPreset({preset!r}) failed")
@@ -645,8 +559,8 @@ def _render_audio(
         "SelectAllFrames": True,
         "TargetDir": str(target_directory),
         "CustomName": RENDER_BASENAME,
-        "ExportVideo": export_video,
-        "ExportAudio": not export_video,
+        "ExportVideo": False,
+        "ExportAudio": True,
         "ExportSubtitle": False,
         # Full extents / frame handles would change the file's start instant, which would
         # silently offset every speech frame downstream.
@@ -660,11 +574,10 @@ def _render_audio(
         # Also NOT set: FormatWidth/FormatHeight. Rendering small would save a few seconds
         # and put an untested key in an all-or-nothing call; ffmpeg downscales for free.
     }
-    if not export_video:
-        # 48 kHz 24-bit is Resolve's lossless-ish default; ffmpeg does the 16 kHz downsample
-        # afterwards, so nothing here is the VAD's input format.
-        settings["AudioBitDepth"] = 24
-        settings["AudioSampleRate"] = int(report.timeline_sample_rate or 48000)
+    # 48 kHz 24-bit is Resolve's lossless-ish default; ffmpeg does the 16 kHz downsample
+    # afterwards, so nothing here is the VAD's input format.
+    settings["AudioBitDepth"] = 24
+    settings["AudioSampleRate"] = int(report.timeline_sample_rate or 48000)
     if not project.SetRenderSettings(settings):
         raise VoiceRenderFailed(
             f"SetRenderSettings returned False for {settings!r}. The call is all-or-nothing: "
@@ -809,28 +722,20 @@ def render_voice_track(
     timeout_seconds: float = RENDER_TIMEOUT_SECONDS,
     poll_seconds: float = RENDER_POLL_SECONDS,
     protected_timelines: tuple[str, ...] = (),
-    keep_audio_tracks: tuple[int, ...] | None = None,
-    export_video: bool = False,
-    render_preset: str | None = None,
 ) -> tuple[VoiceRenderReport, Path | None]:
     """Render the configured voice track in isolation. Returns the report and the audio file.
 
     The audio path is `None` when the run failed; the report always explains why and cleanup
     has always run.
 
-    The three optional arguments exist for Phase 9a and default to Phase 3's exact behaviour:
-    `keep_audio_tracks` chooses which audio tracks survive on the scratch duplicate (`None`
-    means the configured voice track alone), `export_video` swaps the audio export for a
-    video one, and `render_preset` overrides the target's `Audio Only`. Nothing about the
-    safety model is optional or overridable — the scratch timeline, the single render job,
-    the captured/restored Deliver state and the post-run audit are the same code either way.
+    Nothing about the safety model is optional or overridable: the scratch timeline, the
+    single render job, the captured/restored Deliver state and the post-run audit always run.
     """
 
     from davinci_auto_zoom.speech.audio import FfmpegError, ffmpeg_version
 
     overall_started = time.perf_counter()
-    keep = tuple(sorted(set(keep_audio_tracks or (target.voice_audio_track,))))
-    preset = render_preset or target.render_preset
+    keep = (target.voice_audio_track,)
     report = VoiceRenderReport(
         resolve_version=str(resolve.GetVersionString()),
         product_name=str(resolve.GetProductName()),
@@ -838,8 +743,6 @@ def render_voice_track(
         target=asdict(target),
         voice_track_index=target.voice_audio_track,
         temp_directory=str(temp_directory),
-        media_kind="video" if export_video else "audio",
-        kept_audio_tracks=keep,
     )
 
     if not confirmed:
@@ -862,7 +765,6 @@ def render_voice_track(
         render_presets=tuple(project.GetRenderPresetList() or ()),
         rendering_in_progress=bool(project.IsRenderingInProgress()),
         media_storage_volumes=report.media_storage_volumes,
-        required_preset=preset,
     )
     if report.preflight_failures:
         raise VoiceRenderRefused(
@@ -916,21 +818,14 @@ def render_voice_track(
         if not project.SetCurrentTimeline(scratch):
             raise VoiceRenderFailed("SetCurrentTimeline(scratch) failed")
 
-        # One track and it is the configured voice: the Phase 3 path, byte for byte. Any
-        # other set goes through emptying, because deleting a lower-indexed track renumbers
-        # and renames the survivors and the proof of what was rendered is lost with it.
-        if keep == (target.voice_audio_track,):
-            _isolate_voice_track(scratch, keep, report)
-        else:
-            _silence_audio_tracks(scratch, keep, report)
+        _isolate_voice_track(scratch, keep, report)
         produced = _render_audio(
             project,
             render_directory,
             report,
-            preset,
+            target.render_preset,
             timeout_seconds=timeout_seconds,
             poll_seconds=poll_seconds,
-            export_video=export_video,
         )
         # Move it out of the user's Media Storage immediately, so cleanup can remove that
         # directory and everything downstream works on our own private copy.

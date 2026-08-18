@@ -93,4 +93,4 @@ def normalize_speech_segments(
 # machine emitting ENTER/RESET events at single frames. Phase 4 replaced it with
 # `domain.planner.AssetPlacement`, which carries the full half-open range of each asset
 # instance, because an event pair forces the executor to re-derive the durations the planner
-# already computed. Future states (x2/x3, gameplay) become further roles and placements.
+# already computed. A further facecam level becomes another role and another placement.
