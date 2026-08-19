@@ -1611,3 +1611,77 @@ preservation and the pre/post protected audits are product features, not legacy.
   tested;
 - gameplay may be revisited one day as **new research**. If it is, it starts from a second
   reference edit, not from a hook someone left in the code.
+
+## D069
+
+**Continuous-talking facecam is a new RESEARCH profile. The X1/X2/X3 dynamics are frozen, and
+only the reset / re-entry policy is under study.**
+
+Phase 11a began research on a second video type: the creator's `bluescreen 2` Shorts, where he
+talks almost continuously and cuts most pauses out. It is still a facecam, it uses **exactly**
+the four states and six transitions of `domain/transitions.py`, and the reference edit was
+replayed through that graph with **zero state-machine problems** — every manual move is legal.
+So the new format needs no new state, no new role, and no new asset.
+
+What does not transfer is one thing only: **when to return to X0, and when to re-enter
+FACE_X1.** The shipped rule is a silence gate (`reset_after_silence_ms = 650` between speech
+segments). Measured on the reference, Silero finds **two** speech segments in the whole
+labelled range — one per Short. The shipped rule would fire at most twice where the creator
+made 17 resets. It does not need retuning here; it has no events to fire on.
+
+**In force from this decision:**
+
+- the facecam MVP frozen in Phase 10 is untouched and stays the supported product. Phase 11a
+  changed no planner, no threshold, no state, no role, no config key and no CLI command, and
+  the live `plan-probe` regression is byte-identical to the Phase 10 baseline on every
+  editorial field (same fingerprint `sha256:a1d107e1…d46a5483`, 15 segments, 14 bursts, 63
+  valleys, 42 placements, 126 decision lines);
+- **X1/X2/X3 are frozen for this research.** The creator states the promotion behaviour is the
+  same in this format, and the phase took that as given. No promotion threshold was retuned or
+  even examined for tuning. Any X2/X3 difference observed on `bluescreen 2` is a diagnostic,
+  not scope;
+- research tooling lives in `tools/research/phase11a/` and is **never imported by the
+  package**. The dependency points research -> product only. It is held to the same strict
+  mypy and has its own tests in `tests/research/`;
+- **no profile architecture.** No `VideoProfile`, no `Strategy`, no `ResetPolicy` interface, no
+  plugin system, no video-type enum. Phase 11a produced data; architecture waits for a
+  validated rule, exactly as D068 taught;
+- **WhisperX, torch and CUDA are not dependencies** and none were added. The transcription runs
+  from a throwaway venv outside the repository;
+- the creator's words are **user media**. Rendered audio, the WhisperX JSON and every per-cut
+  transcript context stay local, gitignored and temporary. `.gitignore` now names them.
+
+**The measured result** (full detail in `.agent/reports/phase-11a-continuous-facecam-reset-study.txt`):
+**TRANSCRIPT HELPS BUT SEMANTICS REQUIRED.** Word timing is good enough — 360/360 tokens
+aligned, boundaries 8.8 dB above the inter-word floor, and a median of 3 frames from the
+picture cut at edit boundaries. But the signals DAZ could compute locally today top out at
+F1 0.476 (ASR punctuation), lexical discourse markers reach only F1 0.300, and adding prosody
+makes both worse. Reading what the sentences mean reaches F1 0.800 — and still cannot separate
+three grammatically parallel enumeration items where one is a reset and two are not.
+
+**Two findings that transfer now, and are worth keeping even if the direction is dropped:**
+
+1. **the loop rule is exact.** "The last hard cut of each content island returns to X0" holds
+   2/2, with delta 0, and the creator stated it in advance rather than it being fitted. A future
+   deterministic override, never a learned class;
+2. **gating any reset predictor on "a face state is currently held" is free precision.** It is
+   nothing but the transition graph, and it removed four of six false positives (+0.21
+   precision). A reset predictor evaluated without the state machine is measuring the wrong
+   question.
+
+**What the reference disproved about our own intuitions**, recorded so nobody re-assumes them:
+
+- the "~1 second at X0" intuition is wrong. Median anchor gap 600 ms, median **pure X0 dwell
+  350 ms**, spread continuously from 67 to 850 ms with no plateau. The dwell is not a constant
+  the creator applies — the re-entry is anchored (to a cut, or to where the voice restarts) and
+  the dwell falls out of it. A fixed 1000 ms hold would be about three times too long;
+- `et donc` / `du coup` are directionally right and far too sparse to be a rule: **10 of the 13
+  semantic resets carry no discourse marker at all**, and the same words appear mid-clause at
+  cuts that get no reset;
+- the empirical reset-to-cut window is **0 frames**, not the ±120 ms the gaming profile uses.
+  15 of 17 resets sit exactly on a cut; the other 2 sit 54 and 64 frames early, placed backwards
+  from an entry that lands on the following cut.
+
+**Status: RESEARCH / NOT SHIPPED** until the creator validates a rule. The next step is the
+smallest one the evidence justifies — a **blind** semantic annotation of a second Short — and
+it is not assigned.

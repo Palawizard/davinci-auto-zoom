@@ -20,6 +20,19 @@ config.toml
 .daz-cache/
 .daz-output/
 
+# User media and research working data. The repository is public and the reference material
+# is the creator's own face and voice: rendered audio, video, frames, and any transcript or
+# ASR JSON carrying what was actually said stay local and temporary. Only numbers, frame
+# indices, categories and prose are ever committed (see AGENTS.md, "User media").
+*.wav
+*.mp4
+*.mov
+*.srt
+*.vtt
+transcript*.json
+semantic*.json
+research-data/
+
 # Editors / OS
 .idea/
 .vscode/

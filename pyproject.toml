@@ -35,6 +35,9 @@ where = ["src"]
 "davinci_auto_zoom.speech" = ["models/*.onnx", "models/*.txt", "models/*.md"]
 
 [tool.pytest.ini_options]
+# `tests/research/` covers `tools/research/`, which is research-only tooling that the shipped
+# package never imports. It runs in the normal suite because it needs neither Resolve nor the
+# network, and a research primitive without a test is as untrustworthy as a product one.
 testpaths = ["tests"]
 pythonpath = ["src", "."]
 addopts = "-q"
@@ -51,9 +54,18 @@ select = ["E", "F", "I", "UP", "B", "SIM"]
 # bundled stubs use `type` statements, which mypy cannot parse at an earlier target.
 python_version = "3.12"
 strict = true
-packages = ["davinci_auto_zoom"]
+# The Phase 11a research tooling is held to the same strictness as the product, even though
+# it ships with neither: research that type-checks is research whose numbers can be trusted.
+files = ["src/davinci_auto_zoom", "tools/research"]
+mypy_path = ["src", "."]
 
 [[tool.mypy.overrides]]
 # onnxruntime ships no type information.
 module = ["onnxruntime.*"]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+# The Phase 11a transcription script runs under its own isolated interpreter and these are
+# deliberately NOT installed in the DAZ environment (see tools/research/phase11a/transcribe.py).
+module = ["torch.*", "whisperx.*", "faster_whisper.*"]
 ignore_missing_imports = true

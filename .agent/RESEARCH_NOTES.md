@@ -700,3 +700,136 @@ enemy — magnification genuinely helps) versus gap 10 (an NPC filling the frame
 only crops). The distinguishing property is the *apparent size of a subject*, and nothing in
 this pipeline can name a subject. That inspection is research only; DAZ's runtime remains
 ffmpeg + numpy + Silero (D065).
+
+## Phase 11a — a second video type, and what a word-level transcript can and cannot explain (2026-08-19)
+
+Measured on `bluescreen 2` / `Timeline 1`, labelled range `[216000, 218870)` at exactly 60 fps.
+Full numbers in `.agent/reports/phase-11a-continuous-facecam-reset-study.txt`; the durable
+decision is D069. **Research, not shipped.** Nothing here changed the product.
+
+### The measurement that made the phase necessary
+
+Silero, at its shipped defaults, finds **two speech segments** in the entire labelled range —
+one spanning each Short. The creator placed **17 resets**. `reset_after_silence_ms` is a gate
+*between* speech segments, so on this material it has at most two events to fire on. This is
+not a threshold that needs retuning; the signal it reads is absent by construction, because the
+creator deliberately cuts his pauses out.
+
+### The reference edit is legal in the frozen graph
+
+All 57 adjustment clips replay through `domain/transitions.py` with **zero problems**: no
+illegal move, no overlap, no demotion, and the state is correctly X0 at each island boundary.
+A second video type did **not** require a new state, role or asset. That is a genuinely useful
+negative: the vocabulary chosen in D044/D045 generalised.
+
+### Asking "reset or nothing?" at a cut is the wrong question
+
+Of the 28 labelled hard cuts, **25 carry some transition**:
+
+    face_x2_to_x0  7   face_x3_to_x0  6   face_x1_to_face_x2  4   x0_to_face_x1  4
+    face_x1_to_x0  2   face_x2_to_face_x3  2   (nothing)  3
+
+Meanwhile only 4 of 17 entries and 6 of 23 promotions sit on a cut. So the **reset/entry pair
+is cut-anchored and the promotions are not** — which is exactly what the shipped planner
+already assumes, and independent support for leaving X1/X2/X3 alone.
+
+The practical consequence: several "false positives" of any reset predictor are cuts where the
+picture was **already at X0**, i.e. where a reset is not a legal move at all. Gating on "a face
+state is currently held" — nothing but the transition graph — removed four of six false
+positives and lifted precision from 0.625 to 0.833.
+
+### The reset-to-cut window is 0 frames, not ±120 ms
+
+15 of 17 resets sit at delta **exactly 0** from a hard cut. The other 2 sit at -54 and -64
+frames. There is no intermediate case, so the distribution is bimodal and the gaming profile's
+±120 ms snap window was **not** reused.
+
+Those two off-cut resets explain re-entry better than anything else measured:
+
+    reset 216758 -> next FACE_X1 216823, cut 216812   (entry 11 frames after the cut)
+    reset 216991 -> next FACE_X1 217055, cut 217055   (entry exactly on the cut)
+
+The creator reset **early, mid-clip**, so the FACE_X1 re-entry could land on the following cut.
+The entry is the anchored event; the reset is placed backwards from it.
+
+### The "~1 second at X0" intuition is wrong
+
+Reset instances here are **held**: the clip starts at the editorial moment, animates for 15
+frames, then sits at X0 until the next FACE_X1. So its placed length carries the dwell.
+
+    measure           min  median   max      min ms  med ms  max ms
+    anchor_gap         19    36.0    66         317     600    1100
+    pure_x0_dwell       4    21.0    51          67     350     850
+
+Median pure dwell is **350 ms**, not 1000. And there is **no plateau** — the values run
+continuously from 19 to 66 frames. The reading that fits: the dwell is not a setting, it is
+whatever falls out of anchoring the entry and placing the reset far enough before it.
+
+### WhisperX: the timing is fine, the semantics are the problem
+
+    whisperx 3.8.6 / faster-whisper 1.2.1 / ctranslate2 4.8.1 / torch 2.8.0 (CUDA 12.8)
+    large-v3, float16, cuda (RTX 4060 8 GB), language fr, batch 8, no diarization
+    forced alignment: VOXPOPULI_ASR_BASE_10K_FR (French resolves to the torchaudio table,
+      NOT a HuggingFace checkpoint — `DEFAULT_ALIGN_MODELS_TORCH` must be consulted first)
+    ASR 11.3 s + align 4.0 s on 92.65 s of audio
+
+**8 GB does not hold two copies of `large-v3`.** Running the native faster-whisper pass while
+WhisperX still held its model died with `CUDA failed with error out of memory`; the script now
+releases CUDA between passes.
+
+Timing quality, three independent readings:
+
+- 360/360 tokens aligned, zero unaligned, zero degenerate or overlapping durations;
+- vs faster-whisper's native cross-attention timestamps: median |start| delta **147 ms**
+  (8.8 frames). That is *disagreement between two mechanisms*, not error — neither is ground
+  truth, and cross-attention is the weaker of the two;
+- against the envelope: frames "inside a word" are **8.8 dB louder** than frames "between
+  words". Against the picture: 19 of 28 cuts fall inside an aligned word, but the word
+  overhangs the cut by a **median of 3 frames** (p90 = 5). That is a creator trimming tight,
+  not a word-sized misalignment.
+
+So word timing is **not** the limiting factor at 60 fps.
+
+### What the transcript could and could not explain
+
+    A  cut only                                  prec 0.500  rec 1.000  F1 0.667
+    B  cut + energy valley >= 20 dB               0.385  0.385  0.385
+    C  cut + ASR sentence boundary                0.625  0.385  0.476
+    D  cut + discourse marker in position         0.429  0.231  0.300
+    E  cut + lexical/punct + acoustic             0.200  0.077  0.111
+    F  agent semantic continuity                  0.625  0.769  0.690
+    G  F + deterministic loop override            0.667  0.800  0.727
+    H  F, only where a face state is held         0.833  0.769  0.800
+
+Three things worth remembering from the failures:
+
+- **`et donc` / `du coup` are far too sparse.** 10 of the 13 semantic resets carry **no**
+  discourse marker at all, and the same words appear mid-clause at cuts with no reset. The
+  creator's intuition is directionally right and cannot be a rule;
+- **ASR punctuation is a model artefact as much as a signal.** All 8 cuts carrying punctuation
+  evidence are in island 0; the model returned island 1 essentially unpunctuated. Half the
+  dataset is invisible to family C;
+- **prosody actively hurts here.** Family E (lexical/punctuation AND an energy dip) scores
+  *worse* than either input alone. The deepest dips at cuts (37.3, 35.9, 32.7 dB) are all
+  **non**-resets, while several real resets sit at 13-15 dB. Fully nested ranges, exactly the
+  shape Phases 9a/9b found for gameplay.
+
+### The one case no text can explain
+
+Cuts 218398, 218460 and 218504 are three grammatically parallel items of the same enumeration.
+The creator reset at the first and not at the other two. Nothing in the transcript distinguishes
+them; the difference is rhythm. Any future rule should be expected to get this wrong.
+
+### The loop rule is exact
+
+"The last hard cut of each content island returns to X0" holds **2/2 with delta 0**, and the
+reset then runs to the island end (40 and 42 frames). It was stated by the creator in advance
+rather than fitted, which is the strongest evidence a two-example rule can have. A future
+deterministic override — never a learned class.
+
+### Honest limits
+
+One creator, 47 labelled seconds, 28 cuts, 2 islands. The semantic annotation was made by the
+coding agent **with the labels visible**, so family F is an upper bound and not a classifier
+score. **Human listening validation was not performed** — the rendered voice was never heard,
+and every timing statement above is instrumental.

@@ -629,16 +629,63 @@ fail-closed.
 Also carried forward, none of it blocking: partial range processing, backup/test-timeline
 guidance.
 
+## Phase 11a — Continuous-talking facecam reset research [DONE — RESEARCH, NOT SHIPPED]
+
+Goal: find out what decides a return to X0 in a second video type, where the creator talks
+almost continuously and cuts most pauses out. Reference: `bluescreen 2`, `Timeline 1`,
+labelled range `[216000, 218870)` at 60 fps. Report:
+`.agent/reports/phase-11a-continuous-facecam-reset-study.txt`. Decision: **D069**.
+
+The motivating measurement, and it settles the premise on its own: Silero finds **two** speech
+segments in the whole labelled range, one per Short. The shipped silence gate would fire at
+most twice where the creator made **17** resets.
+
+Delivered:
+
+- `tools/research/phase11a/` — content islands (N of them, never two hardcoded), manual-edit
+  reconstruction through the frozen transition graph, `AlignedWord` with an exact
+  seconds→frame policy, cut context that never crosses an island, discourse markers scored by
+  position, acoustic features, and per-family confusion metrics. 55 tests in
+  `tests/research/`, none needing Resolve, no fixture containing real `bluescreen 2` content;
+- a WhisperX `large-v3` French pass with forced alignment (`VOXPOPULI_ASR_BASE_10K_FR`), run
+  from a throwaway venv. **No runtime dependency was added**;
+- the ablation A-G, plus H as a separate reading.
+
+Result: **TRANSCRIPT HELPS BUT SEMANTICS REQUIRED.** Word timing is not the obstacle (360/360
+aligned, median 3 frames from the picture cut at edit boundaries). Locally computable signals
+top out at F1 0.476; reading meaning reaches 0.800 and still cannot separate three parallel
+enumeration items where one resets and two do not.
+
+Two things that transfer now: the loop rule ("last hard cut of each island returns to X0") is
+exact 2/2, and gating on "a face state is currently held" is +0.21 precision for free. Two
+intuitions the reference disproved: the ~1 s X0 dwell (measured median **350 ms**, no plateau)
+and the ±120 ms reset-to-cut window (measured **0 frames**).
+
+**No production change.** The Phase 10 facecam plan-probe is byte-identical, same fingerprint.
+
+## Phase 11b — Blind semantic annotation of a second Short [RECOMMENDED, NOT ASSIGNED]
+
+The smallest experiment the evidence justifies, and deliberately not implemented.
+
+Family F is currently unfalsifiable: the annotation saw the labels. Label a second
+continuous-talking Short and annotate its hard cuts **blind**, before looking at the manual
+zooms. That single number decides whether the transcript direction survives. Re-check the loop
+rule on a third island and re-measure the X0 dwell while the data is there.
+
+Do **not** build, before that number exists: a profile abstraction, an embedding or LLM
+classifier, any runtime NLP dependency, or any reset policy in the planner.
+
 ## Future work — NOT active assignments
 
 Listed so nobody has to rediscover them, and deliberately without technical proposals attached.
 Do not start any of these without an explicit assignment.
 
-- **Other video types / profiles.** The creator may later want to study how DAZ could work on a
-  different kind of video. Nothing is designed for this yet, and nothing should be: no profile
-  interface, no video-type enum, no plugin system, no strategy hierarchy. What makes such work
-  possible later is the boundary that already exists — objective facts, then a pure domain
-  planner, then placements, then an executor that makes no editorial decision.
+- **Other video types / profiles.** Research on a second type has now started (Phase 11a above,
+  D069) and produced data, not architecture. That does not change the rule: no profile
+  interface, no video-type enum, no plugin system, no strategy hierarchy until a rule is
+  validated. What makes such work possible is the boundary that already exists — objective
+  facts, then a pure domain planner, then placements, then an executor that makes no editorial
+  decision.
 - **UI / Resolve launcher / distribution** (the old Phase 10). Potential shape: an external
   PySide6 app for settings and preview, a thin Resolve Scripts menu launcher, package/install
   helpers for Windows/Linux/macOS. Only after the CLI workflow has been used in anger. Do not

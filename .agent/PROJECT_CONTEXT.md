@@ -53,6 +53,29 @@ reference material — not a profile interface, a video-type enum or a plugin sy
 advance. The boundary that makes such work possible later is the one that already exists:
 objective facts -> pure domain planner -> placements -> executor.
 
+### A second video type is now under research, and is NOT part of the product (D069)
+
+Phase 11a began studying the creator's **continuous-talking facecam** Shorts, where he speaks
+almost without pause and cuts the pauses out. Its status is **RESEARCH / NOT SHIPPED**, and the
+paragraph above still holds in full: no profile interface was created, and none should be.
+
+What the research established, because it changes how to read this document:
+
+- the new format uses **exactly** the states and transitions above. The reference edit replays
+  through `domain/transitions.py` with zero problems. Nothing about the *vocabulary* needs to
+  change for a second video type;
+- the one thing that does not transfer is the reset rule. `reset_after_silence_ms` is a gate
+  between speech segments, and on that material Silero finds **two** segments across the whole
+  labelled range while the creator made **17** resets. The gate has nothing to fire on;
+- "semantic decisions using transcript words remain out of scope for the MVP" is unchanged —
+  but the sentence is now backed by a measurement rather than a preference. A word-level French
+  transcript was tried, and the signals a local tool could compute from it reach F1 0.476.
+  Only reading what the sentences *mean* reaches 0.800. See D069 and
+  `.agent/reports/phase-11a-continuous-facecam-reset-study.txt`.
+
+Research tooling for this lives in `tools/research/phase11a/` and is **never imported by the
+package**. WhisperX, torch and CUDA are not dependencies and none were added.
+
 ## Key design choice: speech activity vs transcription
 
 For the MVP decision "is the creator speaking?", literal transcription text is not required. Because the configured track contains only the creator's voice, voice/audio activity detection is cheaper, faster, and less error-prone than forcing speech-to-text.

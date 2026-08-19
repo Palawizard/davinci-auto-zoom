@@ -1,0 +1,605 @@
+PHASE 11a — CONTINUOUS-TALKING FACECAM RESET STUDY
+Word-aligned French transcript + cut semantics on `bluescreen 2`
+2026-08-19 · branch dev · RESEARCH, NOT SHIPPED
+
+This report contains no sentence the creator spoke. Cuts are named by island, index and
+absolute frame; the transcript, the rendered audio and the per-cut context stayed local,
+gitignored and were deleted after the study (AGENTS.md, "User media").
+
+
+0. WHAT THIS PHASE ASKED, AND THE ONE-LINE ANSWER
+=================================================
+
+The shipped facecam profile resets to X0 after a silence gate (`reset_after_silence_ms`,
+650 ms between speech segments). In this second video type the creator talks almost
+continuously and cuts most pauses out, so the question was whether a word-level French
+transcript can explain the manual resets instead.
+
+**Measured first, and it settles the motivation on its own:** Silero finds exactly TWO
+speech segments in the labelled range — one per Short, each spanning its whole island. The
+shipped rule would therefore produce at most 2 resets where the creator made 17. The silence
+gate does not merely need retuning here; it has no events to fire on.
+
+Answer: TRANSCRIPT HELPS BUT SEMANTICS REQUIRED. The full statement is in §12.
+
+
+1. DATASET
+==========
+
+    reference project       bluescreen 2
+    reference timeline      Timeline 1
+    timeline unique id      4d8c7645-cab4-4865-b89e-b7299330808e
+    frame rate              60.0 (exact, non-NTSC)
+    timeline range          [216000, 221559)
+    labelled range          [216000, 218870)     ONLY this range was used
+    cut reference track     V1
+    manual zoom track       V2
+    asset bin               DAVINCI_AUTO_ZOOM (FACE_X1/2/3, X1_TO_X0, X2_TO_X0, X3_TO_X0)
+    animation length        15 frames per asset (same as the product's config)
+
+TIMELINE IDENTIFICATION WAS UNAMBIGUOUS. `bluescreen 2` contains exactly ONE timeline. It
+carries 57 DAZ adjustment clips on V2, spanning exactly [216000, 218870) — the labelled
+range to the frame. There was nothing to choose between, so no arbitration was needed.
+
+Content islands, rebuilt from the real V1 structure (never hardcoded to two):
+
+    island 0   [216000, 217875)   17 clips   16 hard cuts   last cut 217835
+    island 1   [218029, 218870)   13 clips   12 hard cuts   last cut 218828
+
+The empty space between them is 154 frames (2.57 s). It is excluded from the dataset: it is
+not a silence, not an X0 decision, not a negative example. A third island exists after the
+labelled range ([219040, 221559)) and was **not** touched — absence of zoom there is not a
+negative example, and nothing was calibrated on it.
+
+    hard cuts (labelled)          28
+    reset-positive cuts           15
+      of which loop resets         2
+    no-reset cuts                 13
+    manual resets total           17
+    resets NOT on any hard cut     2
+
+Note the two counts differ: 17 resets, 15 of which sit on a cut.
+
+
+2. MANUAL STATE SEQUENCE — WHAT THE REFERENCE ACTUALLY DOES
+===========================================================
+
+The 57 placements were replayed through `domain/transitions.py` as a state machine.
+
+    RESULT: zero state-machine problems. Every manual move is a legal transition of the
+    frozen four-state graph. No overlap, no demotion, no jump from X0 to FACE_X2, and the
+    state is correctly at X0 at the start of each island.
+
+So the new video type needs **no new state and no new role**. The vocabulary is sufficient.
+
+Cycle shape confirmed: every reset opens a new cycle `Xn -> X0 -> FACE_X1 -> (X2 -> X3)`.
+There are 17 entries (`x0_to_face_x1`) and 17 resets.
+
+--- THE FINDING THAT REFRAMES THE QUESTION -------------------------------------------
+
+Asking "reset or nothing?" at a cut is the wrong question on this material. What each of
+the 28 labelled hard cuts actually carries:
+
+    face_x2_to_x0              7
+    face_x3_to_x0              6
+    face_x1_to_face_x2         4
+    x0_to_face_x1              4
+    face_x1_to_x0              2
+    face_x2_to_face_x3         2
+    (nothing)                  3
+    ------------------------------
+    TOTAL                     28
+
+**25 of 28 hard cuts carry SOME transition.** Only three carry nothing (216322, 216812,
+218553). The creator puts essentially every visual state change on a cut; what varies is
+*which* change, and that depends on where the state machine already is.
+
+Conversely, transitions are not all on cuts:
+
+    entries on a cut          4 / 17
+    promotions on a cut       6 / 23
+
+So the reset/entry pair is cut-anchored far more strongly than promotions are. Promotions
+float on the audio, exactly as the shipped planner already assumes — which is consistent
+with the creator's statement that X1/X2/X3 behave the same way in this format.
+
+
+3. RESET-TO-CUT DISTANCE, MEASURED NOT ASSUMED
+==============================================
+
+The distribution is bimodal and needs no tuning:
+
+    15 of 17 resets sit at delta EXACTLY 0 from a hard cut
+     2 of 17 sit at delta -54 and -64 frames (216758, 216991)
+
+There is no intermediate case. The empirical linkage window is therefore **0 frames**, and
+the old profile's ±120 ms cut-snap window was deliberately not reused: it would have been
+seven frames of slack that this reference never uses.
+
+The two off-cut resets are not noise, and they are the strongest evidence about re-entry:
+
+    reset 216758 -> next FACE_X1 at 216823, hard cut at 216812  (entry is 11 frames after)
+    reset 216991 -> next FACE_X1 at 217055, hard cut at 217055  (entry is ON the cut)
+
+In both, the creator reset EARLY, in the middle of a clip, so that the FACE_X1 re-entry
+could land on or beside the following cut. The reset is placed backwards from the entry, not
+forwards from a trigger.
+
+
+4. X0 DWELL — THE ~1 SECOND INTUITION IS NOT WHAT WAS EDITED
+============================================================
+
+Reset instances here are HELD: the clip starts at the editorial moment, animates for 15
+frames, then sits at X0 until the next FACE_X1. So the placed length carries the dwell.
+
+    measure             min  median    max      min ms   med ms   max ms
+    anchor_gap           19    36.0     66         317      600     1100
+    pure_x0_dwell         4    21.0     51          67      350      850
+
+    (15 semantic resets; the 2 loop resets have no next FACE_X1 and are excluded)
+
+**The creator's ~1 s intuition is not what the edit contains.** The median anchor gap is
+600 ms and the median pure X0 dwell is 350 ms — a third of a second at normal framing. The
+maximum anchor gap (1100 ms) is the only value near one second, and it is an outlier.
+
+There is no plateau. The values are spread continuously from 19 to 66 frames, which is
+itself the result: the dwell is not a constant the creator applies, it is whatever distance
+falls out of placing the reset and then the entry independently. Combined with §3, the
+consistent reading is:
+
+    the entry is anchored (to a cut, or to where the voice restarts),
+    the reset is placed far enough before it to read as a pause,
+    and the gap between them is a consequence, not a setting.
+
+A future implementation should therefore choose the re-entry anchor first and derive the
+dwell, not hold X0 for a fixed duration. A fixed 1000 ms hold would be roughly three times
+the measured median.
+
+
+5. WHISPERX SETUP
+=================
+
+    whisperx                3.8.6            (stable release, not a branch)
+    faster-whisper          1.2.1
+    ctranslate2             4.8.1
+    torch                   2.8.0  (CUDA 12.8)
+    transformers            4.57.6
+    ASR model               large-v3         (largest reliably runnable here)
+    compute_type            float16
+    device                  cuda — NVIDIA GeForce RTX 4060 Laptop GPU, 8 GB
+    language                fr (explicit, never auto-detected)
+    batch size              8
+    diarization             DISABLED (the voice track is already isolated)
+    forced alignment        ENABLED
+    alignment model         VOXPOPULI_ASR_BASE_10K_FR (torchaudio bundle; French resolves to
+                            the torch table, not a HuggingFace checkpoint)
+    peak torch GPU          729 MB (torch allocator only; ctranslate2 allocates outside it)
+    runtime                 ASR 11.3 s, alignment 4.0 s, native pass 15.7 s, on 92.65 s audio
+
+INSTALLATION NOTE, and it is a real constraint: 8 GB does not hold two copies of `large-v3`.
+The first run died with `CUDA failed with error out of memory` when the native pass loaded
+its model while WhisperX still held one. The script now releases CUDA between the two passes.
+
+DEPENDENCY ISOLATION: whisperx, torch and CUDA are NOT dependencies of davinci-auto-zoom and
+none were added. They live in a throwaway venv (`/var/tmp/daz-phase11a/wx-venv`, uv, Python
+3.12) outside the repository. The DAZ environment was not modified.
+
+
+6. WORD TIMING QUALITY — THE FIRST GATE
+=======================================
+
+    whisperx words                        360
+    faster-whisper native words           394
+    aligned ratio                      1.0000
+    partially aligned / unaligned      0.0000
+    zero or negative durations              0
+    negative inter-word gaps (overlaps)     0
+    one frame at 60 fps                 16.67 ms
+
+    word duration      p50  160 ms   p90  420 ms   max 2921 ms
+    inter-word gap     p50   40 ms   p90   40 ms   max 3088 ms
+
+Every token was placed. Nothing was invented: the pipeline classifies `aligned` /
+`partially_aligned` / `unaligned` and never fabricates a timestamp, and on this audio the
+unaligned bucket happened to be empty.
+
+(A) WHISPERX vs FASTER-WHISPER NATIVE, 317 matched token pairs (difflib, `equal` blocks only)
+
+    |start delta|   p50  147 ms   p90  273 ms   max 1363 ms    (p50  8.8 fr, p90 16.4 fr)
+    |end   delta|   p50  125 ms   p90  284 ms   max 2605 ms    (p50  7.5 fr, p90 17.0 fr)
+
+Read honestly: this is DISAGREEMENT, not error. Neither is ground truth. The two numbers
+come from different mechanisms — wav2vec2 forced alignment versus Whisper cross-attention —
+and the cross-attention timestamps are the known-weaker of the two. The disagreement is
+large (a median of nearly 9 frames), so it rules out treating the two as interchangeable,
+and it is not by itself evidence against WhisperX.
+
+(B) ACOUSTIC PLAUSIBILITY — the independent check that decides the gate
+
+    median dB inside a word     -31.11   (4932 frames)
+    median dB between words     -39.93   ( 620 frames)
+    separation                    8.82 dB
+
+Frames the aligner calls "inside a word" are 8.8 dB louder than frames it calls "between
+words". The boundaries track the actual envelope; they are not decorative.
+
+(C) BOUNDARIES AGAINST THE PICTURE CUTS — the sharpest evidence
+
+19 of the 28 hard cuts fall strictly inside an aligned word. That sounds alarming until it
+is measured:
+
+    frames of the word AFTER  the cut   min 1   p50  3.0   p90  5   max 16
+    frames of the word BEFORE the cut   min 1   p50 15.0   p90 22   max 23
+
+The word overhangs the cut by a MEDIAN OF 3 FRAMES (50 ms) and 5 frames at p90. So the cut
+sits essentially at the end of the word — which is exactly what a creator trimming tight
+does, leaving a few frames so the final consonant is not clipped. The apparent "cut inside a
+word" is a 3-frame effect, not a word-sized misalignment.
+
+GATE VERDICT: **word timing IS precise enough for this use.** Errors of 3-5 frames at edit
+boundaries are well inside the tolerance an editorial decision needs at 60 fps. Word timing
+is NOT the limiting factor, and `WORD TIMING NOT PRECISE ENOUGH` is not the conclusion.
+
+Limitations, stated: no hand-labelled timing reference exists; the 3-frame overhang mixes
+alignment error with the creator's own trim habit and cannot separate them; the comparison
+is one speaker, one microphone, 92 seconds.
+
+HUMAN LISTENING VALIDATION NOT PERFORMED. The agent environment has no audio playback and
+the rendered voice was never listened to. Every timing statement above is instrumental.
+
+
+7. ASR BEHAVIOUR AT EDIT BOUNDARIES
+===================================
+
+This material is exactly the hard case: pauses removed, takes spliced, sentences shortened,
+28 jump cuts in 47 seconds.
+
+    duplicated words at a splice        none observed
+    obvious hallucination at a joint    none observed
+    dropped first/last word at a cut    none observed
+    two sentences merged into one       observed indirectly (see below)
+    zero/negative durations             0
+    overlapping words                   0
+
+The transcript reads as continuous, grammatical French across every splice. The ASR does not
+know a cut happened, and on this material that did no harm.
+
+The one systematic weakness is punctuation, not words. Island 1 came back almost entirely
+UNPUNCTUATED — a long run of enumerated steps arrived as one unbroken clause with no
+sentence terminators at all, while island 0 was punctuated normally. That is a property of
+the model's own prediction, and it is what makes family C collapse on island 1 (§10).
+
+WhisperX also segments differently from faster-whisper (28 segments vs 40) on identical
+audio, which is a further reminder that segment boundaries are model output, not structure.
+
+
+8. LINGUISTIC STUDY
+===================
+
+DISCOURSE MARKERS (LEXICAL). The creator named `et donc` and `du coup` as seeds. They were
+studied in position, never as a bare membership test: a marker counts only when it OPENS the
+words after the cut or CLOSES the words before it. Categories used are transferable ones
+(consequence, topic shift, enumeration, contrast, summary), not a list assembled after
+reading the labels.
+
+    cuts with a boundary-position marker        9 / 28
+    of those, followed by a manual reset        5   (2 of them the loop resets)
+    of those, NOT followed by a reset           4
+    manual resets with no marker at all        10 / 13 (semantic resets)
+
+    (family D scores TP=3, because the 2 loop resets are removed from its universe)
+
+The seeds do occur at real boundaries — `du coup` opens the clause after cut 216224, which
+is a reset — but they are neither necessary nor sufficient. Family D scores precision 0.429
+and recall 0.231. **The user's intuition about `et donc` / `du coup` is directionally right
+and quantitatively far too sparse to be a rule.** Ten of the thirteen semantic resets carry
+no marker whatsoever.
+
+Crucially, the same words appear mid-clause at cuts with no reset (216270 opens with a
+continuation after `Du coup,`; 218683 with `et puis`), which is the exact failure the task
+warned about: word presence is not boundary function.
+
+ASR PUNCTUATION. Sentence-ending punctuation before the cut, or a capitalised word after it,
+predicts a reset with precision 0.625 and recall 0.385 — the best precision of any signal
+that DAZ could compute locally today. But it is confined to island 0: **all 8 cuts carrying
+punctuation evidence are in island 0, and zero are in island 1**, because the model returned
+island 1 essentially unpunctuated. Half the dataset is invisible to this feature.
+Treated as a feature it is informative; treated as truth it is a model artefact.
+
+SEMANTIC CONTINUITY (AGENT SEMANTIC — RESEARCH ONLY). Each of the 28 cuts was annotated by
+the coding agent from the local transcript context (8 words each side, island-scoped) as
+`SAME_THOUGHT_CONTINUES` / `DISCOURSE_BOUNDARY`, with a finer reason where nameable
+(NEW_TOPIC, CONCLUSION_OR_CONSEQUENCE, NEW_STEP, TAKE_SPLICE, LOOP_END).
+
+    DISCOURSE_BOUNDARY            18
+    SAME_THOUGHT_CONTINUES        10
+
+**This annotation was NOT blind.** The manual labels were visible when it was made. It is an
+upper bound on what semantics could explain, not a measurement of an independent classifier,
+and it is reported that way. No LLM API, no cloud call, no NLP model was added anywhere.
+
+
+9. ACOUSTIC STUDY
+=================
+
+    speech segments in the labelled range        2 (one per island, each spanning it whole)
+    hard cuts with any VAD pause                 0 / 28
+
+Every labelled cut sits inside continuous detected speech. There is no pause to measure,
+which is the creator's editing style showing up directly in the signal.
+
+The envelope still has structure, so the acoustic family was built on a relative dB dip
+instead, reusing the product's validated `promotion_min_drop_db = 20` unchanged rather than
+tuning a new threshold to this dataset:
+
+    dip depth at a cut     min 12.8 dB   median ~20 dB   max 37.3 dB
+    energy discontinuity   -9.0 dB .. +10.8 dB across the cut
+
+Neither separates the classes. Cuts with the DEEPEST dips are mostly NON-resets (218301 at
+37.3 dB, 218553 at 35.9 dB, 216153 at 32.7 dB — all no-reset), while several resets sit at
+13-15 dB (218235, 218735, 216224). The ranges are fully nested. Family B scores 0.385 /
+0.385, essentially chance.
+
+Adding acoustic support to the lexical/punctuation signals (family E) makes things WORSE,
+not better: precision falls to 0.200 and recall to 0.077. The prosodic evidence and the
+linguistic evidence disagree on this material.
+
+The X2/X3 promotion engine was NOT retuned, examined for tuning, or touched.
+
+
+10. ABLATION A-G  (+H, reported separately)
+===========================================
+
+Universe = the 28 labelled hard cuts. Families A-F and H are scored with the 2 loop resets
+removed from BOTH sides (evaluation A of the task, semantics only); family G folds the
+deterministic loop rule back in (evaluation B).
+
+    family                                                 TP   FP   FN   TN   prec    rec     F1
+    ---------------------------------------------------------------------------------------------
+    A  cut only (STRUCTURAL)                               13   13    0    0  0.500  1.000  0.667
+    B  cut + energy valley >= 20 dB (ACOUSTIC)              5    8    8    5  0.385  0.385  0.385
+    C  cut + ASR sentence boundary (ASR PUNCTUATION)        5    3    8   10  0.625  0.385  0.476
+    D  cut + discourse marker in position (LEXICAL)         3    4   10    9  0.429  0.231  0.300
+    E  cut + lexical/punct + acoustic (LEX+PUNCT+ACOUSTIC)  1    4   12    9  0.200  0.077  0.111
+    F  agent semantic continuity (AGENT SEMANTIC)          10    6    3    7  0.625  0.769  0.690
+    G  F + deterministic loop override (F + USER RULE)     12    6    3    7  0.667  0.800  0.727
+    H  F, only where a face state is held (F + STRUCTURAL) 10    2    3   11  0.833  0.769  0.800
+
+H IS NOT ONE OF THE REQUESTED FAMILIES. It is a second reading of F, kept separate because
+it changes the interpretation: a reset is only *legal* from a face state, so scoring F on
+cuts where the picture was already at X0 asks it for a move the graph forbids. Gating F on
+"a face state is currently held" — pure structure, no new signal — removes four of its six
+false positives and lifts precision from 0.625 to 0.833.
+
+Accuracy was deliberately not used to rank these. Family A has perfect recall and would win
+any recall-only ranking while resetting on every second cut, which is the specific editorial
+defect the task asked to avoid.
+
+
+11. FAILURE ANALYSIS
+====================
+
+FAMILY A (every cut resets) — 13 false positives, 0 false negatives.
+    Wrong at 216153, 216270, 216322, 216357, 216682, 216812, 217055, 218166, 218301,
+    218460, 218504, 218553, 218683. Ten of these are pure diction jump cuts inside one
+    clause (a take splice, a hesitation removed, an enumeration item continuing). Three are
+    cuts where the state machine was at X0 already. A reset at any of them would land in the
+    middle of a sentence — the defect this study exists to avoid.
+
+FAMILY F/H — 6 false positives (2 after the state gate), 3 false negatives.
+
+    False positives, and why the semantics were not wrong so much as incomplete:
+      216682  a real new sentence, but the creator PROMOTED to FACE_X3 instead. The ladder
+              was mid-climb and he chose to go tighter on the new idea rather than reset.
+      216812  a real new sentence, but the picture was already at X0 (inside a held reset
+              that began off-cut at 216758). Removed by the state gate.
+      217055  a real new sentence with a contrast marker, but the state was X0 and this cut
+              received the ENTRY. Removed by the state gate.
+      218166  an enumeration opener, state X0, received the entry. Removed by the state gate.
+      218301  a next-step marker, state X0, received the entry. Removed by the state gate.
+      218553  a genuine boundary at face_x2 that the creator simply left alone — he was two
+              cuts from the conclusion and let the shot run. NOT explained.
+
+    False negatives, and these are the interesting ones:
+      217373  a comma-level clause continuation: the words after the cut open a subordinate
+              clause of the sentence the words before it began.
+              Annotated SAME_THOUGHT_CONTINUES on linguistic grounds, and the creator reset
+              anyway. He had been at face_x2 for ~120 frames; the reset reads as relief from
+              a long hold rather than as a discourse decision.
+      218235  an apposition naming the thing just introduced. Same pattern.
+      218398  one item of a list of things added, one after another. The
+              creator reset here but NOT at the next two items of the same enumeration
+              (218460, 218504), which are linguistically identical. This one cannot be
+              explained by the text at all — the difference is rhythm, not meaning.
+
+    The 218398/218460/218504 triple is the clearest limit found in this study: three
+    grammatically parallel enumeration items, one reset and two not.
+
+FAMILY C — the 3 false positives (216682, 216812, 217055) are the same X0/promotion cases.
+    Its 8 false negatives are almost all island 1, where the ASR emitted no punctuation.
+
+FAMILY D — false positives at 216270 and 218683 are the textbook case: `Du coup,` and
+    `et puis` present but functioning mid-clause, not as boundaries.
+
+
+12. LOOP RULE
+=============
+
+    island 0   last hard cut 217835   manual loop reset at 217835   delta 0
+               island end 217875      reset->island end 40 frames (667 ms)
+    island 1   last hard cut 218828   manual loop reset at 218828   delta 0
+               island end 218870      reset->island end 42 frames (700 ms)
+
+**"The last hard cut of each content island gets a reset to X0" is EXACTLY what the
+reference does, in both islands, with zero error.** The reset then runs to the island end
+(40 and 42 frames), leaving the Short at X0 so it loops cleanly.
+
+Recommended as a future DETERMINISTIC OVERRIDE, not as a learned class. Two islands is a
+small sample, but the rule was stated by the creator in advance rather than discovered by
+fitting, which is the strongest evidence a two-example rule can have.
+
+
+13. PROVENANCE OF EVERY RESULT
+==============================
+
+    STRUCTURAL        island detection, hard cuts, what each cut carries, the state gate (H),
+                      reset-to-cut distances, X0 dwell, loop-cut positions
+    ACOUSTIC          VAD segments (2), dip depth, discontinuity, envelope/word separation
+    LEXICAL           discourse markers in boundary position (family D)
+    ASR PUNCTUATION   sentence terminators and capitalisation (family C)
+    AGENT SEMANTIC    the 28 continuity annotations (families F, G, H) — NOT computable by
+                      DAZ today, and not blind
+    USER RULE         the loop reset (family G, §12)
+
+The signals DAZ could compute locally today are STRUCTURAL + ACOUSTIC + LEXICAL + ASR
+PUNCTUATION. Their best single score is family C at F1 0.476. The jump to F1 0.800 comes
+entirely from AGENT SEMANTIC plus a STRUCTURAL gate. That gap is the answer to the phase's
+question.
+
+
+14. WHAT WAS DELIBERATELY NOT DONE
+==================================
+
+    no production reset policy integrated       the planner is untouched
+    no VideoProfile / Strategy / plugin         no architecture before evidence
+    no new state, role, config key or command   the graph and config.example.toml are as
+                                                Phase 10 left them
+    no X1/X2/X3 retuning                        not one threshold examined for tuning
+    no apply-preview / clean-preview /          never run on `bluescreen 2`
+      rebuild-preview
+    no asset placed on any timeline
+    no whisperx/torch/CUDA runtime dependency
+    no gameplay state, role or Phase 9 code revived
+    no OpenAI / Anthropic / cloud LLM / NLP model added
+
+
+15. RESOLVE SAFETY AUDIT
+========================
+
+Read-only inspection throughout. The only mutation was the audio render, through the
+already-proven `resolve/voice_render.py` path with no modification to it.
+
+    voice render          scratch DAZ_AUDIO_SCRATCH_20260819_101649_cca69243
+                          job bb3ec9d9-... Complete in 13.9 s
+                          RESULT: PASS      audit differences: none
+    duration check        1 482 400 samples = 92.650 s, delta +0.0000 frames vs
+                          [216000, 221559) at 60 fps — the render was not trimmed
+
+Post-run audit on `bluescreen 2`:
+
+    reference timeline unchanged       Timeline 1, id 4d8c7645-... , [216000,221559)
+    V1 items                           49  (unchanged)
+    V2 items                           57, span [216000, 218870)  (unchanged)
+    timeline count                     1   (zero added, zero removed)
+    scratch timelines                  none
+    DAZ_RECOVERY_* / DAZ_AUTO_PREVIEW_*  none created
+    render jobs                        0, queue empty
+    DAZ render presets left behind     none
+    Deliver state                      restored (format, codec, mode)
+    active timeline                    restored to Timeline 1
+    temp render directory              removed
+    SaveProject()                      never called
+
+The project was switched to `davinci-auto-zoom-test` for the regression in §16 and switched
+back; `bluescreen 2` was the open project before and after this session.
+
+
+16. EXISTING PRODUCT REGRESSION
+===============================
+
+    .venv/bin/python -m davinci_auto_zoom plan-probe \
+      --confirm-resolve-render-test \
+      --project davinci-auto-zoom-test \
+      --source-timeline DAZ_INPUT --reference-timeline DAZ_OUTPUT_MVP2 \
+      --config config.example.toml --json
+
+    succeeded                 true          clean: true, audit differences: none
+    structural fingerprint    sha256:a1d107e1fa95b6152dd06be89ccc0fbd39de8d02faa906f91d3d7fc6d46a5483
+    speech segments           15            (Phase 10 baseline: 15)
+    editorial bursts          14            (14)
+    voice valleys             63            (63)
+    placements                42            (42)
+    x0_to_face_x1             14            (14)
+    face_x1_to_face_x2         9            (9)
+    face_x2_to_face_x3         5            (5)
+    face_x1_to_x0              5            (5)
+    face_x2_to_x0              4            (4)
+    face_x3_to_x0              5            (5)
+    decision lines           126            (126)
+    current timeline restored DAZ_OUTPUT_MVP3
+
+Identical to the Phase 10 baseline on every editorial field, and the fingerprint is the same
+one that has been stable since Phase 8c. The facecam profile did not move.
+
+    pytest         618 passed   (563 before; +55 new research tests)
+    ruff check .   All checks passed
+    mypy (strict)  Success: no issues found in 52 source files
+
+`tools/research/` is held to the same strict typing as the product and is checked by mypy.
+Nothing in `davinci_auto_zoom` imports it; the dependency points research -> product only.
+
+
+17. KNOWN GAPS
+==============
+
+  - ONE reference, ONE creator, 47 labelled seconds, 28 cuts, 2 islands. Every number here
+    is a description of this edit, not a calibration.
+  - The semantic annotation was made by the coding agent WITH the labels visible. Family F
+    is an upper bound, not a classifier score. A blind annotation would be worth more.
+  - No human listening validation: the rendered voice was never heard.
+  - The 3-frame word overhang at cuts mixes alignment error with the creator's trim habit
+    and cannot separate them without a hand-labelled reference.
+  - Island 1's missing ASR punctuation may be specific to this take; whether Whisper
+    routinely drops punctuation on fast enumerations is unmeasured.
+  - The state gate (H) was found by inspecting failures on this same 28-cut set. It is
+    motivated by the transition graph rather than fitted, but it has not been validated
+    against anything else.
+  - `bluescreen 2` uses HELD reset instances (variable length carrying the dwell); the
+    shipped executor places fixed-length resets. Diagnostic only, not scope.
+  - Whether the X2/X3 promotion behaviour truly matches the shipped planner on this material
+    was NOT measured. The creator asserted it, and this phase took the assertion as given.
+
+
+18. RECOMMENDED PHASE 11b — THE SMALLEST NEXT EXPERIMENT
+========================================================
+
+NOT implemented here, and deliberately small.
+
+    Label a SECOND continuous-talking Short from the same creator, and make one blind
+    semantic annotation of its hard cuts BEFORE looking at the manual zooms.
+
+Rationale: the only signal that reached a usable score is AGENT SEMANTIC, and its score is
+currently unfalsifiable because the annotation saw the answers. One blind pass on unseen
+material tells us whether F1 ~0.8 is real or an artefact — and that single number decides
+everything downstream. If it holds, the question becomes "what local model can approximate
+this?", which is a different and much larger phase. If it collapses, the transcript direction
+is closed and no production work was wasted on it.
+
+Two things should ride along, because they are free once the data exists:
+
+    - re-check the loop rule on a third island (it is currently 2/2);
+    - re-measure the X0 dwell, to see whether "the entry is anchored, the dwell falls out"
+      reproduces or whether 350 ms median was a property of this take.
+
+What should NOT be built yet: any profile abstraction, any embedding or LLM classifier, any
+runtime NLP dependency, any reset policy in the planner. This phase produced data, and the
+next one should too.
+
+
+19. CONCLUSION
+==============
+
+Word-level French transcription works on this material and its timing is good enough: every
+token aligned, the boundaries track the envelope by 8.8 dB, and at edit boundaries they land
+within a median of 3 frames of the picture cut. Word timing is not the obstacle.
+
+But the signals a local tool could compute from that transcript today — discourse markers in
+boundary position, ASR sentence punctuation — top out at F1 0.476, and adding prosody makes
+them worse. Only reading what the sentences MEAN gets to F1 0.800, and even that leaves three
+grammatically parallel enumeration items where one is a reset and two are not.
+
+Two things transfer immediately and cost nothing: the loop rule is exact (2/2), and gating on
+"a face state is currently held" is worth +0.21 precision for free because it is just the
+state graph.
+
+                        TRANSCRIPT HELPS BUT SEMANTICS REQUIRED
