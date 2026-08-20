@@ -1,0 +1,434 @@
+PHASE 11b — BLIND PREDICTIONS, SEALED BEFORE UNBLINDING
+Continuous-talking facecam resets on `bluescreen 2`
+2026-08-20 · branch dev · RESEARCH, NOT SHIPPED
+
+This file is the CHECKPOINT of the blind trial. Everything below was produced from
+`Timeline 1 copy`, which carries NO manual zoom on Short 3, and was committed before
+`Timeline 1` was ever asked what the creator actually did there.
+
+Once this file is committed, nothing in it may be edited: not a predicted frame, not a
+classification, not a reason, not a threshold, not the rubric, not the rhythm rule, not the
+re-entry rule. If a defect is found afterwards, the blind trial is declared INVALID and the
+defect is reported. It is not repaired in place.
+
+No sentence the creator spoke appears here. Cuts are named by island, index and absolute
+frame (`AGENTS.md`, "User media").
+
+
+1. PROTOCOL
+===========
+
+    project                  bluescreen 2
+    blind source timeline    Timeline 1 copy   id 69b8c00e-5710-4d50-8216-864f2958ea0e
+    reference timeline       Timeline 1        id 4d8c7645-cab4-4865-b89e-b7299330808e
+    frame rate               60.0 (exact, non-NTSC)
+    timeline range           [216000, 222258)
+
+WHAT WAS READ FROM `Timeline 1` BEFORE THIS CHECKPOINT: its name and its unique id, from
+`GetTimelineByIndex`. Nothing else. No track was listed, no item was read, no adjustment
+layer was counted, no snapshot was taken and no comparison was run against it. Every number
+in this report comes from `Timeline 1 copy` and from the audio rendered off it.
+
+WHY THAT IS ENOUGH: `Timeline 1 copy` carries 57 DAZ adjustment clips on V2, spanning exactly
+[216000, 218870) — Shorts 1 and 2 only. Short 3 has no zoom on it at all in that timeline, so
+there was no label available to leak.
+
+CONTENT ISLANDS, detected from V1 with `min_gap_frames = 30` and nothing hardcoded:
+
+    island 0   [216000, 217875)   17 clips   16 hard cuts   Short 1   DEVELOPMENT
+    island 1   [218029, 218870)   13 clips   12 hard cuts   Short 2   DEVELOPMENT
+    island 2   [219040, 220717)   15 clips   14 hard cuts   Short 3   BLIND TEST
+    island 3   [221503, 222258)    6 clips    5 hard cuts             EXCLUDED, OUT OF SCOPE
+
+The three gaps that separate them are 154, 170 and 786 frames. Island 3 (the fourth) is
+excluded from everything: no transcript, no feature, no calibration, no negative example, no
+metric, no semantic context. The audio handed to the transcriber was truncated at frame
+220717 — the end of island 2 — so island 3 was never transcribed at all, and the truncation
+is a physical guarantee rather than a promise.
+
+SANITY CHECK against Phase 11a: that phase saw a third island beginning at 219040 and running
+to 221559. It now ends at 220717 because the creator has since added clips after it, which is
+what created the fourth island. The start agrees exactly. Phase 11a's figure is used as this
+historical check and for nothing else.
+
+
+2. SETUP, AND WHERE IT DIFFERS FROM PHASE 11a
+=============================================
+
+    Resolve                  DaVinci Resolve Studio 21.0.4.5, **Windows 11**  (11a: Linux)
+    GPU                      NVIDIA GeForce RTX 4070 SUPER  (11a: RTX 4060 Laptop, 8 GB)
+    whisperx                 3.8.6          same as 11a
+    faster-whisper           1.2.1          same
+    ctranslate2              4.8.1          same
+    torch                    2.8.0+cu128    same version, CUDA 12.8
+    ASR model                large-v3       same
+    compute_type             float16        same
+    language                 fr (explicit)  same
+    batch size               8              same
+    diarization              DISABLED       same
+    forced alignment         ENABLED        same
+    alignment model          VOXPOPULI_ASR_BASE_10K_FR      same
+    peak torch GPU           726 MB
+
+The platform is the only material difference, and it changes nothing measurable: the same
+versions, the same model, the same compute type. WhisperX/torch/CUDA live in a throwaway venv
+outside the repository (`%TEMP%/daz-phase11b/wx-venv`, uv, Python 3.12) and **no runtime
+dependency was added to davinci-auto-zoom**.
+
+Voice render: the unmodified `resolve/voice_render.py` path on `Timeline 1 copy` — scratch
+duplicate, one render job, Deliver captured and restored, transactional cleanup, post-run
+audit. `RESULT: PASS`, `audit differences: none`, 1 668 800 samples = 104.300 s, duration
+delta **+0.0000 frames** against [216000, 222258) at 60 fps. The 16 kHz mono PCM was then
+truncated to 1 257 866 samples (island 2's end) before transcription.
+
+    whisperx words           324    over islands 0-2
+    faster-whisper words     354
+
+
+3. THE ACOUSTIC MOTIVATION, RE-MEASURED ON THREE SHORTS
+=======================================================
+
+Silero, with the shipped defaults, finds exactly THREE speech segments in [216000, 220717):
+
+    [216000, 217882)   island 0, whole
+    [218029, 218877)   island 1, whole
+    [219041, 220717)   island 2, whole
+
+One per Short, each spanning its island. Phase 11a measured this on two Shorts; the third
+behaves identically. The shipped `reset_after_silence_ms` gate has nothing to fire on inside a
+Short on this material — that is not a tuning problem, it is an absence of events.
+
+
+4. DEVELOPMENT EVIDENCE — SHORTS 1 AND 2
+========================================
+
+28 hard cuts, 17 manual resets (15 exactly on a cut, 2 placed off-cut), reproduced
+byte-for-byte from `Timeline 1 copy`. This is the same dataset Phase 11a used, and it is used
+here only to CHOOSE rules, never to score them.
+
+4.1 RESET TAXONOMY
+
+    SEMANTIC_RESET          8    reset at a cut the rubric calls DISCOURSE_BOUNDARY
+    RHYTHM_REFRESH_RESET    5    reset at a cut the rubric calls SAME_THOUGHT_CONTINUES
+    LOOP_RESET              2    last hard cut of the island
+    off-cut resets          2    216758, 216991 — no cut within 0 frames
+    ------------------------------------------------------------------
+    total                  17
+
+The creator's new statement is therefore CONFIRMED on the development set: five of the fifteen
+on-cut resets happen while the sentence is still running. Phase 11a called three of them
+unexplained false negatives; they are a class, not noise.
+
+4.2 THE RHYTHM FEATURES, MEASURED BEFORE ANY RULE WAS PROPOSED
+
+Every hard cut, with the counters read off the creator's own track:
+
+      cut  isl   k  manual state   held   atX3  cycle  cuts  reset  rubric class
+   216045    0   0  face_x1          45      -     45     1    yes  BOUNDARY
+   216153    0   1  face_x1          63      -     63     1      -  SAME
+   216224    0   2  face_x2          71      -    134     2    yes  BOUNDARY
+   216270    0   3  face_x1          23      -     23     1      -  SAME
+   216322    0   4  face_x2          52      -     75     2      -  SAME
+   216357    0   5  face_x2          87      -    110     3      -  SAME
+   216416    0   6  face_x3          59     59    169     4    yes  BOUNDARY
+   216580    0   7  face_x3          49     49    131     1    yes  SAME      <- rhythm
+   216682    0   8  face_x2          53      -     80     1      -  BOUNDARY
+   216812    0   9  x0               54      -      -     0      -  BOUNDARY
+   217055    0  10  x0               64      -      -     0      -  BOUNDARY
+   217257    0  11  face_x3          35     35    202     2    yes  BOUNDARY
+   217373    0  12  face_x2          36      -     89     1    yes  SAME      <- rhythm
+   217506    0  13  face_x2          49      -    102     1    yes  BOUNDARY
+   217654    0  14  face_x3          24     24    126     1    yes  BOUNDARY
+   217835    0  15  face_x2          73      -    162     1    yes  SAME      <- loop
+   218115    1   0  face_x2          52      -     86     1    yes  BOUNDARY
+   218166    1   1  x0               51      -      -     0      -  BOUNDARY
+   218235    1   2  face_x2          41      -     69     2    yes  SAME      <- rhythm
+   218301    1   3  x0               66      -      -     0      -  BOUNDARY
+   218398    1   4  face_x3          29     29     97     2    yes  SAME      <- rhythm
+   218460    1   5  x0               62      -      -     0      -  SAME
+   218504    1   6  face_x1          44      -     44     2      -  SAME
+   218553    1   7  face_x2          49      -     93     3      -  BOUNDARY
+   218631    1   8  face_x3          46     46    171     4    yes  BOUNDARY
+   218683    1   9  face_x1          16      -     16     1      -  SAME
+   218735    1  10  face_x2          52      -     68     2    yes  SAME      <- rhythm
+   218828    1  11  face_x1          55      -     55     1    yes  SAME      <- loop
+
+4.3 THE ONE RULE THE DATA ACTUALLY SUPPORTS, AND THE ONE IT REFUSES
+
+SUPPORTED — **every hard cut that happens while the picture is at FACE_X3 carries a reset**:
+
+    216416   216580   217257   217654   218398   218631        6 / 6
+
+There is no counterexample in the development set: FACE_X3 never survives a hard cut. The two
+off-cut resets say the same thing from the other side — 216758 leaves a FACE_X3 entered at
+216682 whose next cut is 216812, and 216991 leaves a FACE_X3 entered at 216919 whose next cut
+is 217055. Both are placed BACKWARDS from that cut so the re-entry can land on it. Counting
+those, the rule is 8 / 8.
+
+NO THRESHOLD IS NEEDED, and this is a measurement rather than a simplification. The FACE_X3
+holds at those cuts are 59, 49, 35, 24, 29 and 46 frames; the rule "FACE_X3 held >= T" gives
+the IDENTICAL development result for every T from 0 to 24 frames, because no cut at FACE_X3
+is ever declined. T = 0 is chosen: it is the whole plateau, and it adds no parameter.
+The user's hypothesis "X3 for exactly N seconds -> reset" is therefore not what the edit
+contains. What it contains is "X3 does not survive a cut".
+
+REFUSED — the same-thought resets at FACE_X2 (217373, 218235, 218735) are NOT separable by
+any counter measured here. Their values are fully nested inside the non-reset FACE_X2 cuts:
+
+    feature          rhythm resets at FACE_X2   non-reset cuts at FACE_X2
+    held             36, 41, 52                 52, 87, 53, 49
+    cycle            89, 69, 68                 75, 110, 80, 93
+    cuts in cycle    1, 2, 2                    2, 3, 1, 3
+
+The distributions overlap completely. **No rhythm rule is claimed for FACE_X2.** Three of the
+five development rhythm resets are therefore left unexplained on purpose, rather than fitted.
+
+4.4 RE-ENTRY, RE-MEASURED
+
+Phase 11a refuted the "~1 second at X0" intuition and proposed instead that the entry is
+anchored and the dwell falls out. Phase 11b tested that directly on the 15 development resets
+that have a next FACE_X1, by asking which label-free anchor reproduces the manual entry:
+
+    candidate anchor                                 median |delta|   p90   max   exact
+    first qualifying voice recovery >= animation end       33 fr       54   174     0/13
+    first hard cut >= animation end                        55 fr      126   162     4/15
+    reset + 36 frames (the development median gap)         14 fr       28    30     1/15
+
+    manual anchor gaps: 19 22 22 23 27 31 33 36 38 45 51 62 64 65 66   median 36 (600 ms)
+
+The result is a genuine refinement of Phase 11a: on this material NO available label-free
+anchor — not a cut, not a voice recovery — reproduces the creator's re-entry better than a
+constant does. So the frozen re-entry rule is the simplest one the evidence supports:
+
+    FROZEN RE-ENTRY:  next FACE_X1 = reset frame + 36 frames, and none at all if that lands
+                      at or past the island end (which is what a loop reset is).
+
+Sensitivity, measured on the development set and reported so the choice is not mistaken for a
+fit: fixed 40, fixed 45, "36 snapped to a cut within +-12 or +-20", and "first cut in
+[reset+15, reset+60] else 36" all land within 0.36-0.46 exact-state agreement and 9-14 frames
+of median entry error. Nothing separates them. 36 is kept because it is the measured median
+and it has one parameter.
+
+4.5 HOW GOOD IS THE SIMULATED STATE? — THE BIGGEST DECLARED WEAKNESS
+
+The blind Short has no zoom track, so the state at each cut must be SIMULATED. Running the
+simulator on the development islands with the creator's own reset decisions supplied (so that
+only the promotion engine and the re-entry rule are under test):
+
+    exact state agreement at the 28 cuts      11 / 28   =  0.393
+    face-versus-X0 agreement (the gate)       23 / 28   =  0.821
+
+Read honestly: **the simulated ladder position is wrong more often than it is right**, and the
+five gate errors are all "the simulator had already re-entered FACE_X1 while the creator was
+still at X0". This is declared here, before unblinding, because it directly limits P2 and P3:
+the rhythm rule fires on `state == FACE_X3`, and that state is only as good as the simulation.
+
+Phase 11a's family H found that gating on a HELD face state buys +0.21 precision. That result
+used the creator's own track. With a simulated state it does not reproduce — see 4.6.
+
+4.6 THE CANDIDATES SCORED ON THE DEVELOPMENT SET (NOT A BLIND SCORE)
+
+Semantic annotations for Shorts 1 and 2 were made with the manual zooms visible, exactly as
+Phase 11a's family F was. These numbers are an upper bound on the semantics and a realistic
+number for the machinery around it. They are printed so the blind result has something to be
+compared against, and they are NOT the phase's result.
+
+    family                                                 TP   FP   FN   TN   prec    rec     F1
+    ---------------------------------------------------------------------------------------------
+    P0  semantic only                                       8    6    7    7  0.571  0.533  0.552
+    P1  semantic + loop                                    10    6    5    7  0.625  0.667  0.645
+    P2  semantic + rhythm                                  10    7    5    6  0.588  0.667  0.625
+    P3  semantic + rhythm + loop                           12    7    3    6  0.632  0.800  0.706
+    BASELINE  every eligible hard cut                      15   12    0    1  0.556  1.000  0.714
+
+    P3 false positives   216682 216812 217055 218166 218301 218504 218553
+    P3 false negatives   218235 218398 218735   (the three FACE_X2 rhythm resets, as designed)
+
+Four of P3's seven false positives (216812, 217055, 218166, 218301) are cuts where the CREATOR
+was at X0 and the SIMULATOR had already re-entered. With the creator's own state supplied they
+disappear and precision rises to 0.800 — which is Phase 11a's family H, and which is exactly
+the number that does not survive simulation. That gap is the honest state of this approach
+before the blind test, and no attempt was made to close it by tuning.
+
+
+5. THE FROZEN RUBRIC
+====================
+
+Reproduced from `tools/research/phase11b/annotations.py`, which is the committed artefact.
+
+Input: at most ten aligned words each side of the cut, scoped to the cut's own island.
+Output: one class, one subtype, one confidence (high / medium / low).
+
+    DISCOURSE_BOUNDARY        the words after the cut OPEN a new discourse unit
+      ANSWER_TO_HOOK          the Short's opening question/premise ends, the body begins
+      NEW_TOPIC               a new subject is introduced
+      NEW_STEP                a new step of a described procedure is announced
+      CONSEQUENCE             a new sentence stating the result of what precedes
+      CONCLUSION              a wrap-up, a summary, or a call to action
+      CONTRAST                an explicit adversative opening a new sentence
+
+    SAME_THOUGHT_CONTINUES    the current discourse unit is still running
+      EXPLANATION_CONTINUES   the same proposition continues
+      SUBORDINATE_CLAUSE      the words after the cut open a subordinate clause of it
+      APPOSITION              they name or qualify the thing just introduced
+      LIST_CONTINUES          another item of a list already running
+      EXAMPLE_CONTINUES       an illustration of the current point
+      TAKE_SPLICE             a hesitation or false start removed; the clause resumes
+
+    AMBIGUOUS                 neither reading is clearly better. NEVER predicts a reset.
+
+    R1  a boundary needs a new SENTENCE-LEVEL unit after the cut. A conjunction sitting
+        mid-clause (`et`, `mais`, `du coup`) does not create one. Phase 11a family D is the
+        evidence: those words appear at non-boundaries just as often.
+    R2  boundary requires BOTH: the words before end a complete proposition, and the words
+        after start a new one.
+    R3  a word split across the cut is irrelevant to the class (11a: median 3-frame overhang,
+        a trim habit rather than a discourse fact).
+    R4  the last cut of an island is annotated on its text like any other. The loop reset is a
+        policy override, not a semantic class.
+    R5  when a sentence boundary falls strictly BETWEEN two consecutive hard cuts, it is
+        assigned to the nearer cut by word time and the other cut is a continuation; ties go
+        to the earlier cut. Shorts 1 and 2 put their boundaries on cuts directly, so this rule
+        was never exercised there. It is written down because Short 3's geometry needs it and
+        an unwritten tie-break is not reproducible.
+
+This rubric is the `AGENT_SEMANTIC_REASONING` signal. It is NOT computable by DAZ today, and
+nothing in this phase pretends otherwise.
+
+
+6. THE FROZEN CANDIDATES
+========================
+
+All four are gated by the transition graph: a cut where the SIMULATED state is X0 can never
+receive a reset, because `x0 -> x0` is not a move the graph has. That gate is structure, not a
+learned rule.
+
+    P0   semantic only
+         hard cut AND rubric class == DISCOURSE_BOUNDARY  ->  SEMANTIC_RESET
+
+    P1   P0 + deterministic loop
+         last hard cut of the island                      ->  LOOP_RESET   (outranks P0)
+
+    P2   P0 + rhythm refresh
+         simulated state == FACE_X3 at a hard cut         ->  RHYTHM_REFRESH_RESET
+
+    P3   P0 + rhythm + loop, in precedence loop > semantic > rhythm
+
+    BASELINE   every hard cut the graph allows a reset at
+
+STATEFUL BY CONSTRUCTION. Each candidate is walked chronologically through its own island and
+every counter it reads — state, hold, cycle length, cuts since the entry — is derived from its
+OWN earlier predictions. No candidate ever sees a later frame or a manual placement.
+
+FROZEN SIMULATOR SETTINGS, none of them retuned (task §37):
+
+    promotion_min_drop_db 20   promotion_recovery_within_db 6
+    promotion_min_valley_ms 30 promotion_max_valley_ms 650
+    transition_frames 15       zoom cut snap +-7 frames (120 ms)
+    energy window/hop/smoothing 30/10/30 ms      Silero defaults 0.5/250/100/30
+
+One deliberate deviation from the shipped planner, stated because it is real: the shipped
+`_zoom_chain` refuses a promotion that cannot be held for `promotion_min_hold_ms` before the
+reset **that it already knows about**. A causal simulator does not know where the next reset
+will be — that is the object of the study — so that one check is dropped. Every other
+promotion condition is kept.
+
+
+7. SHORT 3 — THE BLIND CUT TABLE
+================================
+
+island 2, [219040, 220717), 14 hard cuts. Semantics assigned from the local transcript against
+the rubric of §5, with no access to any manual zoom for this Short.
+
+      cut   k  rubric class / subtype                conf     P0    P1    P2    P3    BASE
+   219179   0  DISCOURSE_BOUNDARY/ANSWER_TO_HOOK     high     SEM   SEM   SEM   SEM   yes
+   219224   1  DISCOURSE_BOUNDARY/NEW_TOPIC          medium   SEM   SEM   SEM   SEM   yes
+   219253   2  SAME_THOUGHT/EXPLANATION_CONTINUES    medium    -     -     -     -     -
+   219308   3  SAME_THOUGHT/EXPLANATION_CONTINUES    high      -     -     -     -    yes
+   219354   4  SAME_THOUGHT/LIST_CONTINUES           high      -     -     -     -    yes
+   219417   5  SAME_THOUGHT/LIST_CONTINUES           high      -     -    RHY   RHY   yes
+   219525   6  SAME_THOUGHT/SUBORDINATE_CLAUSE       high      -     -    RHY   RHY   yes
+   219659   7  DISCOURSE_BOUNDARY/NEW_STEP           high     SEM   SEM   SEM   SEM   yes
+   219744   8  SAME_THOUGHT/APPOSITION               medium    -     -     -     -    yes
+   219999   9  DISCOURSE_BOUNDARY/NEW_STEP           high     SEM   SEM   SEM   SEM   yes
+   220316  10  DISCOURSE_BOUNDARY/CONSEQUENCE        high     SEM   SEM   SEM   SEM   yes
+   220579  11  SAME_THOUGHT/EXPLANATION_CONTINUES    high      -     -    RHY   RHY   yes
+   220608  12  DISCOURSE_BOUNDARY/CONCLUSION         medium   SEM   SEM    -     -     -
+   220679  13  DISCOURSE_BOUNDARY/CONCLUSION         medium   SEM  LOOP   SEM  LOOP   yes
+
+Simulated state at each cut. It differs between candidates because a reset changes the
+trajectory — that is the stateful behaviour, working as intended:
+
+      cut      P0          P1          P2          P3          BASELINE
+   219179   face_x2     face_x2     face_x2     face_x2     face_x2
+   219224   face_x1     face_x1     face_x1     face_x1     face_x1
+   219253   x0          x0          x0          x0          x0
+   219308   face_x1     face_x1     face_x1     face_x1     face_x1
+   219354   face_x2     face_x2     face_x2     face_x2     face_x1
+   219417   face_x3     face_x3     face_x3     face_x3     face_x1
+   219525   face_x3     face_x3     face_x3     face_x3     face_x3
+   219659   face_x3     face_x3     face_x3     face_x3     face_x3
+   219744   face_x2     face_x2     face_x2     face_x2     face_x2
+   219999   face_x3     face_x3     face_x3     face_x3     face_x3
+   220316   face_x3     face_x3     face_x3     face_x3     face_x3
+   220579   face_x3     face_x3     face_x3     face_x3     face_x3
+   220608   face_x3     face_x3     x0          x0          x0
+   220679   face_x1     face_x1     face_x2     face_x2     face_x2
+
+PREDICTED RESETS — these frames are the sealed claim of this phase:
+
+    P0         7   219179 219224 219659 219999 220316 220608 220679
+    P1         7   219179 219224 219659 219999 220316 220608 220679
+    P2         9   219179 219224 219417 219525 219659 219999 220316 220579 220679
+    P3         9   219179 219224 219417 219525 219659 219999 220316 220579 220679
+    BASELINE  12   219179 219224 219308 219354 219417 219525 219659 219744 219999
+                   220316 220579 220679
+
+PREDICTED FACE_X1 RE-ENTRIES (reset + 36 frames, clipped at the island end):
+
+    P0 / P1   219040 219215 219260 219695 220035 220352 220644 220715
+    P2 / P3   219040 219215 219260 219453 219561 219695 220035 220352 220615 220715
+    BASELINE  219040 219215 219260 219344 219390 219453 219561 219695 219780 220035
+              220352 220615 220715
+
+PREDICTED LOOP RESET: 220679, the last hard cut of island 2. P1 and P3 name it LOOP_RESET; P0
+and P2 arrive at the same frame through the rubric instead, so on this Short the loop override
+CHANGES NO FRAME. That is itself a prediction: if 220679 turns out not to carry a reset, both
+the loop rule and the semantics are wrong there at once.
+
+THREE ARTEFACTS DECLARED IN ADVANCE, so they cannot be explained away later:
+
+  - 219224 is predicted one cut after 219179, which leaves the simulated FACE_X1 alive for
+    only 9 frames (re-entry at 219215). The frozen rules contain no minimum dwell before a
+    reset may fire, and none was added once this was seen.
+  - 220715 is a predicted re-entry 2 frames before the island ends. The +36 rule produces it
+    mechanically; it is degenerate and it is left in.
+  - P2/P3 lose the 220608 semantic reset because their own rhythm reset at 220579 puts them at
+    X0 there. A candidate can be penalised by its own extra prediction; that is what
+    "stateful" means and it is not a bug.
+
+
+8. WHAT THIS PHASE HAS NOT DONE
+===============================
+
+    no production reset policy                the planner is untouched
+    no VideoProfile / Strategy / plugin        no architecture before evidence
+    no new state, role, config key or command  the graph is as Phase 10 left it
+    no X1/X2/X3 retuning                       not one threshold examined for tuning
+    no apply-preview / clean-preview / rebuild-preview anywhere
+    no asset placed on any timeline
+    no whisperx/torch/CUDA runtime dependency
+    no OpenAI / Anthropic / cloud LLM / NLP model
+    no computer vision, no VLM, no avatar detector — Phase 9 stays retired
+
+
+9. INTEGRITY
+============
+
+    branch                     dev
+    starting SHA               d297e318cbd4b57a2bcbd4419c06a61787a6a975
+    this checkpoint SHA        recorded in `.agent/reports/phase-11b-blind-validation.txt`
+                               and in `.agent/HANDOFF.md` (a commit cannot name itself)
+
+At the moment this file was committed, `Timeline 1`'s Short 3 had never been inspected in any
+way. The next stage may only measure. It may not change a single frame above.
