@@ -912,7 +912,7 @@ X0 dwell re-measured on Short 3: median anchor gap **40.5 frames (675 ms)**, med
 **25.5 frames (425 ms)**, again spread continuously with no plateau. Phase 11a measured 36/21.
 The "~1 second" intuition is wrong on all three Shorts.
 
-### The ceiling, and it is the most useful number here
+### The ceiling as Phase 11b measured it — SUPERSEDED BY D071, kept as it was written
 
     manual resets in Short 3        11
     on a hard cut                    7   (development: 15 of 17)
@@ -925,6 +925,10 @@ observed in this environment, and the source footage is one continuous full-body
 whose framing never changes. So **no reset was excluded and no transcript-addressable subset
 was scored** — "the model missed it" is not evidence that a reset was visual.
 
+**The creator has since answered for all four (D071).** One is visual, one was a real semantic
+miss, two are prospective rhythm refreshes. The 36% above is what Phase 11b could see on the
+day; it is not the current reading. See the Phase 11c section below.
+
 ### Honest limits
 
 Three Shorts, one creator, 42 cuts, 28 manual resets. Only Short 3's annotation is blind, and
@@ -933,3 +937,91 @@ regression could not be re-run on this machine: `davinci-auto-zoom-test` still c
 media paths and its clips are offline on Windows, so `plan-probe` rendered digital silence. The
 product source is byte-identical to `d297e31` and the golden facecam test passes, but the live
 confirmation is outstanding.
+
+
+## Phase 11c — the creator answers, and rhythm turns out to be prospective (2026-08-20)
+
+Full numbers in `.agent/reports/phase-11c-semantic-rhythm-study.txt`; the four answers and
+their exact scope in `.agent/reports/phase-11b-creator-followup-addendum.txt`. Durable
+decisions: **D071** and **D072**. The frozen next-blind policy is
+`.agent/reports/phase-11c-frozen-next-blind-policy.txt` and is immutable.
+
+**EXPLORATORY / DEVELOPMENT.** All three Shorts carry known labels now, so every number below
+is a fit. None of it is an out-of-sample score, and none of it may be quoted as one.
+
+### The taxonomy, rebuilt from `Timeline 1` with the creator's answers on top
+
+                       SEMANTIC   RHYTHM   LOOP   VISUAL   AMBIGUOUS
+    Short 1 (island 0)      8         2      1       0          0
+    Short 2 (island 1)      2         3      1       0          0
+    Short 3 (island 2)      7         2      1       1          0
+    ---------------------------------------------------------------
+    total                  17         7      3       1          0
+
+Island 3 was again never transcribed and never measured. 42 hard cuts, 28 resets, 25 entries,
+22 resets on a cut and 6 off it, zero state-machine problems.
+
+### Concession is a category the V1 rubric did not have
+
+Every concessive/adversative/reformulation marker in the three Shorts, positive and negative:
+**six clause-initial pivots, all six carrying a reset; one mid-clause occurrence carrying
+none.** The six sit 0-8 frames after their cut and the negative sits at 19. Position and
+function decide it, never word presence — Phase 11a family D is the standing warning, and no
+word list is part of any rule. Adding `CONTRAST_OR_CONCESSION` repairs 217373 and 219525.
+
+On the decision universe (a cut is positive when a reset is anchored to it, entry-first
+placement included), V2 + loop scores 0.840 / 0.808 / 0.824 strict and 0.840 / 0.840 / 0.840
+addressable. **Fit, not score.**
+
+### Rhythm is prospective, and prospective is measurable
+
+    headroom_gain = promotions(RESET branch) - promotions(KEEP branch)
+
+over a horizon that is the next discourse boundary, never a fixed duration. KEEP holds the
+state and consumes the future qualifying recoveries; RESET goes to X0, re-enters FACE_X1 at
++36 and climbs again.
+
+    gain >= 1     fires on 4 of 7 rhythm resets and on 0 of 10 no-reset controls
+    every control has gain exactly 0, so the step between 0 and 1 is where the data separates
+    leave-one-Short-out re-derives N=1 in all three folds, zero false positives in each
+    18 of 18 frame-level gate windows across three Shorts are followed by a manual reset
+
+The three misses are all FACE_X2 resets with gain 0 or negative. Phase 11b showed no
+retrospective threshold separates those either. **They stay unexplained, and nothing was
+fabricated to cover them.**
+
+### The state simulator's fault is the promotion engine
+
+Hand the engine the creator's own cycle boundaries — his entries, his resets — so the only
+thing left to get wrong is which recovery becomes which promotion:
+
+    cycles                                       28
+    manual promotions / simulated                36 / 32
+    cycles with the same promotion COUNT         19      (4 over, 5 under)
+    cycles where he promoted with NO qualifying recovery at all    4
+    frame error on the 24 count-matched          median 15  p90 38  max 81
+
+Label-free, the full Phase 11b simulator agrees exactly at 13/42 hard cuts and coarsely
+(face versus X0) at 35/42. **No reset policy can repair that**, and no promotion threshold was
+changed. This is the first measurement of the assertion that the creator's X1/X2/X3 behaviour
+matches the shipped planner, and it does not support it.
+
+### A word boundary is not an anchor
+
+Off-cut resets land 2-6 frames from the nearest word start — and the chance baseline, over
+every frame of the three islands, is **median 4.0, mean 4.60**. The transcript is simply dense.
+The same disposes of the word-start re-entry model: `reset + 36` keeps its median 9-frame error
+over 25 entries and nothing beats it (next cut 42, next recovery 27). The anchor gap does not
+split by reset reason (semantic 36, rhythm 39, visual 34), so one rule is enough.
+
+Entry-first placement is now **4 of 6** off-cut resets: the reset is derived backwards from a
+FACE_X1 entry that lands 0, 0, 11 or 14 frames from a cut. No other entry is nearer than 79.
+
+### Honest limits
+
+One creator, three Shorts, and every one of them is development data now. The transcript was
+produced on CPU (torch 2.8.0+cpu, `large-v3`, int8) where 11a/11b used CUDA float16, so word
+timings are not guaranteed identical to 11a's. The rhythm layer is ORACLE_ONLY and was excluded
+from the frozen policy for that reason. The Phase 10 live regression is still blocked on a
+media relink and was not attempted. The product source is byte-identical to `781cea0` and the
+golden facecam test passes.

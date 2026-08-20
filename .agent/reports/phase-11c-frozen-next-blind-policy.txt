@@ -1,0 +1,216 @@
+PHASE 11c — FROZEN POLICY FOR THE NEXT BLIND TEST
+2026-08-20 · branch dev · RESEARCH, NOT SHIPPED
+
+THIS FILE IS IMMUTABLE FROM THE COMMIT THAT INTRODUCES IT. It is the complete statement of what
+will be predicted on the next genuinely unseen Short, written down before that Short exists as
+data. A defect found in it later is REPORTED, never repaired in place — the same rule that
+protects `phase-11b-blind-predictions.txt`.
+
+It must NOT be run on `bluescreen 2`'s fourth island. That island is extra clips kept for
+later, it is not a completed Short, and it is out of scope for every phase so far. Using it
+would spend the only unused material in the project on a test it cannot answer.
+
+Everything below was derived on Shorts 1-3 of `bluescreen 2`, which are ALL development data.
+
+
+0. WHAT IS AND IS NOT IN THIS POLICY
+====================================
+
+    LAYER 1  LOOP        IN, deterministic
+    LAYER 2  SEMANTIC    IN, agent reasoning over a word-aligned transcript
+    PLACEMENT + RE-ENTRY IN, deterministic
+    STATE GATE           IN, coarse, computed from the policy's own history only
+
+    LAYER 3  RHYTHM      **STATED IN FULL IN §5 AND EXCLUDED FROM THE PREDICTION.** It needs
+                         the ladder position, and `phase-11c-semantic-rhythm-study.txt` §6
+                         shows that position cannot be reconstructed: the promotion engine gets
+                         the promotion COUNT wrong in 9 of 28 cycles even when the cycle
+                         boundaries are handed to it. A rule that cannot be executed cannot be
+                         blind-tested, and pretending otherwise would score the simulator
+                         instead of the rule.
+
+    LAYER 4  VISUAL      OUT. Not observable from audio or text. Its resets are expected
+                         misses and are excluded only from the ADDRESSABLE metric, and only
+                         when the creator confirms them AFTER the predictions are committed.
+
+
+1. INPUTS THE POLICY IS ALLOWED
+===============================
+
+    the reference video track V1 of the blind timeline (clips, hence hard cuts and islands)
+    the rendered voice audio of that timeline
+    a WhisperX word-aligned French transcript of it (large-v3, language=fr, forced alignment)
+    the policy's OWN earlier decisions
+
+    FORBIDDEN: the manual zoom track, in any form, until the predictions are committed.
+
+
+2. STRUCTURE
+============
+
+    content island       maximal run of V1 clips with no gap >= 30 frames
+    hard cut             `previous.end == next.start` exactly. Nothing else is a cut.
+    scope                every island of the blind Short is analysed alone. No word, cue,
+                         state or counter crosses an island boundary.
+
+
+3. LAYER 1 — LOOP (deterministic override)
+==========================================
+
+    The LAST hard cut of a content island receives a reset to X0, and no FACE_X1 re-entry
+    follows it inside that island.
+
+    Evidence: 3/3, delta 0, on three Shorts. Stated by the creator in advance.
+    Precedence: highest. If the last cut is also a discourse boundary, the reason reported is
+    LOOP and the frame is the same either way.
+
+
+4. LAYER 2 — SEMANTIC, RUBRIC V2
+================================
+
+Input per cut: at most ten aligned words each side, scoped to the cut's own island.
+Output per cut: one CATEGORY, one RESET-CANDIDATE flag, one CONFIDENCE.
+
+4.1 CATEGORIES, and whether each is a reset candidate
+
+    DISCOURSE_BOUNDARY family                                       reset candidate
+      ANSWER_TO_HOOK            the opening question/premise ends, the body begins    yes
+      NEW_TOPIC                 a new subject is introduced                           yes
+      NEW_STEP                  a new step of a described procedure is announced      yes
+      CONSEQUENCE               a new sentence stating the result of what precedes    yes
+      CONCLUSION                a wrap-up, a summary, or a call to action             yes
+      CONTRAST                  an explicit adversative opening a new sentence        yes
+      CONTRAST_OR_CONCESSION    NEW IN V2. An adversative or concessive PIVOT that    yes
+                                reorients the discourse, whether or not it opens a
+                                new sentence
+      REFORMULATION             NEW IN V2. A corrective restatement of what was       yes
+                                just said
+
+    SAME_THOUGHT_CONTINUES family                                   reset candidate
+      EXPLANATION_CONTINUES / EXAMPLE_CONTINUES / LIST_CONTINUES     no
+      SUBORDINATE_CLAUSE / APPOSITION / TAKE_SPLICE                  no
+
+    AMBIGUOUS                   neither reading is clearly better                     no
+
+4.2 DECISION RULES, unchanged from V1 unless marked
+
+    R1  a boundary needs a new SENTENCE-LEVEL unit after the cut. A conjunction sitting
+        mid-clause does not create one — position and function, not word presence.
+    R2  boundary requires BOTH: the words before end a complete proposition, and the words
+        after start a new one.
+    R3  a word split across the cut is irrelevant to the class.
+    R4  the last cut of an island is annotated on its text like any other. The loop reset is a
+        policy override, not a semantic class.
+    R5  a sentence boundary falling strictly BETWEEN two consecutive hard cuts is assigned to
+        the nearer cut by word time; ties go to the earlier cut.
+    R6  NEW IN V2. `CONTRAST_OR_CONCESSION` and `REFORMULATION` are exempt from R1 and R2: a
+        pivot inside one sentence can still be a boundary. They apply ONLY when the pivot
+        OPENS the clause after the cut, which in three Shorts meant it began within
+        **10 frames** of the cut; a marker further inside a running clause is not a pivot.
+    R7  NEW IN V2. The category is decided by FUNCTION in context, never by matching a word.
+        No word list is part of this policy, and none may be added to it.
+
+4.3 CONFIDENCE
+
+    `high` / `medium` / `low`, the annotator's own. Confidence does NOT change the prediction:
+    a `low` boundary still predicts a reset. It is recorded so the failure analysis can ask
+    afterwards whether the errors were the ones already flagged.
+
+
+5. LAYER 3 — RHYTHM. STATED, AND NOT PART OF THE PREDICTION
+===========================================================
+
+Written down in full so that it is falsifiable the day the ladder position can be computed.
+
+    at a candidate frame, with the CURRENT LADDER STATE known:
+
+      horizon      = the next reset-candidate cut of layer 2, else the island end
+      KEEP         = hold the current state; consume the qualifying voice recoveries before
+                     the horizon, respecting the 15-frame animation gate; climb while a rung
+                     remains
+      RESET        = X0 now, FACE_X1 at frame+36, then the same consumption from FACE_X1
+      headroom_gain = promotions(RESET) - promotions(KEEP)
+
+      FIRE when headroom_gain >= 1.
+
+    THRESHOLD: 1, and it is the only number. Leave-one-Short-out re-derives 1 in all three
+    folds with zero false positives.
+    PRECEDENCE if it were ever enabled: LOOP -> SEMANTIC -> RHYTHM.
+    KNOWN LIMIT: it explains 4 of 7 rhythm resets. The three misses are FACE_X2 resets with
+    gain 0 or negative, and nothing in this research explains those.
+    PLACEMENT: unsolved. The gate opens 28-107 frames before the creator's reset, and no anchor
+    was found inside the window (a word boundary is 4 frames from ANY frame on this material).
+
+    IT WILL NOT FIRE IN THE NEXT BLIND TEST.
+
+
+6. STATE GATE — coarse, and from the policy's own history only
+==============================================================
+
+    The policy tracks ONE bit: is the picture at X0, or in a face state.
+
+      the island opens at X0 and enters FACE_X1 at the island's first frame;
+      a reset sets X0 at its frame;
+      the re-entry of §8 sets "face" at its frame.
+
+    A reset is refused when the bit says X0. Nothing else gates it. The promotion engine is
+    NOT consulted, and the rung (X1/X2/X3) is never used by this policy.
+
+    Event order at one frame: CUT, then ENTRY. A cut receiving the re-entry is therefore
+    evaluated while the bit is still X0, and no reset is placed there.
+
+    Measured coarse agreement with the creator on three Shorts: 35/42.
+
+
+7. RESET PLACEMENT
+==================
+
+    ENTRY-FIRST. For a reset-candidate cut C:
+
+      the FACE_X1 re-entry is anchored to C;
+      the reset is placed at C - 36 frames (the re-entry rule of §8, run backwards);
+      if C - 36 falls at or before the island start, or before the previous re-entry, the
+        reset is placed on C itself instead.
+
+    Evidence: 4 of the 6 off-cut resets in three Shorts are placed early so their entry lands
+    on a cut (entry 0, 0, 11 and 14 frames from it); no other off-cut reset's entry is nearer
+    than 79 frames to a cut.
+
+    TIE-BREAKS
+      two reset-candidate cuts closer together than 36 frames: keep the EARLIER one and drop
+        the later, because the later falls inside the X0 window of the earlier;
+      a loop cut always wins over a semantic cut at the same frame;
+      a reset is never placed before the current cycle's FACE_X1 entry.
+
+
+8. FACE_X1 RE-ENTRY
+===================
+
+    entry = reset + 36 frames, and no entry is made if it falls at or past the island end
+    (that is the loop reset; the Short ends at X0).
+
+    Evidence over 25 entries and three Shorts: median error 9 frames, p90 29, max 60. No
+    label-free alternative beats it — the first hard cut after the animation misses by a median
+    of 42 frames, the first qualifying recovery by 27, and the first word start after reset+30
+    ties it at 8 while being 4 frames from any frame at all. The gap does not split by reset
+    reason (semantic median 36, rhythm 39), so ONE rule is used for every reset.
+
+    36 IS A BASELINE, NOT A LAW. Its p90 error is half a second and that is visible.
+
+
+9. HOW THE NEXT BLIND TEST MUST BE SCORED
+=========================================
+
+    universe        the hard cuts of the blind Short
+    positive        a cut with a manual reset ANCHORED to it — on it, or with the manual
+                    FACE_X1 landing within 15 frames of it
+    reported apart  DECISION (precision/recall over that universe) and FRAME (|delta| for each
+                    correct decision). They are never merged into one number.
+    strict          every manual reset counts
+    addressable     creator-confirmed VISUAL resets excluded, and ONLY those. A reset the
+                    policy missed is never reclassified as visual to excuse the miss.
+    also reported   resets with no anchoring cut at all — unreachable by this policy by
+                    construction, and counted as misses in the strict reading.
+
+    The predictions, the annotation of every cut and the frames must be COMMITTED before the
+    blind Short's zoom track is read at all.

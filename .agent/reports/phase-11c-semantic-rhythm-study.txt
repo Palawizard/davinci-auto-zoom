@@ -1,0 +1,538 @@
+PHASE 11c — CREATOR-GROUNDED SEMANTIC + PROSPECTIVE RHYTHM RESET STUDY
+Continuous-talking facecam resets on `bluescreen 2`, Shorts 1-3
+2026-08-20 · branch dev · RESEARCH, NOT SHIPPED
+
+EXPLORATORY / DEVELOPMENT. This is **not** a generalisation test. All three Shorts now carry
+known labels, so every number below is a fit to development data. Nothing here is an
+out-of-sample score, and no sentence of it may be quoted as one.
+
+The blind experiment lives in `phase-11b-blind-predictions.txt` (sealed at `46c5e56`) and
+`phase-11b-blind-validation.txt`. Neither was edited. What the creator said afterwards is in
+`phase-11b-creator-followup-addendum.txt` and in **D071**.
+
+No sentence the creator spoke appears in this report.
+
+                                                                                    §
+    candidate policy                                                                9
+    verdict                                                                        13
+
+
+1. GIT AND DATASET
+==================
+
+    branch                 dev                        main untouched
+    starting SHA           781cea0afa9c780d4ef2c1fd8d650e8a5452fab5
+    final SHA              this commit (a commit cannot name itself; see HANDOFF.md)
+    product source diff    `git diff 781cea0 -- src/` is EMPTY
+
+    project                bluescreen 2
+    reference timeline     Timeline 1        id 4d8c7645-cab4-4865-b89e-b7299330808e
+    audio rendered from    Timeline 1 copy   id 69b8c00e-5710-4d50-8216-864f2958ea0e
+    frame rate             60.0              labelled range [216000, 220717)
+
+    island 0   [216000, 217875)   17 clips   16 hard cuts   Short 1
+    island 1   [218029, 218870)   13 clips   12 hard cuts   Short 2
+    island 2   [219040, 220717)   15 clips   14 hard cuts   Short 3
+    island 3   [221503, 222258)   OUT OF SCOPE — not transcribed, not measured, not a Short 4
+
+The three island bounds were RE-DERIVED from V1 and match the ones the task named, to the
+frame. Island 3 is physically excluded: the 16 kHz audio handed to WhisperX was truncated at
+1 257 866 samples (frame 220717) and island 3 begins after that.
+
+    42 hard cuts        28 manual resets      25 FACE_X1 re-entries
+    22 resets on a cut  6 off it              zero state-machine problems, again
+
+WhisperX ran on CPU this session (torch 2.8.0+cpu, `large-v3`, `compute_type=int8`,
+`language=fr`, forced alignment via VOXPOPULI_ASR_BASE_10K_FR). Phases 11a/11b used CUDA and
+float16. **That is a deviation** — the word timings are not guaranteed identical to 11a's — and
+it is recorded because §6 leans on word positions. 325 aligned words, zero unaligned. No
+WhisperX/torch dependency was added to the product; a throwaway venv outside the repository was
+used and the transcript stays local and gitignored.
+
+
+2. CREATOR-GROUNDED TAXONOMY — 28 resets over three Shorts
+==========================================================
+
+D071 supplies the reason for four Short 3 frames. Every other reset is classified by this
+precedence, and each gets exactly one reason:
+
+    1. CREATOR     an answer the creator gave (Short 3, four frames)
+    2. LOOP        the reset sits on the last hard cut of its content island
+    3. SEMANTIC    its ANCHORING cut is a DISCOURSE_BOUNDARY of the frozen V1 rubric. The
+                   anchoring cut is the reset's own cut when it is on one, otherwise the cut
+                   its next FACE_X1 lands on within 15 frames (see §7)
+    4. RHYTHM      anything else: the reset happened while the discourse was still running
+
+                       SEMANTIC   RHYTHM   LOOP   VISUAL   AMBIGUOUS
+    Short 1 (island 0)      8         2      1       0          0
+    Short 2 (island 1)      2         3      1       0          0
+    Short 3 (island 2)      7         2      1       1          0
+    ---------------------------------------------------------------
+    total                  17         7      3       1          0
+
+    RHYTHM frames   216580  217373  218235  218398  218735  219784  220442
+    VISUAL frame    219354  (creator-confirmed, and the only one)
+
+Full per-reset table, with `from_state`, `on_cut`, `nearest_cut_delta`, `next_X1`, the anchoring
+cut and the source of the reason: `tools/research/phase11c/study.py`, section 1.
+
+Note what D071 did to the two Shorts it did not touch: nothing. The four answers are applied
+only to their own frames, and `tools/research/phase11b/measured.py` is unchanged.
+
+
+3. SEMANTIC RUBRIC V2 — the concession category the V1 rubric did not have
+=========================================================================
+
+3.1 WHY 219525 WAS A REAL MISS
+
+The V1 rubric classified it `SAME_THOUGHT_CONTINUES / SUBORDINATE_CLAUSE`. Grammatically that
+is correct: what follows the cut IS a subordinate clause of the sentence before it. Editorially
+it is wrong, and the creator says why — the clause is a concessive pivot, the "even if..."
+shape. V1 had no category between "a new sentence starts" and "the same clause runs on", so a
+pivot inside one sentence had nowhere to go.
+
+3.2 THE V2 REVISION
+
+V2 keeps every V1 category and adds one, plus a second reported separately:
+
+    CONTRAST_OR_CONCESSION    an adversative or concessive pivot that reorients the discourse,
+                              whether or not it opens a new sentence          reset candidate
+    REFORMULATION             a corrective restatement of what was just said  reset candidate,
+                              ONE occurrence, reported apart for that reason
+
+and it separates two things V1 collapsed:
+
+    the SEMANTIC CATEGORY        what the discourse does at this cut
+    the RESET CANDIDATE flag     whether that is worth returning to X0 for
+
+`CONTRAST_OR_CONCESSION` is a category, not a trigger. It is a reset candidate only when the
+pivot OPENS the clause after the cut and functions as a pivot there.
+
+3.3 THE EVIDENCE, POSITIVE AND NEGATIVE
+
+Every concessive / adversative / reformulation marker in the three Shorts — all of them, not
+the convenient ones:
+
+    frame    island  cut      frames after cut   clause-initial   reset
+    216701     0     216682         19                 no          none attributable
+    217055     0     217055          0                 yes         216991 (entry-first)
+    217381     0     217373          8                 yes         217373
+    217838     0     217835          3                 yes         217835 (loop cut)
+    218738     1     218735          3                 yes         218735
+    218831     1     218828          3                 yes         218828 (loop cut)
+    219529     2     219525          4                 yes         219525
+
+    clause-initial      6 / 6 carry a reset
+    mid-clause          1, and it carries none
+
+**Position is the whole discriminator, exactly as Phase 11a's family D warned.** The one
+negative case carries the same word as two of the positives and is an intensifier inside a
+running clause. The six positives sit 0-8 frames after their cut and the negative sits at 19;
+nothing lies between. That 10-frame separation is a DESCRIPTION of seven points, not a tuned
+threshold, and seven points is a small sample. Two of the six are loop cuts that the
+deterministic loop rule already owns, so the semantic layer gains four.
+
+NO WORDLIST RULE IS PROPOSED, and none should be built. What transfers is the CATEGORY: does
+the clause after the cut turn the statement around? A rubric asks that; a `startswith()` does
+not.
+
+3.4 WHAT V2 IS WORTH ON THE THREE SHORTS
+
+Decision universe: the 42 hard cuts. A cut is positive when a manual reset is ANCHORED to it,
+which includes the early-placed resets whose FACE_X1 lands on it (§7). 26 of the 28 resets have
+an anchoring cut; 219784 and 220442 have none and are unreachable by any cut-anchored decision.
+
+    scope        candidate                     TP  FP  FN  TN    prec    rec     F1
+    ---------------------------------------------------------------------------------
+    strict       V1 frozen                     17   4   9  12   0.810  0.654  0.723
+    strict       V1 frozen + loop              19   4   7  12   0.826  0.731  0.776
+    strict       V2 +concession                19   4   7  12   0.826  0.731  0.776
+    strict       V2 +concession + loop         21   4   5  12   0.840  0.808  0.824
+    strict       V2X +reformulation + loop     22   4   4  12   0.846  0.846  0.846
+
+    addressable  V2 +concession + loop         21   4   4  13   0.840  0.840  0.840
+    addressable  V2X +reformulation + loop     22   4   3  13   0.846  0.880  0.863
+
+    V2 + loop false positives   216682  218166  218301  218553
+    V2 + loop false negatives   216580  218235  218398  218735  219354
+
+STRICT counts every reset. ADDRESSABLE excludes exactly one frame, 219354, because the creator
+confirmed it is visual — no other exclusion is made anywhere in this phase, and "the model
+missed it" is never a reason to exclude.
+
+THESE ARE FIT NUMBERS. All three Shorts are development data now. The only honest comparison to
+the blind score is that V2 changes two judgements out of 42 and both were already known errors.
+
+The four false positives are the pattern Phase 11a already named: real discourse boundaries the
+creator answered with a PROMOTION or by simply letting the shot run (216682), or cuts that
+received his FACE_X1 ENTRY instead of a reset (218166, 218301). They are not semantic errors;
+they are the state gate's job, and §6 explains why the state gate cannot be trusted today.
+
+
+4. RHYTHM — the resets are PROSPECTIVE, and that is measurable
+==============================================================
+
+4.1 THE HYPOTHESIS THE CREATOR HANDED US
+
+219784 is not "I have been at X3 too long". It is "go back to X0 so I have the room to do
+X1 -> X2 -> X3 again over the long phrase coming up". So the quantity is not how long a state
+has been held, it is how much visual progression is still available.
+
+    ZoomHeadroomFeatures (tools/research/phase11c/headroom.py)
+
+        current_state, current_rung
+        time_since_last_reset, time_since_last_x1, time_in_current_state
+        horizon                    the next strong discourse boundary, or the island end.
+                                   NEVER a fixed number of seconds
+        future_discourse_duration, future_speech_duration
+        future_qualifying_recoveries
+        promotions_available_without_reset      the KEEP branch
+        promotions_available_after_reset        the RESET branch
+        headroom_gain = after - without
+
+    KEEP    hold the current state, consume the future recovery cues, climb while a rung is
+            left
+    RESET   go to X0 now, re-enter FACE_X1 at reset+36, consume the cues from the new cycle
+
+Both branches are pure arithmetic over the island geometry and the energy envelope's qualifying
+voice recoveries. The only labelled input is the CURRENT STATE, which is why §6 exists.
+
+4.2 THE MEASUREMENT — 7 rhythm resets against 10 no-reset controls
+
+Controls: hard cuts where a reset was legal (a face state was held), the rubric said the
+discourse was still running, and the creator did NOT reset.
+
+    frame   isl  kind     state    held  cycle  span  recov  pKEEP  pRESET  gain
+    216580   0   RHYTHM   face_x3    49    131   102     2      0       1      1
+    217373   0   RHYTHM   face_x2    36     89   133     2      1       1      0
+    218235   1   RHYTHM   face_x2    41     69    66     1      1       0     -1
+    218398   1   RHYTHM   face_x3    29     97   155     2      0       2      2
+    218735   1   RHYTHM   face_x2    52     68   135     1      1       0     -1
+    219784   2   RHYTHM   face_x2    40     82   215     7      1       2      1
+    220442   2   RHYTHM   face_x3    47    126   166     4      0       2      2
+    ----------------------------------------------------------------------------
+    216153   0   CONTROL  face_x1    63     63    71     1      1       1      0
+    216270   0   CONTROL  face_x1    23     23   146     0      0       0      0
+    216322   0   CONTROL  face_x2    52     75    94     0      0       0      0
+    216357   0   CONTROL  face_x2    87    110    59     0      0       0      0
+    218504   1   CONTROL  face_x1    44     44    49     1      0       0      0
+    218683   1   CONTROL  face_x1    16     16   187     1      1       1      0
+    219308   2   CONTROL  face_x1    55     55   217     5      2       2      0
+    219417   2   CONTROL  face_x1    29     29   108     3      2       2      0
+    219744   2   CONTROL  face_x1    42     42   255     7      2       2      0
+    220579   2   CONTROL  face_x2    42     95    29     0      0       0      0
+
+**`headroom_gain >= 1` fires on 4 of the 7 rhythm resets and on 0 of the 10 controls.**
+
+    fired    216580  218398  219784  220442      <- both creator-confirmed ones are here
+    missed   217373  218235  218735
+
+The gain is 0 for every single control, and the three misses are all FACE_X2 resets where
+resetting would have unlocked LESS progression than keeping (gain 0, -1, -1). The prospective
+model does not explain them and does not pretend to. Phase 11b already showed that no
+retrospective threshold (hold, cycle age, cuts in cycle) separates FACE_X2 resets from FACE_X2
+controls either, on either set — so those three remain unexplained, and that is the finding.
+
+4.3 WHY THE THRESHOLD IS 1 AND NOT A FITTED NUMBER
+
+`gain >= 0` fires on all ten controls (every control has gain exactly 0): precision collapses
+to 4/14. `gain >= 2` keeps precision at 1.000 and drops recall to 2/7. The step between 0 and 1
+is where every control sits, so N=1 is a boundary in the data, not a knob. In words: **reset
+when resetting would unlock at least one promotion that keeping would not.**
+
+LEAVE-ONE-SHORT-OUT, re-deriving N from two Shorts and applying it to the third:
+
+    train Shorts 2+3  ->  N=1    held-out Short 1:  TP 1/2   FP 0/4
+    train Shorts 1+3  ->  N=1    held-out Short 2:  TP 1/3   FP 0/2
+    train Shorts 1+2  ->  N=1    held-out Short 3:  TP 2/2   FP 0/4
+
+N is the same integer in all three folds and no fold produces a false positive. This is not
+proof of generalisation — the annotation behind the horizon is not blind, and three folds of
+one creator is nothing — but it does rule out an obviously overfitted threshold.
+
+4.4 WHERE THE GATE IS OPEN AT ALL, frame by frame
+
+Because 219784 and 220442 are OFF-cut, the gate has to be evaluated at every frame, not only at
+cuts. Over the three islands it is open in 18 separated windows.
+
+    **18 of 18 open windows are followed by a manual reset**, at 0-109 frames from the window's
+    end. There is no window in three Shorts where the gate opens and the creator does nothing.
+
+One honest qualification, and it matters: the window END is an artefact. The state used here is
+the creator's own, so the gate necessarily closes when he resets. Only the window START and the
+window COUNT carry information. The reading that survives it is: the gate is not noisy — it
+does not chatter in places the creator leaves alone — but it is far from sufficient on its own,
+because 18 windows cannot choose between 28 resets and it is silent at most of them.
+
+4.5 NO WEIGHTED SCORE
+
+Nothing here is a weighted combination and nothing was fitted by regression. The rule is two
+named gates over integers.
+
+
+5. LOOP — still deterministic, still 3/3
+========================================
+
+    island 0   last hard cut 217835   manual loop reset 217835   delta 0
+    island 1   last hard cut 218828   manual loop reset 218828   delta 0
+    island 2   last hard cut 220679   manual loop reset 220679   delta 0
+
+Unchanged from Phase 11b, re-derived from V1 this session. It stays a DETERMINISTIC STRUCTURAL
+OVERRIDE, kept out of the semantic classifier and never learned. In §3's table it is worth
++2 TP and 0 FP on top of any rubric.
+
+
+6. STATE RECONSTRUCTION — and the root cause is not the reset history
+=====================================================================
+
+Phase 11b measured that its causal simulator agrees with the creator's ladder position 11/28 of
+the time and declared it the weak link. It did not know WHY. Task §13 asked for a root cause
+before any fix, and the answer changes what a fix would even mean.
+
+6.1 ORACLE CYCLES — hand the engine the creator's own cycle boundaries
+
+Every manual cycle (his FACE_X1 entry -> his next reset) was replayed with the promotion engine
+alone: the same qualifying recoveries, the same 15-frame animation gate, the same 7-frame zoom
+cut snap. The reset policy, the re-entry policy and the state history are all removed from the
+problem. The ONLY thing left to get wrong is which recovery becomes which promotion.
+
+    cycles                                          28
+    manual promotions                               36
+    simulated promotions                            32
+    cycles with the same promotion COUNT            19
+    cycles the engine over-promotes                  4
+    cycles the engine under-promotes                 5
+    cycles where the creator promoted with NO qualifying recovery at all   4
+    frame error on the 24 count-matched promotions  median 15  p90 38  max 81
+
+**Nine of 28 cycles get the wrong number of promotions even with perfect cycle boundaries, and
+the ones that get the count right land a median of 15 frames (250 ms) away.** In four cycles the
+creator promoted where the energy envelope offers no qualifying valley at all.
+
+6.2 LABEL-FREE — the full Phase 11b simulator, re-measured on all three Shorts
+
+    exact state agreement at hard cuts       13 / 42
+    coarse agreement (face versus X0)        35 / 42
+
+6.3 THE CONCLUSION
+
+The reset history is not the bottleneck. **The promotion cue stream is.** A perfect reset policy
+fed into this engine would still put the ladder in the wrong place, because the mapping from
+"qualifying voice recovery" to "the creator's zoom promotion" does not hold on this material.
+
+Two things follow, and both are constraints rather than results:
+
+  - **no production threshold was touched.** `promotion_min_drop_db = 20`, the 6 dB recovery
+    window, 30/650 ms valley bounds and `promotion_min_hold_ms = 400` are exactly as Phase 10
+    left them. This phase measured the existing logic in a multi-cycle setting; it did not
+    retune it, and it must not be retuned to fit `bluescreen 2` (task §14);
+  - **anything that needs the ladder position is ORACLE_ONLY today.** That includes the whole
+    rhythm layer of §4, and it is the single reason this phase does not freeze it for a blind
+    retest.
+
+An honest caveat on top: Phases 11a and 11b both took the creator's word that his X1/X2/X3
+behaviour matches the shipped planner. §6.1 is the first measurement of that claim, and it does
+not support it. Whether the gap is the detector, the creator, or the research simulator's
+dropped `promotion_min_hold` check is NOT established here.
+
+
+7. PLACEMENT — the decision and the frame are different problems
+================================================================
+
+7.1 OFF-CUT RESETS, AND WHAT THEY ARE NOT ANCHORED TO
+
+    frame    reason      cut is      nearest word start   nearest recovery
+    216758   SEMANTIC    +54 away         +2                  -11
+    216991   SEMANTIC    +64 away         -4                  +22
+    219097   SEMANTIC    +82 away         +4                  -23
+    219784   RHYTHM      -40 away         +3                   +7
+    220243   SEMANTIC    +73 away         +6                   +6
+    220442   RHYTHM     -126 away         +4                  -12
+
+The word-start column looks convincing and it is worth nothing. CHANCE BASELINE, computed over
+every frame of the three islands: the distance to the nearest word start has **median 4.0,
+mean 4.60, p90 10**. The measured resets sit at 2-6. **A word boundary is not an anchor here;
+the transcript is simply dense enough that everything is near one.** Reporting it the other way
+round would have been the easiest mistake in this phase to make.
+
+No anchor was found for the two off-cut rhythm resets. `WHEN to refresh` (§4) and `WHERE to put
+the reset` are therefore separate problems, and only the first has an answer.
+
+7.2 ENTRY-FIRST PLACEMENT — measured, and now 4/6
+
+Four of the six off-cut resets are placed EARLY so that the next FACE_X1 lands on a cut:
+
+    reset 216758 -> entry 216823, cut 216812   entry is 11 frames after the cut
+    reset 216991 -> entry 217055, cut 217055   entry is EXACTLY on the cut
+    reset 219097 -> entry 219193, cut 219179   entry is 14 frames after the cut
+    reset 220243 -> entry 220316, cut 220316   entry is EXACTLY on the cut
+
+The other two (219784, 220442) put their entry 79 and 95 frames from the nearest cut. The gap
+between 14 and 79 is total: there is nothing in between, which is why the anchoring window in
+§2 is 15 frames and why it is a description rather than a threshold.
+
+So an entry-first model — choose the FACE_X1 anchor, then derive the reset backwards — is what
+the creator does for the semantic family, and it is exactly the two "false positives" the blind
+P0 was charged for. A cut-anchored placement model is wrong for 4 of 26 anchored resets.
+
+7.3 RE-ENTRY — `reset + 36` survives everything thrown at it
+
+    |predicted FACE_X1 - actual|, over all 25 entries of the three Shorts
+
+    reset + 36 (frozen baseline)        median  9.0   p90  29   max  60   exact 1
+    first word start after reset+30     median  8.0   p90  25   max  63   exact 0
+    first recovery after reset+15       median 27.0   p90  85   max 174   exact 0
+    first hard cut after reset+15       median 42.0   p90 131   max 285   exact 6
+
+The word-start variant ties the constant and, per §7.1, a word start is 4 frames from anywhere.
+Nothing beats the constant. It stays a BASELINE and not a law: its p90 is 29 frames (half a
+second), which is visible.
+
+Split by the reason of the reset that precedes it, the anchor gap does not separate:
+
+    SEMANTIC_RESET              n=17   median 36.0   min 19   max 96
+    RHYTHM_REFRESH_RESET        n= 7   median 39.0   min 22   max 66
+    VISUAL_PRESENTATION_RESET   n= 1          34
+
+**There are not two families of re-entry.** One rule is enough, and the task's option to split
+by reset type is answered in the negative.
+
+
+8. VISUAL — the one thing this direction can never see
+======================================================
+
+219354 exists to show the avatar in full. That is user ground truth, it is the only reset in
+three Shorts so classified, and no other reset was reclassified as visual for any reason.
+
+    strict edit coverage         all 28 resets are the target
+    addressable coverage         27, excluding 219354 only
+
+Phase 11b could not observe the composited picture and still cannot: rendering it is outside the
+allowed write surface and the Fusion graph is never opened (D007). Nothing changed about that —
+what changed is that the creator told us, which is the only admissible evidence.
+
+
+9. CANDIDATE POLICY, IN LAYERS
+==============================
+
+    LAYER 1   LOOP        the last hard cut of a content island -> reset
+                          DETERMINISTIC. 3/3, delta 0.
+                          input: the V1 clip structure.        DEPLOYABLE
+
+    LAYER 2   SEMANTIC    a discourse boundary of rubric V2 -> reset candidate
+                          AGENT_SEMANTIC_REASONING over a word-aligned transcript.
+                          input: WhisperX words + a boundary classifier.
+                          DEPLOYABLE WITH CURRENT RESEARCH INPUTS — it was produced blind
+                          once already (Phase 11b) and it is the only layer with a blind score.
+
+    LAYER 3   RHYTHM      `headroom_gain >= 1` -> reset candidate
+                          input: island geometry + qualifying recoveries + THE CURRENT LADDER
+                          STATE.                               ORACLE_ONLY (see §6)
+
+    LAYER 4   VISUAL      show-the-avatar resets.
+                          input: the composited picture.       NOT OBSERVABLE. Manual.
+
+    PLACEMENT   for a boundary that carries a hard cut, place the FACE_X1 entry on the cut and
+                derive the reset backwards; otherwise place the reset on the boundary.
+                RE-ENTRY: reset + 36 frames, clamped inside the island.
+                          input: cuts and the policy's own history.   DEPLOYABLE
+
+    STATE GATE  a reset is only legal from a face state. Computed from the POLICY'S OWN reset
+                and re-entry history (X0 for 36 frames after each reset), never from the
+                promotion engine.                              DEPLOYABLE, 35/42 coarse
+
+Precedence: LOOP -> SEMANTIC -> RHYTHM, so the reason reported is the strongest claim available.
+
+What is deliberately NOT in the policy: any weighted score, any word list, any retrospective
+"held too long" threshold, any FACE_X2 rhythm rule, any state gate that depends on the
+promotion engine.
+
+
+10. LEAVE-ONE-SHORT-OUT
+=======================
+
+Applied only where a rule is numeric and automatically derivable — that is, only to §4.3's
+threshold. It is NOT applicable to the semantic rubric: the annotation is the agent's, and
+holding a Short out does not make the agent forget it. §4.3 has the three folds; N=1 in all
+three, zero false positives in all three.
+
+
+11. FAILURE CASES, IN FULL
+==========================
+
+    216580  RHYTHM, gain 1: found. But its gate window opens 94 frames before the reset, so the
+            decision is right and the frame is not.
+    217373  RHYTHM by taxonomy, gain 0 — the headroom model says nothing. It is also the one
+            case rubric V2 reclassifies as CONTRAST_OR_CONCESSION, so the SEMANTIC layer catches
+            it instead. Two layers disagreeing about the same frame is not a result; it is an
+            ambiguity, and it is recorded as one.
+    218235  RHYTHM, gain -1. Unexplained.
+    218735  RHYTHM, gain -1. Unexplained by headroom; caught only by the REFORMULATION category,
+            which has exactly one occurrence and is therefore not evidence.
+    219354  VISUAL. Out of reach by construction.
+    216682  SEMANTIC false positive: a real new sentence where the creator PROMOTED instead.
+    218166, 218301  SEMANTIC false positives at cuts that received his ENTRY. A correct state
+            gate would remove both; the one we can build gets the coarse state right 35/42.
+    218553  SEMANTIC false positive: a genuine boundary he simply let run. Still unexplained,
+            as it was in Phase 11a.
+    219784, 220442  reachable by no cut-anchored decision at all, and §7.1 found no anchor.
+
+
+12. WHAT WAS DELIBERATELY NOT DONE
+==================================
+
+    no product source change                 `git diff 781cea0 -- src/` is EMPTY
+    no X1/X2/X3 retuning                     not one threshold examined for tuning
+    no planner reset policy, no VideoProfile, no CLI command, no config key
+    no runtime NLP / vision / torch dependency
+    no edit to the Phase 11b blind artefacts
+    no reclassification of any reset as visual without the creator saying so
+    no apply-preview / clean-preview / rebuild-preview anywhere
+    no Media Pool relink, no SaveProject()
+    island 3 never transcribed, never measured
+
+
+13. VERDICT
+===========
+
+What this phase established:
+
+  - the creator's four answers turn "36% unexplained" into "one visual reset, one semantic miss
+    with a nameable cause, two prospective rhythm refreshes";
+  - rubric V2's `CONTRAST_OR_CONCESSION` is a real, transferable category with 6/6 clause-initial
+    positives and one mid-clause negative, and it repairs two known misses;
+  - rhythm IS prospective and it IS measurable: `headroom_gain >= 1` separates 4 of 7 rhythm
+    resets from 10 of 10 controls with zero false positives, the threshold survives
+    leave-one-Short-out, and all 18 gate windows are followed by a reset;
+  - the loop rule stays exact;
+  - and the rhythm layer cannot be computed without the ladder position, which §6 shows is
+    broken at the promotion engine and not at the reset policy.
+
+So the rhythm CONCEPT is in better shape than at any point in this research, and the machinery
+that would let a tool use it is in worse shape than we thought, because the fault is now located
+in a component this phase is forbidden to change and that no reset policy can compensate for.
+
+                    SEMANTICS READY, RHYTHM STILL UNRESOLVED
+
+A next-blind policy is frozen in `phase-11c-frozen-next-blind-policy.txt`. It contains LAYER 1,
+LAYER 2 and the placement rules — the label-free part. **The rhythm layer is excluded from it**,
+by §6, and freezing it would mean freezing a rule that cannot be executed.
+
+
+14. RECOMMENDED PHASE 11d — the smallest next step
+==================================================
+
+NOT implemented here.
+
+    Blind-test the frozen policy on a genuinely new, completed Short from the same creator:
+    annotate its hard cuts against rubric V2 and commit the predictions BEFORE reading its zoom
+    track, exactly as Phase 11b did. One Short, one checkpoint, one measurement.
+
+That is the only thing that can turn §3.4's fit back into a score. If it holds, the open
+question becomes whether a loop + semantic pass that places roughly four fifths of the
+cut-anchored resets and none of the rhythm ones is useful to the creator — a product question,
+not a research one, and his to answer.
+
+What should NOT be built before that: no planner integration, no profile abstraction, no
+runtime NLP dependency, no promotion retune. And the promotion-engine gap of §6.1 is now the
+thing to measure if the rhythm layer is ever wanted — as its own phase, on its own evidence.

@@ -681,8 +681,10 @@ was run on audio physically truncated at the third island's end.
 hard cut" holds with zero counterexamples in three Shorts and needs no threshold — but it is
 redundant with the semantics on Short 3, and its simulated form actively hurt. The weak link is
 the **simulated ladder position**, which agrees with the creator only 11/28 of the time. Four of
-eleven resets (36%) are explained by nothing measured, and it could not be proved whether they
-are the visual "show the avatar" resets the creator described.
+eleven resets (36%) were explained by nothing measured, and it could not be proved whether they
+were the visual "show the avatar" resets the creator described. **The creator answered for all
+four afterwards (D071)**, so that 36% is a historical figure — see Phase 11c below. Nothing in
+the Phase 11b artefacts was edited to reflect it.
 
 - `tools/research/phase11b/` — a causal, label-free state simulator; the frozen candidates,
   rubric and per-cut judgements; strict/subset scoring with one-to-one frame matching; the
@@ -693,26 +695,58 @@ are the visual "show the avatar" resets the creator described.
   carries Linux media paths, its clips are offline on Windows, and relinking is outside the
   allowed write surface. See `.agent/HANDOFF.md` for the exact command to re-run once relinked.
 
-## Phase 11c — Four yes/no answers from the creator [RECOMMENDED, NOT ASSIGNED]
+## Phase 11c — Creator-grounded semantics and prospective rhythm [DONE — RESEARCH, NOT SHIPPED]
 
-The smallest step the blind result justifies, and deliberately not implemented.
+The creator answered the four questions. Reports:
+`.agent/reports/phase-11b-creator-followup-addendum.txt`,
+`.agent/reports/phase-11c-semantic-rhythm-study.txt` and the immutable
+`.agent/reports/phase-11c-frozen-next-blind-policy.txt`. Decisions: **D071** (the answers) and
+**D072** (what the study measured).
 
-For each of Short 3's four unexplained resets — **219354, 219525, 219784, 220442** — does it
-exist to show the avatar in full? If they are visual, the transcript ceiling on this edit is
-about 64% and the real question becomes whether a two-thirds-complete pass is useful at all. If
-they are not, a rhythm signal exists that Phase 11b failed to find.
+    219354  VISUAL_PRESENTATION_RESET      219784  RHYTHM_REFRESH_RESET (prospective)
+    219525  SEMANTIC_RESET (concessive)    220442  RHYTHM_REFRESH_RESET (prospective)
 
-Do **not** build before that answer: no profile abstraction, no reset policy in the planner, no
-runtime NLP or vision dependency, no re-entry model, and **no fix to the state simulator** —
-fixing it now would mean fitting it to the only blind Short that exists (D070).
+Islands 0-2 only; the fourth island was again never transcribed and never measured. The three
+Shorts were re-derived from `Timeline 1` and the taxonomy rebuilt: **17 SEMANTIC, 7 RHYTHM,
+3 LOOP, 1 VISUAL, 0 AMBIGUOUS** over 28 resets.
+
+**Result: SEMANTICS READY, RHYTHM STILL UNRESOLVED.**
+
+- rubric V2 adds `CONTRAST_OR_CONCESSION` — the pivot that turns a thought around without
+  opening a new sentence. Six clause-initial pivots in three Shorts all carry a reset, the one
+  mid-clause occurrence carries none, and no word list is part of any rule;
+- rhythm is **prospective**: `headroom_gain >= 1` (resetting unlocks a promotion that keeping
+  does not, over a horizon that is the next discourse boundary) fires on 4 of 7 rhythm resets
+  and 0 of 10 no-reset controls, and leave-one-Short-out re-derives the same integer in all
+  three folds;
+- **the state simulator's fault is the promotion engine, not the reset history.** Given the
+  creator's own cycle boundaries it still gets the promotion count wrong in 9 of 28 cycles. The
+  rhythm layer is therefore ORACLE_ONLY and is excluded from the frozen policy. No promotion
+  threshold was changed;
+- `tools/research/phase11c/` — the D071 overlay, the three-Short taxonomy, `ZoomHeadroomFeatures`
+  and the KEEP/RESET counterfactual, rubric V2, the driver. Never imported by the package,
+  strict mypy, 33 tests on synthetic fixtures;
+- **No production change.** `git diff 781cea0 -- src/` is empty.
+- **All three Shorts are development data from now on.** No number produced by Phase 11c is an
+  out-of-sample score.
+
+## Phase 11d — Blind test of the frozen policy [RECOMMENDED, NOT ASSIGNED]
+
+Annotate a genuinely new completed Short against rubric V2 and commit the predictions before
+its zoom track is read, exactly as Phase 11b did. The policy is already written down and
+immutable. **Not on `bluescreen 2`'s fourth island** — those are spare clips, not a Short — and
+**the rhythm layer does not fire**, because it cannot be executed (D072).
+
+Do not build before that measurement: no profile abstraction, no reset policy in the planner,
+no runtime NLP or vision dependency, and no promotion retune.
 
 ## Future work — NOT active assignments
 
 Listed so nobody has to rediscover them, and deliberately without technical proposals attached.
 Do not start any of these without an explicit assignment.
 
-- **Other video types / profiles.** Research on a second type has now started (Phases 11a and
-  11b above, D069 and D070) and produced data, not architecture. That does not change the rule: no profile
+- **Other video types / profiles.** Research on a second type has now started (Phases 11a, 11b
+  and 11c above, D069-D072) and produced data, not architecture. That does not change the rule: no profile
   interface, no video-type enum, no plugin system, no strategy hierarchy until a rule is
   validated. What makes such work possible is the boundary that already exists — objective
   facts, then a pure domain planner, then placements, then an executor that makes no editorial

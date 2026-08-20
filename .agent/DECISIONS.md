@@ -1757,3 +1757,104 @@ re-entry rule and four candidates P0-P3 were frozen and **committed** (`46c5e56`
 Short 3's four unexplained resets (219354, 219525, 219784, 220442) — whether each exists to
 show the avatar. That measurement costs nothing and decides whether the direction has a
 ceiling of ~64% of this edit or a rhythm signal still to find. It is not assigned.
+
+## D071 — The creator answered: one visual reset, one semantic miss, two prospective rhythm refreshes
+
+D070 closed with four unexplained Short 3 resets and named the cheapest possible next
+measurement: ask the creator. He answered, and the answers are user ground truth, not a
+measurement:
+
+    219354    VISUAL_PRESENTATION_RESET   back to X0 to show the whole avatar
+    219525    SEMANTIC_RESET              a concessive pivot, the "even if..." kind
+    219784    RHYTHM_REFRESH_RESET        X0 to regain the room to do X1 -> X2 -> X3 again
+                                          across the long phrase that follows
+    220442    RHYTHM_REFRESH_RESET        X0 to re-energise and be able to zoom in again after
+
+**What this supersedes, and it is ONLY this** — three post-hoc conclusions of D070 and of
+`phase-11b-blind-validation.txt` §8:
+
+- "four of Short 3's eleven resets are unexplained";
+- "36% is the transcript-invisible ceiling of this direction";
+- "the next task is four yes/no questions for the creator" — done.
+
+**What this does NOT supersede.** The blind protocol; the sealed checkpoint `46c5e56`; the
+P0-P3 metrics and every TP/FP/FN/TN frame in them; the errors the predictions actually made
+(219525 remains a miss of the frozen rubric, and 219354 remains a miss of something no text
+model could catch); and the fact that Short 3 was used for no tuning before it was unblinded.
+The blind report's verdict line, `SEMANTICS HELP BUT GENERALISATION WEAK`, stays as written: it
+was the honest verdict at that moment. **The Phase 11b artefacts are immutable** and the new
+evidence lives in a separate layer, `tools/research/phase11c/creator_feedback.py`, plus
+`.agent/reports/phase-11b-creator-followup-addendum.txt`.
+
+**In force from this decision:**
+
+- the creator-grounded taxonomy of the three Shorts is 17 SEMANTIC, 7 RHYTHM, 3 LOOP, 1 VISUAL,
+  0 AMBIGUOUS. "36% unexplained" is a HISTORICAL statement about what Phase 11b could see, and
+  must not be quoted as the state of the work;
+- **exactly one reset in three Shorts is VISUAL, and only the creator may add another.** A
+  reset a model missed is never reclassified as visual. Coverage is reported twice: STRICT over
+  every reset, ADDRESSABLE excluding creator-confirmed visual resets only;
+- rhythm refresh is **prospective**. The reason for 219784 is future headroom, not elapsed
+  hold, and any future rhythm work starts from that reading;
+- the facecam MVP frozen in Phase 10 remains the supported product. Nothing here is built.
+
+**Status: RESEARCH / NOT SHIPPED.** The measurements this unlocked are Phase 11c
+(`.agent/reports/phase-11c-semantic-rhythm-study.txt`, D072).
+
+## D072 — Rhythm is prospective and measurable; the ladder position that would let a tool use it is not
+
+Phase 11c re-derived all three Shorts from `Timeline 1` and studied the taxonomy D071 makes
+possible. Full detail in `.agent/reports/phase-11c-semantic-rhythm-study.txt`. **All three
+Shorts are development data now**; every number below is a fit, and none is an out-of-sample
+score.
+
+**What is measured rather than assumed:**
+
+- **`CONTRAST_OR_CONCESSION` is a real semantic category, and V1 had no slot for it.** A
+  concessive clause can turn a thought around without opening a new sentence. Across three
+  Shorts, six clause-initial concessive/adversative/reformulation pivots all carry a reset and
+  the single mid-clause occurrence carries none — position and function, never word presence
+  (Phase 11a family D is the standing warning). Adding it repairs two known misses, 217373 and
+  219525. **No word list is part of any rule**, and none may be added;
+- **rhythm refresh is prospective and it separates.** With the creator's own state, a reset is
+  taken when it unlocks progression that keeping the state does not:
+  `headroom_gain = promotions(RESET branch) - promotions(KEEP branch)` over a horizon that is
+  the next discourse boundary, never a fixed duration. `headroom_gain >= 1` fires on 4 of the 7
+  rhythm resets and on **0 of 10 no-reset controls**; every control has gain exactly 0.
+  Leave-one-Short-out re-derives the same integer 1 in all three folds, with no false positive
+  in any fold. All 18 frame-level gate windows in three Shorts are followed by a manual reset;
+- **the three rhythm resets it misses are all at FACE_X2 with gain 0 or negative**, and no
+  retrospective threshold separates those either (D070). They stay unexplained;
+- **the Phase 11b state simulator's weak link is the PROMOTION ENGINE, not the reset history.**
+  Handed the creator's own cycle boundaries, the engine still gets the promotion COUNT wrong in
+  9 of 28 cycles, lands a median 15 frames from his frame on the ones it gets right, and in 4
+  cycles the creator promoted where the energy envelope offers no qualifying valley at all. No
+  reset policy can compensate for that, and **no promotion threshold was changed**;
+- **a word boundary is not an anchor.** Off-cut resets sit 2-6 frames from the nearest word
+  start, and the chance baseline over every frame of the three islands is median 4.0. The
+  transcript is simply dense. `reset + 36` survives as the re-entry baseline (median error 9
+  frames over 25 entries) and the anchor gap does not split by reset reason, so one rule is
+  enough;
+- **entry-first placement is now 4/6.** Four off-cut resets are placed early so the FACE_X1
+  entry lands on a cut (0, 0, 11, 14 frames from it); no other entry is nearer than 79. The
+  decision and the frame stay separate numbers;
+- the loop rule is still 3/3, delta 0, and stays a deterministic structural override.
+
+**In force from this decision:**
+
+- the candidate policy is layered: LOOP (deterministic) -> SEMANTIC V2 (agent reasoning) ->
+  RHYTHM (headroom) -> VISUAL (manual), with placement and re-entry as their own layer;
+- **the rhythm layer is ORACLE_ONLY and is excluded from the frozen next-blind policy.** It
+  needs the ladder position and the ladder position is not reconstructable today;
+- `.agent/reports/phase-11c-frozen-next-blind-policy.txt` is **immutable from this commit**. It
+  contains LOOP + SEMANTIC V2 + placement + re-entry + a coarse state gate computed from the
+  policy's own history, and it must NOT be run on `bluescreen 2`'s fourth island — that island
+  is spare clips, not a completed Short;
+- research code lives in `tools/research/phase11c/`, is never imported by the package, and is
+  held to the same strict mypy with its own tests;
+- **still nothing may be built into the planner.** No profile abstraction, no reset policy, no
+  runtime NLP dependency, no promotion retune.
+
+**Status: RESEARCH / NOT SHIPPED.** Verdict: **SEMANTICS READY, RHYTHM STILL UNRESOLVED**. The
+next step is a blind test of the frozen policy on a genuinely new completed Short, and it is
+not assigned.

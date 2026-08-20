@@ -1,0 +1,86 @@
+PHASE 11b — CREATOR FOLLOW-UP ADDENDUM
+The four answers, and exactly what they do and do not change
+2026-08-20 · branch dev · RESEARCH, NOT SHIPPED
+
+This file is an ADDENDUM. `phase-11b-blind-predictions.txt` (committed at 46c5e56) and
+`phase-11b-blind-validation.txt` are left byte-identical on purpose: the blind experiment has
+to stay reproducible exactly as it was run. Nothing below was known when either was written.
+
+The durable record of this is `D071` in `.agent/DECISIONS.md`.
+
+
+1. THE FOUR ANSWERS
+===================
+
+Phase 11b §8 could explain four of Short 3's eleven resets with nothing in its evidence. It
+recorded them as `RHYTHM_REFRESH_RESET`, which was a statement about the TEXT (the sentence was
+still running) and explicitly not a claim about cause. The creator was asked, and answered:
+
+    219354    VISUAL_PRESENTATION_RESET   back to X0 to show the whole avatar
+    219525    SEMANTIC_RESET              a concessive pivot, the "even if..." kind
+    219784    RHYTHM_REFRESH_RESET        X0 to regain the room to do X1 -> X2 -> X3 again
+                                          across the long phrase that follows
+    220442    RHYTHM_REFRESH_RESET        X0 to re-energise and be able to zoom in again after
+
+
+2. OLD INTERPRETATION
+=====================
+
+    "at least 4 of the 11 manual resets in Short 3 (36%) are not derivable from a word-aligned
+     transcript plus the rhythm counters measured here. That is the ceiling on the whole
+     transcript direction as it currently stands."
+
+    "no reset can be PROVED to be a VISUAL_PRESENTATION_RESET from the evidence available."
+
+    recommended next step: ask the creator four yes/no questions.
+
+
+3. NEW INTERPRETATION
+=====================
+
+    ONE reset (219354) is visual. The transcript is not supposed to predict it, and it is the
+    only reset in three Shorts that this research direction can never address.
+
+    ONE reset (219525) is a genuine SEMANTIC MISS. The frozen V1 rubric called it
+    SAME_THOUGHT_CONTINUES / SUBORDINATE_CLAUSE, which is grammatically right and editorially
+    wrong: a concessive clause can turn the thought around without opening a new sentence. The
+    rubric had no category for that. Phase 11c adds one (`CONTRAST_OR_CONCESSION`).
+
+    TWO resets (219784, 220442) are rhythm refreshes, and the creator's reason for 219784 is
+    PROSPECTIVE — he resets to create future room to climb, not because a state has been held
+    too long. Phase 11c measures that directly.
+
+    So the honest figure is no longer "36% unexplained". Of Short 3's eleven resets: nine are
+    text- or structure-addressable in principle, one is visual, and none is a mystery.
+
+
+4. WHAT THIS CHANGES
+====================
+
+  - the direction of the research. "Is there a ceiling?" becomes "can a prospective rhythm
+    rule and a concession category be written down?" — which is Phase 11c;
+  - the reset taxonomy of Short 3, in a NEW layer
+    (`tools/research/phase11c/creator_feedback.py`), never by editing Phase 11b's;
+  - the evaluation target: a creator-confirmed visual reset may now be excluded from an
+    ADDRESSABLE coverage metric. Exactly one reset qualifies, and no reset may ever be excluded
+    because a model missed it.
+
+
+5. WHAT THIS DOES NOT CHANGE
+============================
+
+  - **the blind P0-P3 metrics are unchanged.** P0/P1 0.714, P2/P3 0.625, BASELINE 0.632, with
+    the same TP/FP/FN/TN and the same frames. They were computed against the edit, not against
+    the taxonomy, and the edit has not moved;
+  - the blind protocol, the sealed checkpoint `46c5e56`, and the fact that `Timeline 1` was
+    read only after it existed;
+  - the errors the predictions actually made. 219525 stays a miss of the frozen rubric;
+    219354 stays a miss too — it just turns out to be a miss of something no text model could
+    have caught;
+  - that Short 3 was used for no tuning before it was unblinded;
+  - the verdict line of the blind report, `SEMANTICS HELP BUT GENERALISATION WEAK`. That was
+    the honest verdict at that moment. Phase 11c's verdict is a separate, later statement.
+
+**The 36% "unexplained" figure is HISTORICAL.** It describes what Phase 11b could see on
+2026-08-20 before the creator answered. It is not the current creator-grounded reading and must
+not be quoted as the state of the work.

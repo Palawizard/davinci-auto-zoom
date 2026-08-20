@@ -53,9 +53,9 @@ reference material — not a profile interface, a video-type enum or a plugin sy
 advance. The boundary that makes such work possible later is the one that already exists:
 objective facts -> pure domain planner -> placements -> executor.
 
-### A second video type is now under research, and is NOT part of the product (D069, D070)
+### A second video type is now under research, and is NOT part of the product (D069-D072)
 
-Phases 11a and 11b studied the creator's **continuous-talking facecam** Shorts, where he speaks
+Phases 11a, 11b and 11c studied the creator's **continuous-talking facecam** Shorts, where he speaks
 almost without pause and cuts the pauses out. Its status is **RESEARCH / NOT SHIPPED**, and the
 paragraph above still holds in full: no profile interface was created, and none should be.
 
@@ -74,14 +74,24 @@ What the research established, because it changes how to read this document:
   `.agent/reports/phase-11a-continuous-facecam-reset-study.txt`;
 - Phase 11b then tested that reading **blind**, on a Short whose manual zooms were sealed away
   until the predictions had been committed. The boundary rubric transferred (blind F1 0.714,
-  every prediction corresponding to a real reset) and the loop rule is now 3/3 — but **36% of
-  that Short's resets are explained by nothing measurable here**, and the verdict is
-  **SEMANTICS HELP BUT GENERALISATION WEAK**. See D070 and
-  `.agent/reports/phase-11b-blind-validation.txt`.
+  every prediction corresponding to a real reset) and the loop rule is now 3/3. Its verdict was
+  **SEMANTICS HELP BUT GENERALISATION WEAK**, and it measured four resets it could explain with
+  nothing — 36% of that Short. See D070 and `.agent/reports/phase-11b-blind-validation.txt`;
+- **the creator has since explained all four (D071)**, so that 36% is a historical figure and
+  not the current reading: one reset is visual (shows the avatar in full), one was a genuine
+  semantic miss (a concessive pivot the rubric had no category for), and two are rhythm
+  refreshes taken to regain the room to climb X1 -> X2 -> X3 again;
+- Phase 11c measured what that makes possible. **Rhythm is prospective and it separates** —
+  resetting is taken when it unlocks progression that keeping the state does not — but the
+  ladder position a tool would need to compute it **cannot be reconstructed**: handed the
+  creator's own cycle boundaries, the promotion engine still gets the promotion count wrong in
+  9 of 28 cycles. Verdict: **SEMANTICS READY, RHYTHM STILL UNRESOLVED**. See D072 and
+  `.agent/reports/phase-11c-semantic-rhythm-study.txt`. **All three Shorts are development data
+  now**; the next measurement has to be a new Short.
 
-Research tooling for this lives in `tools/research/phase11a/` and `tools/research/phase11b/`
-and is **never imported by the package**. WhisperX, torch and CUDA are not dependencies and
-none were added.
+Research tooling for this lives in `tools/research/phase11a/`, `tools/research/phase11b/` and
+`tools/research/phase11c/` and is **never imported by the package**. WhisperX, torch and CUDA
+are not dependencies and none were added.
 
 ## Key design choice: speech activity vs transcription
 
