@@ -59,6 +59,30 @@ def frame_deltas(predicted: Iterable[int], manual: Sequence[int]) -> tuple[Delta
     return tuple(result)
 
 
+def match_pairs(predicted: Iterable[int], manual: Sequence[int]) -> tuple[Delta, ...]:
+    """One-to-one nearest matching, closest pair first, no manual frame used twice.
+
+    This is the "right decision, wrong frame" measurement (task §35). `frame_deltas` lets two
+    predictions claim the same manual reset, which flatters a candidate that fires twice around
+    one real one; this does not. Predictions left over when the manual resets run out come back
+    with `manual=None`, which is the honest reading of "there was nothing there".
+    """
+
+    available = sorted(manual)
+    pending = sorted(predicted)
+    pairs: list[Delta] = []
+    while pending and available:
+        best = min(
+            ((p, m) for p in pending for m in available),
+            key=lambda pair: (abs(pair[0] - pair[1]), pair[0], pair[1]),
+        )
+        pairs.append(Delta(best[0], best[1], best[0] - best[1]))
+        pending.remove(best[0])
+        available.remove(best[1])
+    pairs.extend(Delta(frame, None, None) for frame in pending)
+    return tuple(sorted(pairs, key=lambda d: d.predicted))
+
+
 def recall_by_category(
     categories: Mapping[int, str], predicted: Iterable[int]
 ) -> dict[str, tuple[int, int]]:
@@ -114,6 +138,7 @@ __all__ = [
     "VISUAL_PRESENTATION_RESET",
     "Delta",
     "frame_deltas",
+    "match_pairs",
     "recall_by_category",
     "subset_evaluation",
 ]

@@ -1,0 +1,510 @@
+PHASE 11b — BLIND VALIDATION, MEASURED AFTER THE CHECKPOINT
+Continuous-talking facecam resets on `bluescreen 2`
+2026-08-20 · branch dev · RESEARCH, NOT SHIPPED
+
+The sealed predictions are in `.agent/reports/phase-11b-blind-predictions.txt`, committed at
+
+    46c5e560825cf2e7e3dc0b351a47bc13369dd80e
+
+Nothing in that file was edited to produce this one. No threshold, rubric, rule or predicted
+frame was changed after the labels were read. Everything below is measurement and failure
+analysis; the one section that speculates is marked NOT VALIDATED and is excluded from every
+score.
+
+No sentence the creator spoke appears here.
+
+                                                                                    §
+    verdict                                                                        12
+
+
+1. GIT
+======
+
+    branch                     dev                       main untouched
+    starting SHA               d297e318cbd4b57a2bcbd4419c06a61787a6a975
+    blind checkpoint SHA       46c5e560825cf2e7e3dc0b351a47bc13369dd80e
+    validation SHA             this commit (a commit cannot name itself; see HANDOFF.md)
+
+Blind protocol integrity: at the moment of the checkpoint commit, the only thing ever read
+from `Timeline 1` was its name and its unique id. No track was listed, no item read, no
+adjustment layer counted, no snapshot taken, no comparison run. Every prediction was produced
+from `Timeline 1 copy`, which has no zoom on Short 3 at all, and from the audio rendered off
+it. `Timeline 1` was first opened for reading in §2, after the checkpoint existed.
+
+
+2. DATASET INTEGRITY — THE TWO TIMELINES ARE COMPARABLE
+=======================================================
+
+Read after the checkpoint:
+
+    property                       Timeline 1                 Timeline 1 copy
+    frame rate                     60.0                       60.0
+    timeline range                 [216000, 222258)           [216000, 222258)
+    V1 items                       51                         51
+    V1 clip list (start/end/name)  IDENTICAL, item for item, including the clip names
+    A1 items                       51                         51
+    A1 item list                   IDENTICAL, item for item
+    V2 items                       92                         57      <- the expected difference
+    V3 items                       0                          0
+    content islands                same four, same bounds
+
+The only material difference between the two timelines is V2, the manual zoom track, which is
+exactly the intended one: `Timeline 1` carries the Short 3 zooms and `Timeline 1 copy` does
+not. **The blind test is valid.**
+
+    island 0   [216000, 217875)   17 clips   16 hard cuts   Short 1   DEVELOPMENT
+    island 1   [218029, 218870)   13 clips   12 hard cuts   Short 2   DEVELOPMENT
+    island 2   [219040, 220717)   15 clips   14 hard cuts   Short 3   BLIND TEST
+    island 3   [221503, 222258)    6 clips    5 hard cuts             EXCLUDED
+
+FOURTH-ISLAND SAFETY (task §46). Island 3 was detected (it is printed by the `dev` stage and
+appears in the checkpoint report), and it was excluded everywhere:
+
+  - the 16 kHz audio was TRUNCATED at frame 220717 before transcription, so island 3 was
+    never transcribed. This is physical, not a promise: the file handed to WhisperX is
+    1 257 866 samples long and island 3 begins at sample 1 468 800;
+  - `study.py` names its universe explicitly: `DEVELOPMENT_ISLANDS = (0, 1)`, `BLIND_ISLAND = 2`;
+  - `annotations.py` contains 28 + 14 = 42 rows and none of them is one of island 3's 5 cuts;
+  - no threshold, distribution or example in either report comes from it;
+  - `test_the_first_three_islands_are_the_study_and_the_fourth_is_excluded` asserts it on a
+    synthetic four-island fixture.
+
+
+3. WHAT THE CREATOR ACTUALLY DID IN SHORT 3
+===========================================
+
+11 manual resets, replayed through `domain/transitions.py` with ZERO state-machine problems —
+the four-state graph again needs no extension.
+
+    frame     on a cut   from        category                 note
+    219097    no (-82)   face_x2     SEMANTIC_RESET           entry lands 14f after cut 219179
+    219224    yes        face_x1     SEMANTIC_RESET
+    219354    yes        face_x2     RHYTHM_REFRESH_RESET
+    219525    yes        face_x2     RHYTHM_REFRESH_RESET
+    219659    yes        face_x2     SEMANTIC_RESET
+    219784    no (+40)   face_x2     RHYTHM_REFRESH_RESET     mid-clip, after cut 219744
+    219999    yes        face_x3     SEMANTIC_RESET
+    220243    no (-73)   face_x3     SEMANTIC_RESET           entry lands EXACTLY on cut 220316
+    220442    no (+126)  face_x3     RHYTHM_REFRESH_RESET     no hard cut within 126 frames
+    220608    yes        face_x3     SEMANTIC_RESET
+    220679    yes        face_x1     LOOP_RESET               last hard cut of the island
+
+    SEMANTIC_RESET          6
+    RHYTHM_REFRESH_RESET    4
+    LOOP_RESET              1
+    VISUAL_PRESENTATION_RESET  0 assigned — see §8, it could not be PROVED for any of them
+    AMBIGUOUS               0
+
+    on a hard cut   7 / 11   (64%)      Phase 11a / development set: 15 / 17  (88%)
+
+THE CUT-ANCHORING ASSUMPTION IS MEASURABLY WEAKER HERE. Four of eleven resets are off-cut
+against two of seventeen in the development set. Two of the four are the pattern Phase 11a
+already described (§3 there): the creator resets EARLY, in the middle of a clip, so that the
+FACE_X1 re-entry can land on or beside the following cut — 220243 puts its entry exactly on
+cut 220316, and 219097 puts its entry 14 frames after cut 219179. The other two (219784,
+220442) are not near any cut in either direction.
+
+X0 DWELL, re-measured as Phase 11a asked (the 10 resets that have a next FACE_X1):
+
+    anchor gap (reset -> next FACE_X1)   29 30 32 34 39 42 43 48 73 96   median 40.5  (675 ms)
+    pure X0 dwell (gap - 15f animation)                                  median 25.5  (425 ms)
+
+Phase 11a measured 36 / 21 frames on two Shorts; Short 3 gives 40.5 / 25.5. **The "~1 second
+at X0" intuition is wrong on this Short too**, and the spread is again continuous with no
+plateau. The Phase 11a reading reproduces.
+
+
+4. BLIND METRICS — STRICT
+=========================
+
+Universe = the 14 hard cuts of Short 3. A cut is reset-positive when a manual reset sits
+EXACTLY on it (the linkage window measured in Phase 11a is 0 frames, and it was not widened
+after seeing these labels). The four off-cut resets are therefore unreachable by any
+cut-anchored candidate and are counted as misses; that is the strict reading and it is the
+primary result.
+
+    family                                       TP   FP   FN   TN   prec    rec     F1
+    ------------------------------------------------------------------------------------
+    P0  semantic only                             5    2    2    5  0.714  0.714  0.714
+    P1  semantic + loop                           5    2    2    5  0.714  0.714  0.714
+    P2  semantic + rhythm                         5    4    2    3  0.556  0.714  0.625
+    P3  semantic + rhythm + loop                  5    4    2    3  0.556  0.714  0.625
+    BASELINE  every eligible hard cut             6    6    1    1  0.500  0.857  0.632
+
+    P0 / P1   FP 219179 220316          FN 219354 219525
+    P2 / P3   FP 219179 219417 220316 220579   FN 219354 220608
+    BASELINE  FP 219179 219308 219417 219744 220316 220579   FN 220608
+
+For comparison, the same candidates on the DEVELOPMENT set, where the semantics were annotated
+with the labels visible: P0 0.552, P1 0.645, P2 0.625, P3 0.706, BASELINE 0.714.
+
+**The blind semantic score is HIGHER than the development one** (P0 0.714 vs 0.552). The
+rubric transferred; it did not collapse.
+
+CATEGORY RECALL over all 11 manual resets (a cut-anchored candidate can only reach 7):
+
+    P0 / P1    SEMANTIC 4/6    RHYTHM 0/4    LOOP 1/1
+    P2 / P3    SEMANTIC 3/6    RHYTHM 1/4    LOOP 1/1
+    BASELINE   SEMANTIC 3/6    RHYTHM 2/4    LOOP 1/1
+
+TRANSCRIPT-ADDRESSABLE SUBSET: **not reported.** See §8 — no exclusion could be proved, and an
+exclusion that cannot be proved is a way of deleting one's own errors.
+
+
+5. DECISION versus FRAME — the metric that changes the reading
+=============================================================
+
+Every prediction matched one-to-one against a distinct manual reset, closest pair first
+(`evaluate.match_pairs`). A large |delta| means the same thing as "unmatched": there was no
+counterpart.
+
+    P0 / P1   exact 5   unmatched 0
+              219179(+82)  219224(0)  219659(0)  219999(0)  220316(+73)  220608(0)  220679(0)
+
+    P2 / P3   exact 5   unmatched 0
+              219179(+82)  219224(0)  219417(+63)  219525(0)  219659(0)  219999(0)
+              220316(+73)  220579(-29)  220679(0)
+
+    BASELINE  exact 6   unmatched 1, plus one pairing at -1025 frames, i.e. two with no
+              counterpart at all
+
+**ALL SEVEN P0 PREDICTIONS CORRESPOND TO A REAL MANUAL RESET.** Five are exact, and the other
+two are the two early-anchored resets of §3: the creator DID reset for the boundary at 219179
+(placing it at 219097) and for the boundary at 220316 (placing it at 220243), but he placed
+the reset backwards from the entry instead of on the cut.
+
+So the two "false positives" of §4 are not wrong DECISIONS. They are wrong PLACEMENTS:
+
+    semantic decision recall over the 6 semantic resets     6 / 6   = 1.000
+    semantic decision precision over P0's 7 predictions     7 / 7   = 1.000
+    exact frame, given a correct decision                   5 / 7   = 0.714
+
+This is exactly the separation the task asked for, and the two numbers say different things.
+The boundary classifier did not make a single spurious call on this Short. The cut-anchored
+PLACEMENT model missed twice, in the one way Phase 11a already predicted it would.
+
+RE-ENTRY, blind, against the creator's 11 FACE_X1 entries:
+
+    candidate   n    median|d|   p90   min   max
+    P0 / P1     8       9.5       36     0    59
+    P2 / P3    10      14.5       59     0    65
+    BASELINE   13      22.0       44     0    65
+
+The frozen "reset + 36 frames" rule lands within 9.5 frames (160 ms) of the creator's entry at
+the median, which is BETTER than its 14-frame development median. Two entries are exact. The
+rule was not retuned.
+
+
+6. THE RHYTHM RESULT — DOES "DO NOT STAY AT X3" HELP?
+=====================================================
+
+Short answer: **as shipped in P2/P3 it made things worse**, and the reason is not the rule.
+
+6.1 THE RULE ITSELF STILL HOLDS
+
+In Short 3, FACE_X3 is entered four times and NEVER survives a hard cut. Every X3 period ends
+in a reset (219999 and 220608 on the cut, 220243 and 220442 off it). Combined with the
+development set the rule is now:
+
+    hard cuts held at FACE_X3 that carry a reset      6 / 6  (dev)   2 / 2  (Short 3)
+    FACE_X3 periods ending in a reset                 8 / 8  (dev)   4 / 4  (Short 3)
+
+Zero counterexamples in three Shorts. And still no threshold is needed: the X3 holds at those
+cuts are 24-59 frames in the development set and 29-102 in Short 3, with no non-reset case at
+any duration to separate from.
+
+6.2 BUT IT ADDS NOTHING, AND ITS IMPLEMENTATION SUBTRACTED
+
+With the CREATOR's own state, the rule fires at exactly two Short 3 cuts — 219999 and 220608 —
+and both are ALREADY DISCOURSE_BOUNDARY cuts that P0 predicts. Contribution: +0 true positives,
++0 false positives. The rhythm rule is *correct and redundant* on this Short.
+
+What P2/P3 actually did was fire at 219417, 219525 and 220579, where the SIMULATED state said
+FACE_X3 and the creator was at FACE_X1, FACE_X2 and FACE_X2. One of those (219525) happened to
+be a real reset; two were not, and a third consequence — the rhythm reset at 220579 — put P2/P3
+at X0 so they lost the genuine semantic reset at 220608. Net: -0.16 precision, -0.09 F1.
+
+**Every point P2/P3 lost is traceable to the simulated ladder position, not to the rhythm
+hypothesis.** That weakness was measured and declared in the checkpoint (§4.5 there: exact
+state agreement 11/28 on the development set), which is what makes this attribution safe to
+make rather than a convenient excuse.
+
+6.3 THE SAME-THOUGHT RESETS — THE OPPOSITE COMPARISON
+
+The task asked for both directions. Cuts the rubric called SAME_THOUGHT_CONTINUES, with the
+creator's own counters:
+
+    frame     state      held   cycle   cuts in cycle   manual reset
+    219253    x0           29       -       0           -
+    219308    face_x1      55      55       2           -
+    219354    face_x2      46     101       3           YES
+    219417    face_x1      29      29       1           -
+    219525    face_x2     108     137       2           YES
+    219744    face_x1      42      42       1           -
+    220579    face_x2      42      95       1           -
+
+Both same-thought resets are at FACE_X2, and the one non-reset FACE_X2 same-thought cut
+(220579) sits at held 42 / cycle 95 against 46/101 and 108/137. On Short 3 alone a threshold
+would separate them. On the development set the same threshold does not: there, the
+same-thought resets at FACE_X2 had cycles 89, 69 and 68 while the non-reset ones had 75 and
+110. **The distributions overlap across Shorts, so there is still no rhythm rule for FACE_X2**,
+and none is claimed. This is the same conclusion the checkpoint reached before the labels were
+seen, and it survived them.
+
+
+7. LOOP RULE — NOW 3/3
+======================
+
+    island 0   last hard cut 217835   manual loop reset 217835   delta 0
+    island 1   last hard cut 218828   manual loop reset 218828   delta 0
+    island 2   last hard cut 220679   manual loop reset 220679   delta 0
+
+Three Shorts, three exact hits, zero error. The rule the creator stated in advance —
+"the last hard cut of a content island returns to X0" — is the single most reliable thing this
+research has found.
+
+One honest qualification: on Short 3 the loop override changed NO frame, because the rubric
+independently called 220679 a DISCOURSE_BOUNDARY (a closing quip). P1 and P3 name it
+LOOP_RESET; P0 and P2 arrive at the same frame through the semantics. The rule is confirmed
+and, on this Short, not load-bearing.
+
+
+8. VISUAL-PRESENTATION RESETS — WHAT COULD AND COULD NOT BE ESTABLISHED
+======================================================================
+
+The creator warned that some Short 3 resets exist for a purely visual reason: to show the
+avatar in full. Four resets here (219354, 219525, 219784, 220442) are explained by no text
+signal, and Short 3 is precisely the Short about the VR hardware worn on the body, so the
+warning is plausible on its face.
+
+WHAT WAS DONE. The source media was located from the Media Pool (read-only) and single frames
+were extracted locally with ffmpeg at four unexplained resets and four controls, then looked
+at. They were temporary, gitignored and deleted; no frame is committed (`AGENTS.md`).
+
+WHAT WAS FOUND. The source footage of Short 3 is ONE continuous full-body avatar shot on a
+blue background. Its framing does not change at a reset, at a cut, or anywhere else — the whole
+Short is the same camera on the same subject. What changes is only the DAZ zoom composited on
+V2, and that composite cannot be observed here: rendering it would be a mutation outside the
+allowed surface, and the Fusion graph is never opened (D007).
+
+CONCLUSION, and it is a limit rather than a result:
+
+  - no reset can be PROVED to be a VISUAL_PRESENTATION_RESET from the evidence available;
+  - therefore NO reset is excluded, and the transcript-addressable subset evaluation
+    (evaluation B) is **not reported at all**. §4 is the whole result;
+  - the four unexplained resets are recorded as RHYTHM_REFRESH_RESET, which is a statement
+    about the TEXT (the sentence was still running), not a claim that rhythm caused them. One
+    or more of them may well be visual.
+
+What this bounds: **at least 4 of the 11 manual resets in Short 3 (36%) are not derivable from
+a word-aligned transcript plus the rhythm counters measured here.** That is the ceiling on the
+whole transcript direction as it currently stands, measured rather than asserted.
+
+No computer vision, motion analysis, VLM, avatar detector or vision model was built, and
+Phase 9 stays retired (task §27).
+
+
+9. FAILURE ANALYSIS, ONE CASE AT A TIME
+=======================================
+
+SEMANTIC, and they are not classifier failures:
+  219179  the rubric called it ANSWER_TO_HOOK, the creator agreed and reset at 219097 instead,
+          82 frames early, so his FACE_X1 could restart beside the cut. Right idea, wrong frame.
+  220316  the same, 73 frames early at 220243, with the entry landing EXACTLY on 220316. This
+          is Phase 11a §3's pattern reproducing on unseen material for the third and fourth
+          time.
+
+SEMANTIC MISSES:
+  219354  SAME_THOUGHT/LIST_CONTINUES — another item of the equipment list. The creator reset.
+          No text signal distinguishes it from 219417, which he did not reset.
+  219525  SAME_THOUGHT/SUBORDINATE_CLAUSE — a concessive clause of the sentence before it.
+          Same shape as the development set's 217373, which was also a rhythm reset.
+  219784  off-cut, mid-clip, 40 frames after a cut the rubric called APPOSITION. Not reachable
+          by a cut-anchored candidate at all.
+  220442  off-cut with no hard cut within 126 frames. Not reachable either, by anything in this
+          study: there is no anchor there.
+
+RHYTHM (P2/P3 only):
+  219417  simulated FACE_X3, actual FACE_X1. A false positive created by the simulator.
+  220579  simulated FACE_X3, actual FACE_X2. Same, and it also cost them 220608.
+  219525  simulated FACE_X3, actual FACE_X2 — a true positive found for the wrong reason. It is
+          counted as a hit because the decision was right; the state that produced it was not.
+
+CONFIDENCE. The rubric's own confidence flags were: 219224 medium, 219744 medium, 220608
+medium, 220679 medium, everything else high. Of the four errors above, one (219179 high) was
+flagged high and the rest of the trouble sits in cuts the rubric was already unsure about.
+The flags carried some information, on a sample far too small to say more.
+
+
+10. EXISTING PRODUCT REGRESSION
+===============================
+
+    product source diff against d297e31 (src/, config.example.toml, README.md)   EMPTY
+
+    pytest         650 passed, 1 failed
+    ruff check .   All checks passed
+    mypy (strict)  Success: no issues found in 59 source files
+
+THE ONE FAILURE IS PRE-EXISTING AND PLATFORM-SPECIFIC.
+`tests/test_voice_render.py::test_an_unwritable_media_storage_volume_is_reported` asserts that
+an unwritable media-storage directory is reported. It relies on `chmod` removing write
+permission from a directory, which Windows does not honour, so the render succeeds where the
+test expects a refusal. It was reproduced on the CLEAN tree at `d297e31` before any Phase 11b
+file existed. It is a Windows portability defect in the test, not a product regression, and it
+is not in scope for this phase.
+
+    tests/test_facecam_golden.py                                    PASSES
+    (the validated facecam edit, written out in full from synthetic inputs)
+
+**THE PHASE 10 LIVE REGRESSION COULD NOT BE RUN ON THIS MACHINE, AND HERE IS EXACTLY WHY.**
+
+    davinci-auto-zoom-test / DAZ_INPUT was created on the Linux machine. Its Media Pool items
+    still point at `\home\palawi\Documents\Fast Documents\Videos\converted medias\...`, which
+    does not exist on Windows, so every clip on that timeline is OFFLINE and all three audio
+    tracks report disabled. `plan-probe` therefore rendered DIGITAL SILENCE:
+
+        energy envelope   5923 points, min_db = max_db = -140.0
+        speech segments   0        (Phase 10 baseline: 15)
+        placements        0        (42)
+
+    The voice render itself behaved correctly and safely: scratch created and deleted, queue
+    restored, Deliver restored, temp directory removed, current timeline restored to
+    DAZ_OUTPUT_MVP3, `clean: true`.
+
+    The media file itself IS present on this machine, at
+    `F:\Fast Documents\Videos\converted medias\2026-07-19 15-28-02.mov`. Only the project's
+    stored path is wrong. Relinking it would permanently modify `davinci-auto-zoom-test`'s
+    Media Pool, which is outside the write surface AGENTS.md allows, so it was NOT done.
+
+    WHAT IS NEEDED: relink the media of `davinci-auto-zoom-test` in the Resolve UI (or on the
+    Linux machine, where it is already correct), then re-run
+
+        plan-probe --confirm-resolve-render-test --project davinci-auto-zoom-test \
+            --source-timeline DAZ_INPUT --reference-timeline DAZ_OUTPUT_MVP2 \
+            --config config.example.toml --json
+
+    and check it against the Phase 10 baseline: fingerprint sha256:a1d107e1...d46a5483,
+    15 speech segments, 14 bursts, 63 valleys, 42 placements, 126 decision lines.
+
+    WHAT CAN STILL BE SAID: the product source tree is byte-identical to `d297e31`, and Phase
+    11b adds nothing that `davinci_auto_zoom` imports. The editorial plan cannot have moved,
+    and the deterministic proof of the facecam edit (the golden test) passes. The live
+    confirmation is OUTSTANDING, and it is listed as such in the handoff rather than assumed.
+
+
+11. RESOLVE SAFETY AUDIT
+========================
+
+Read-only throughout on `bluescreen 2`, except the one audio render through the unmodified
+`resolve/voice_render.py`.
+
+    voice render (Timeline 1 copy)   scratch DAZ_AUDIO_SCRATCH_20260820_144238_b126690e
+                                     job 18c3d98e-... Complete in 8.0 s
+                                     RESULT: PASS   audit differences: none
+    duration check                   1 668 800 samples = 104.300 s, delta +0.0000 frames
+                                     against [216000, 222258) at 60 fps
+
+Post-run audit of `bluescreen 2`:
+
+    Timeline 1        id 4d8c7645-cab4-4865-b89e-b7299330808e  [216000,222258)
+                      V1 51   V2 92   V3 0   A1 51             UNCHANGED
+    Timeline 1 copy   id 69b8c00e-5710-4d50-8216-864f2958ea0e  [216000,222258)
+                      V1 51   V2 57   V3 0   A1 51             UNCHANGED
+    timeline count    2        zero added, zero removed
+    scratch / DAZ_RECOVERY_* / DAZ_AUTO_PREVIEW_*   none
+    temp render directories                          none left on F:
+    render queue      before 0, after 0, our job deleted, pre-existing preserved
+    Deliver           preset saved, restored and deleted; format and mode restored
+    current timeline  restored to Timeline 1
+    current project   restored to `bluescreen 2` after the regression attempt
+    SaveProject()     never called
+
+No `apply-preview`, `clean-preview` or `rebuild-preview` was run anywhere. No asset was placed
+on any timeline. No adjustment layer was created, moved or deleted.
+
+
+12. POST-HOC OBSERVATIONS — NOT VALIDATED, NOT PART OF ANY SCORE
+================================================================
+
+Everything in this section was computed AFTER the labels were read. None of it changes a blind
+number, none of it is folded into any candidate, and none of it is evidence for anything.
+
+  - a rule "at FACE_X2, reset when the current zoom cycle has run >= 100 frames" would separate
+    Short 3's two same-thought FACE_X2 resets from its one non-reset FACE_X2 same-thought cut
+    perfectly. On the development set the same rule scores zero and fires at a non-reset. It is
+    a coincidence on 3 points and it is written down only so nobody rediscovers it and believes
+    it;
+  - the whole gap between P0's decision quality (7/7) and its strict score (5/7) is placement.
+    Phase 11a already recommended choosing the re-entry anchor first and deriving the reset
+    backwards from it; Short 3 makes that recommendation twice as strong (4 early-anchored
+    resets across three Shorts now). Nothing was built for it here;
+  - the simulated ladder position is the weakest link in the machinery and the obvious thing to
+    measure next, but no fix was attempted, because any fix chosen now would be chosen against
+    Short 3.
+
+
+13. WHAT A PRODUCTION VERSION WOULD NEED, IF IT IS EVER BUILT
+=============================================================
+
+Stated because §39 asks, and NOT implemented.
+
+    WhisperX word alignment                    a real, heavy, GPU-class dependency
+    + a discourse-boundary classifier          the part that is validated below, and the part
+                                               DAZ cannot compute today at any quality
+    + the deterministic loop override          free, exact, 3/3
+    + a placement model that anchors the
+      FACE_X1 entry and derives the reset      free, and worth 2 of 7 frames on this Short
+
+The rhythm behaviour, if it is ever wanted, belongs in that last deterministic layer and NOT in
+the semantic model: "do not stay at FACE_X3 across a cut" is an editorial rule about the state
+graph, and asking a language model to decide it would be asking the wrong component.
+
+None of this is recommended yet. See §14.
+
+
+14. VERDICT
+===========
+
+What transferred, blind, on unseen material:
+
+  - the discourse-boundary rubric. Every one of P0's seven predictions corresponds to a real
+    manual reset (7/7), it found all six semantic resets (6/6), and its strict F1 of 0.714 is
+    HIGHER than the 0.552 it scored on the development set where it could see the answers;
+  - the loop rule, now 3/3 with zero error;
+  - the re-entry constant, at a 9.5-frame median error it was not tuned for.
+
+What did not:
+
+  - the simulated ladder position, which agrees with the creator's only 11/28 of the time and
+    which cost P2/P3 everything they lost;
+  - the cut-anchored placement, which is right for 5 of 7 correct decisions and misses the two
+    early-anchored resets by 82 and 73 frames;
+  - the rhythm refresh as a predictor. The RULE is intact (X3 never survives a cut, 3/3 Shorts,
+    zero counterexamples) but it is REDUNDANT with the semantics on Short 3 and its simulated
+    form actively hurt;
+  - coverage. Four of eleven manual resets (36%) are explained by nothing in this study, and it
+    could not be proved whether they are visual, rhythmic or something else.
+
+A system built on this today would place roughly two thirds of the creator's resets, put most
+of them on the right frame, and miss a third of his edit entirely for reasons the transcript
+cannot see. The semantics are real. The system is not there.
+
+                    SEMANTICS HELP BUT GENERALISATION WEAK
+
+
+15. RECOMMENDED PHASE 11c — THE SMALLEST STEP THE BLIND RESULT JUSTIFIES
+========================================================================
+
+NOT implemented here, and deliberately narrow.
+
+    Ask the creator to mark, on Short 3's four unexplained resets (219354, 219525, 219784,
+    220442), whether each one exists to show the avatar. Four yes/no answers.
+
+That is the cheapest measurement in the whole project and it decides the direction. If they are
+visual, the transcript ceiling is ~64% of this edit and honest, and the next question is whether
+a two-thirds-complete pass is useful to the creator at all. If they are not visual, then a
+rhythm signal exists that this study failed to find, and it is worth one more measurement pass.
+
+What should NOT be built before that answer: any profile abstraction, any reset policy in the
+planner, any runtime NLP or vision dependency, any re-entry model, any state-simulation fix.
+Fixing the simulator now would mean fitting it to the only blind Short that exists.

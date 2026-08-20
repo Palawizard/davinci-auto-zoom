@@ -663,25 +663,56 @@ and the ±120 ms reset-to-cut window (measured **0 frames**).
 
 **No production change.** The Phase 10 facecam plan-probe is byte-identical, same fingerprint.
 
-## Phase 11b — Blind semantic annotation of a second Short [RECOMMENDED, NOT ASSIGNED]
+## Phase 11b — Sealed blind validation of the reset reading [DONE — RESEARCH, NOT SHIPPED]
 
-The smallest experiment the evidence justifies, and deliberately not implemented.
+The experiment Phase 11a asked for, run properly. Full detail in
+`.agent/reports/phase-11b-blind-predictions.txt` (sealed at `46c5e56`) and
+`.agent/reports/phase-11b-blind-validation.txt`. Decision: **D070**.
 
-Family F is currently unfalsifiable: the annotation saw the labels. Label a second
-continuous-talking Short and annotate its hard cuts **blind**, before looking at the manual
-zooms. That single number decides whether the transcript direction survives. Re-check the loop
-rule on a third island and re-measure the X0 dwell while the data is there.
+The rubric, the rhythm rule, the re-entry rule and four candidates P0-P3 were frozen and
+committed while the only thing ever read from `Timeline 1` was its name and its unique id.
+Short 3 of `Timeline 1 copy` — which carries no zoom at all — was the blind test; the fourth
+content island was detected and excluded from everything, including the transcription, which
+was run on audio physically truncated at the third island's end.
 
-Do **not** build, before that number exists: a profile abstraction, an embedding or LLM
-classifier, any runtime NLP dependency, or any reset policy in the planner.
+**Result: SEMANTICS HELP BUT GENERALISATION WEAK.** The boundary rubric transferred (blind F1
+0.714 against 0.552 in development; 7 of 7 predictions correspond to a real manual reset; 6 of
+6 semantic resets found). The loop rule is now **3/3 with delta 0**. "FACE_X3 never survives a
+hard cut" holds with zero counterexamples in three Shorts and needs no threshold — but it is
+redundant with the semantics on Short 3, and its simulated form actively hurt. The weak link is
+the **simulated ladder position**, which agrees with the creator only 11/28 of the time. Four of
+eleven resets (36%) are explained by nothing measured, and it could not be proved whether they
+are the visual "show the avatar" resets the creator described.
+
+- `tools/research/phase11b/` — a causal, label-free state simulator; the frozen candidates,
+  rubric and per-cut judgements; strict/subset scoring with one-to-one frame matching; the
+  measured Short 3 taxonomy; the dev/blind/unblind driver. Never imported by the package,
+  strict mypy, 33 tests on synthetic fixtures.
+- **No production change.** `git diff d297e31 -- src/` is empty.
+- The Phase 10 live regression is **outstanding, not skipped**: `davinci-auto-zoom-test` still
+  carries Linux media paths, its clips are offline on Windows, and relinking is outside the
+  allowed write surface. See `.agent/HANDOFF.md` for the exact command to re-run once relinked.
+
+## Phase 11c — Four yes/no answers from the creator [RECOMMENDED, NOT ASSIGNED]
+
+The smallest step the blind result justifies, and deliberately not implemented.
+
+For each of Short 3's four unexplained resets — **219354, 219525, 219784, 220442** — does it
+exist to show the avatar in full? If they are visual, the transcript ceiling on this edit is
+about 64% and the real question becomes whether a two-thirds-complete pass is useful at all. If
+they are not, a rhythm signal exists that Phase 11b failed to find.
+
+Do **not** build before that answer: no profile abstraction, no reset policy in the planner, no
+runtime NLP or vision dependency, no re-entry model, and **no fix to the state simulator** —
+fixing it now would mean fitting it to the only blind Short that exists (D070).
 
 ## Future work — NOT active assignments
 
 Listed so nobody has to rediscover them, and deliberately without technical proposals attached.
 Do not start any of these without an explicit assignment.
 
-- **Other video types / profiles.** Research on a second type has now started (Phase 11a above,
-  D069) and produced data, not architecture. That does not change the rule: no profile
+- **Other video types / profiles.** Research on a second type has now started (Phases 11a and
+  11b above, D069 and D070) and produced data, not architecture. That does not change the rule: no profile
   interface, no video-type enum, no plugin system, no strategy hierarchy until a rule is
   validated. What makes such work possible is the boundary that already exists — objective
   facts, then a pure domain planner, then placements, then an executor that makes no editorial

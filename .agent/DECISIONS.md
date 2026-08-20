@@ -1685,3 +1685,75 @@ three grammatically parallel enumeration items where one is a reset and two are 
 **Status: RESEARCH / NOT SHIPPED** until the creator validates a rule. The next step is the
 smallest one the evidence justifies — a **blind** semantic annotation of a second Short — and
 it is not assigned.
+
+
+## D070 — The blind trial happened: the boundary rubric transfers, the machinery around it does not, and 36% of the edit is invisible to text
+
+Phase 11a's family F scored F1 0.800 with the manual labels visible while it was annotated, so
+it was an upper bound rather than a measurement. D069 named the one experiment that could
+falsify it. Phase 11b ran that experiment properly: the semantic rubric, the rhythm rule, the
+re-entry rule and four candidates P0-P3 were frozen and **committed** (`46c5e56`) before
+`Timeline 1`'s Short 3 zooms were read at all. Full detail in
+`.agent/reports/phase-11b-blind-predictions.txt` and
+`.agent/reports/phase-11b-blind-validation.txt`.
+
+**Result: SEMANTICS HELP BUT GENERALISATION WEAK.**
+
+**What is now measured rather than assumed:**
+
+- **the discourse-boundary rubric transfers.** Blind, on Short 3, all seven of P0's predictions
+  correspond to a real manual reset (7/7) and it found all six semantic resets (6/6). Its
+  strict F1 of 0.714 is *higher* than the 0.552 it scores on the development Shorts. The
+  rubric is `AGENT_SEMANTIC_REASONING` and is still not computable by DAZ;
+- **the loop rule is now 3/3, delta 0 on all three Shorts.** It remains the most reliable
+  finding of the whole direction, and it is a deterministic override, never a learned class;
+- **"FACE_X3 does not survive a hard cut" is a real rule with zero counterexamples** in three
+  Shorts (6/6 and 2/2 on-cut, 8/8 and 4/4 counting X3 periods) — and **no time threshold is
+  involved.** The creator's "X3 for N seconds -> reset" hypothesis is not what the edit
+  contains. On Short 3 the rule is also entirely REDUNDANT with the semantics: it fires at two
+  cuts that are already discourse boundaries;
+- **there is no rhythm rule for FACE_X2.** Same-thought resets at FACE_X2 are not separable
+  from same-thought non-resets by hold, cycle length or cuts-in-cycle; the distributions
+  overlap and they overlap *differently* in each Short. Nothing is claimed;
+- **at least 4 of Short 3's 11 resets (36%) are explained by nothing in this study.** Whether
+  they are the visual "show the avatar" resets the creator described could NOT be proved: the
+  composited picture cannot be observed here, and the source footage is one continuous
+  full-body shot whose framing never changes. So no reset was excluded, no
+  transcript-addressable subset was scored, and 36% is the measured ceiling on the transcript
+  direction as it stands.
+
+**What the blind trial disproved about our own machinery, and this is the important half:**
+
+- **a simulated ladder position is not good enough to gate on.** D069's "gating on a held face
+  state is free precision" was measured with the creator's own track. Simulated causally from
+  the audio, the state agrees with his only **11/28** of the time (82% for the coarse
+  face-versus-X0 gate), and every point P2/P3 lost on Short 3 is traceable to that, not to the
+  rhythm hypothesis. This was declared in the checkpoint before unblinding;
+- **the reset is not reliably cut-anchored.** 15/17 on-cut in the development Shorts became
+  7/11 in Short 3. Two of the four off-cut resets are the pattern Phase 11a described — the
+  reset placed backwards so the FACE_X1 entry lands on the cut — and they cost P0 its only two
+  false positives. Those are wrong PLACEMENTS, not wrong decisions, and the two numbers must
+  never be merged into one score;
+- **no label-free anchor reproduces the re-entry.** Neither the next hard cut nor the next
+  qualifying voice recovery beats a constant: median error 55 and 33 frames against 14 for
+  "reset + 36 frames". The frozen constant then scored a 9.5-frame median error blind, better
+  than it did in development. This refines D069's "the entry is anchored and the dwell falls
+  out": the entry is anchored to something this study cannot see.
+
+**In force from this decision:**
+
+- the facecam MVP frozen in Phase 10 remains the supported product. Phase 11b changed **no**
+  product source at all — `git diff d297e31 -- src/` is empty — and added no state, role,
+  config key, CLI command, profile or dependency;
+- **nothing from this direction may be built into the planner yet.** No `VideoProfile`, no
+  `ResetPolicy` interface, no reset policy, no runtime NLP, no state-simulation fix. Fixing the
+  simulator now would mean fitting it to the only blind Short that exists;
+- research tooling lives in `tools/research/phase11b/`, is never imported by the package, and
+  is held to the same strict mypy with its own tests;
+- **the blind predictions of `46c5e56` are immutable.** They were not edited after unblinding
+  and must not be. A defect found in them is reported, never repaired.
+
+**Status: RESEARCH / NOT SHIPPED.** The next step is four yes/no answers from the creator about
+Short 3's four unexplained resets (219354, 219525, 219784, 220442) — whether each exists to
+show the avatar. That measurement costs nothing and decides whether the direction has a
+ceiling of ~64% of this edit or a rhythm signal still to find. It is not assigned.

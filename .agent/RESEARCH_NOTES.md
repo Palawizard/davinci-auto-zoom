@@ -833,3 +833,103 @@ One creator, 47 labelled seconds, 28 cuts, 2 islands. The semantic annotation wa
 coding agent **with the labels visible**, so family F is an upper bound and not a classifier
 score. **Human listening validation was not performed** — the rendered voice was never heard,
 and every timing statement above is instrumental.
+
+## Phase 11b — the blind trial of that reading, and the 36% it cannot see (2026-08-20)
+
+Full numbers in `.agent/reports/phase-11b-blind-predictions.txt` (sealed at `46c5e56`) and
+`.agent/reports/phase-11b-blind-validation.txt`. Durable decision: **D070**.
+
+### The protocol, because it is the point of the phase
+
+The rubric, the rhythm rule, the re-entry rule and the four candidates were committed while the
+only thing ever read from `Timeline 1` was its name and its unique id. Every prediction came
+from `Timeline 1 copy`, which carries no zoom on Short 3. Afterwards the two timelines were
+verified equivalent: V1 and A1 identical item for item, including clip names; only V2 differs.
+Nothing in the sealed commit was edited after the labels were read.
+
+### RESULT: SEMANTICS HELP BUT GENERALISATION WEAK
+
+    family                             TP  FP  FN  TN   prec    rec     F1
+    P0  semantic only                   5   2   2   5  0.714  0.714  0.714
+    P1  semantic + loop                 5   2   2   5  0.714  0.714  0.714
+    P2  semantic + rhythm               5   4   2   3  0.556  0.714  0.625
+    P3  semantic + rhythm + loop        5   4   2   3  0.556  0.714  0.625
+    BASELINE  every eligible hard cut   6   6   1   1  0.500  0.857  0.632
+
+The blind semantic score is HIGHER than the development one (0.714 vs 0.552, where the labels
+were visible during annotation). Phase 11a's family F was an upper bound; the rubric that
+replaced it transfers.
+
+### Decision and frame are different numbers, and must never be merged
+
+Matched one-to-one, **all seven of P0's predictions correspond to a real manual reset** and it
+found **6/6** of the semantic resets. Its two "false positives" are cuts where the creator DID
+reset for that boundary but placed it 82 and 73 frames early, so that his FACE_X1 entry could
+land on the cut — 220243's entry sits EXACTLY on cut 220316. That is Phase 11a §3's pattern
+reproducing on unseen material.
+
+    right decision, wrong frame     2 of 7
+    exact frame                     5 of 7
+    wrong decision                  0 of 7
+
+### The rhythm hypothesis: the rule is real, the implementation was not
+
+`FACE_X3` never survives a hard cut. Three Shorts, zero counterexamples (6/6 and 2/2 on-cut;
+8/8 and 4/4 counting whole X3 periods). **No time threshold is involved** — the creator's
+"X3 for N seconds -> reset" is not what the edit contains, and every T from 0 to 24 frames
+gives the identical development result because no X3 cut is ever declined.
+
+But on Short 3 the rule is REDUNDANT: with the creator's own state it fires at two cuts that
+the semantics already claim. What P2/P3 actually did was fire where the SIMULATED state said
+X3 and the creator was at X1 or X2 — and one of those rhythm resets then cost them a genuine
+semantic reset by leaving them at X0. Every point they lost is traceable to the simulation.
+
+There is still **no rhythm rule for FACE_X2**. Same-thought resets there are not separable from
+same-thought non-resets by hold, cycle length or cuts-in-cycle, and the overlap is different in
+each Short. A threshold that separates Short 3 perfectly scores zero on Shorts 1 and 2.
+
+### A simulated ladder position is not good enough to gate on
+
+D069 said gating on "a face state is currently held" is free precision. It is — when the state
+is READ. Simulated causally from the audio it agrees with the creator only **11/28** of the
+time (82% for the coarse face-versus-X0 gate), and the four development false positives that
+the gate removed in Phase 11a come straight back. This was measured and declared in the sealed
+checkpoint before unblinding, which is what makes the attribution above safe to make.
+
+### Re-entry: no label-free anchor beats a constant
+
+Measured on the 15 development resets that have a next FACE_X1:
+
+    first qualifying voice recovery >= animation end   median |delta| 33 fr
+    first hard cut >= animation end                    median |delta| 55 fr
+    reset + 36 frames (the development median gap)     median |delta| 14 fr
+
+The constant was then frozen and scored a **9.5-frame** median error blind — better than in
+development. This refines D069 rather than confirming it: the entry is anchored to something
+this study cannot see.
+
+X0 dwell re-measured on Short 3: median anchor gap **40.5 frames (675 ms)**, median pure dwell
+**25.5 frames (425 ms)**, again spread continuously with no plateau. Phase 11a measured 36/21.
+The "~1 second" intuition is wrong on all three Shorts.
+
+### The ceiling, and it is the most useful number here
+
+    manual resets in Short 3        11
+    on a hard cut                    7   (development: 15 of 17)
+    explained by the rubric          6   + 1 loop
+    explained by nothing measured    4   = 36%
+
+The creator warned that some Short 3 resets exist to show the avatar in full. It could NOT be
+proved for any of them: the composited picture (source plus the Fusion zoom on V2) cannot be
+observed in this environment, and the source footage is one continuous full-body avatar shot
+whose framing never changes. So **no reset was excluded and no transcript-addressable subset
+was scored** — "the model missed it" is not evidence that a reset was visual.
+
+### Honest limits
+
+Three Shorts, one creator, 42 cuts, 28 manual resets. Only Short 3's annotation is blind, and
+only its numbers are a score. Human listening validation still not performed. The Phase 10 live
+regression could not be re-run on this machine: `davinci-auto-zoom-test` still carries Linux
+media paths and its clips are offline on Windows, so `plan-probe` rendered digital silence. The
+product source is byte-identical to `d297e31` and the golden facecam test passes, but the live
+confirmation is outstanding.

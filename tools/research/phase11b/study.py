@@ -37,7 +37,13 @@ from tools.research.phase11a.ablation import Evaluation, evaluate, table
 from tools.research.phase11a.manual import ManualPlacement, reconstruct
 from tools.research.phase11a.structure import Clip, ContentIsland, content_islands
 from tools.research.phase11b.annotations import BLIND_SHORT_3, DEVELOPMENT
-from tools.research.phase11b.evaluate import frame_deltas, recall_by_category
+from tools.research.phase11b.evaluate import frame_deltas, match_pairs, recall_by_category
+from tools.research.phase11b.measured import (
+    SHORT_3_ENTRIES,
+    SHORT_3_OFF_CUT,
+    SHORT_3_ON_CUT,
+    SHORT_3_RESETS,
+)
 from tools.research.phase11b.policy import (
     REENTRY_GAP_FRAMES,
     BlindPredictions,
@@ -339,44 +345,61 @@ def blind_report(predictions: BlindPredictions) -> str:
 
 
 # ------------------------------------------------------------------------------ unblind stage
-def unblind_report(dataset: Dataset, labels: dict[str, Any], categories: dict[int, str]) -> str:
-    """Score the frozen predictions against the manual Short 3. Measurement only, no tuning."""
+def unblind_report(dataset: Dataset) -> str:
+    """Score the frozen predictions against the manual Short 3. Measurement only, no tuning.
+
+    The manual edit arrives from `measured.py`, which was written after the checkpoint commit
+    and changes nothing the checkpoint froze.
+    """
 
     island = dataset.island(BLIND_ISLAND)
-    labelled = Dataset(labels, {"envelope": [], "speech_ranges": []})
-    manual_island = next(
-        i for i in labelled.islands if i.start == island.start and i.end == island.end
-    )
-    actual = labelled.manual_reset_cuts(manual_island)
-    off_cut = labelled.off_cut_resets(manual_island)
     traces = run(dataset, BLIND_ISLAND, BLIND_SHORT_3)
+    actual = SHORT_3_ON_CUT
+    manual_all = sorted(SHORT_3_RESETS)
 
     lines = [
-        f"manual reset cuts   {len(actual)}  {list(actual)}",
-        f"off-cut resets      {len(off_cut)}  {list(off_cut)}",
+        f"manual resets       {len(SHORT_3_RESETS)}  {manual_all}",
+        f"  on a hard cut     {len(SHORT_3_ON_CUT)}  {list(SHORT_3_ON_CUT)}",
+        f"  off cut           {len(SHORT_3_OFF_CUT)}  {list(SHORT_3_OFF_CUT)}",
         "",
+        "STRICT — every manual reset counts, universe = the 14 hard cuts of Short 3",
         table([_score(name, island, traces[name], actual) for name in CANDIDATES]),
         "",
-        "category recall (strict, all manual resets on cuts):",
     ]
     for name in CANDIDATES:
-        hits = recall_by_category(categories, traces[name].reset_frames)
+        result = _score(name, island, traces[name], actual)
+        lines.append(
+            f"  {name:<9} FP {list(result.false_positive_frames)}  "
+            f"FN {list(result.false_negative_frames)}"
+        )
+    lines += ["", "category recall over all 11 manual resets (a cut-anchored candidate can "
+              "only reach the 7 on-cut ones):"]
+    for name in CANDIDATES:
+        hits = recall_by_category(SHORT_3_RESETS, traces[name].reset_frames)
         rendered = "  ".join(f"{k} {v[0]}/{v[1]}" for k, v in sorted(hits.items()))
         lines.append(f"  {name:<9} {rendered}")
-    lines += ["", "reset frame deltas (predicted -> nearest manual reset):"]
-    manual_all = sorted({*actual, *off_cut})
+    lines += [
+        "",
+        "DECISION vs FRAME — one-to-one matching of predictions to manual resets:",
+    ]
     for name in CANDIDATES:
-        deltas = frame_deltas(traces[name].reset_frames, manual_all)
-        rendered = ", ".join(f"{d.predicted}{'' if d.delta is None else f'({d.delta:+d})'}"
-                             for d in deltas)
-        lines.append(f"  {name:<9} {rendered}")
+        pairs = match_pairs(traces[name].reset_frames, manual_all)
+        rendered = "  ".join(
+            f"{p.predicted}({'none' if p.delta is None else f'{p.delta:+d}'})" for p in pairs
+        )
+        unmatched = sum(1 for p in pairs if p.manual is None)
+        exact = sum(1 for p in pairs if p.exact)
+        lines.append(f"  {name:<9} exact {exact}  unmatched {unmatched}   {rendered}")
     lines += ["", "re-entry deltas (predicted FACE_X1 -> nearest manual FACE_X1):"]
-    manual_entries = sorted(e for e in labelled.manual.entries if manual_island.contains(e))
     for name in CANDIDATES:
-        deltas = frame_deltas(traces[name].entry_frames, manual_entries)
-        values = [abs(d.delta) for d in deltas if d.delta is not None]
+        deltas = frame_deltas(traces[name].entry_frames, SHORT_3_ENTRIES)
+        values = sorted(abs(d.delta) for d in deltas if d.delta is not None)
         summary = (
-            f"median|d| {statistics.median(values):.1f}  max {max(values)}" if values else "-"
+            f"n {len(values):>2}  median|d| {statistics.median(values):>5.1f}  "
+            f"p90 {values[int(0.9 * (len(values) - 1))]:>3}  min {values[0]:>3}  "
+            f"max {values[-1]:>3}"
+            if values
+            else "-"
         )
         lines.append(f"  {name:<9} {summary}")
     return "\n".join(lines)
@@ -406,21 +429,17 @@ def main() -> None:
             Path(args.out).write_text(predictions.to_json(), encoding="utf-8")
         return
 
-    if args.labels is None:
-        raise SystemExit("unblind needs --labels, the export of `Timeline 1`")
-    labels = _load(args.labels)
-    island = dataset.island(BLIND_ISLAND)
-    labelled = Dataset(labels, {"envelope": [], "speech_ranges": []})
-    manual_island = next(
-        i for i in labelled.islands if i.start == island.start and i.end == island.end
-    )
-    # Every manual reset starts as SEMANTIC unless the loop rule owns it; the report refines
-    # this taxonomy by hand once the failures have been read.
-    categories = {
-        cut: ("LOOP_RESET" if cut == manual_island.hard_cuts[-1] else "SEMANTIC_RESET")
-        for cut in labelled.manual_reset_cuts(manual_island)
-    }
-    print(unblind_report(dataset, labels, categories))
+    if args.labels is not None:
+        # Optional integrity check: `measured.py` must still describe the live `Timeline 1`.
+        labelled = Dataset(_load(args.labels), {"envelope": [], "speech_ranges": []})
+        island = dataset.island(BLIND_ISLAND)
+        manual_island = next(
+            i for i in labelled.islands if i.start == island.start and i.end == island.end
+        )
+        live = sorted(r.start for r in labelled.manual.resets if manual_island.contains(r.start))
+        if live != sorted(SHORT_3_RESETS):
+            raise SystemExit(f"measured.py disagrees with the live timeline: {live}")
+    print(unblind_report(dataset))
 
 
 if __name__ == "__main__":

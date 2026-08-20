@@ -53,9 +53,9 @@ reference material — not a profile interface, a video-type enum or a plugin sy
 advance. The boundary that makes such work possible later is the one that already exists:
 objective facts -> pure domain planner -> placements -> executor.
 
-### A second video type is now under research, and is NOT part of the product (D069)
+### A second video type is now under research, and is NOT part of the product (D069, D070)
 
-Phase 11a began studying the creator's **continuous-talking facecam** Shorts, where he speaks
+Phases 11a and 11b studied the creator's **continuous-talking facecam** Shorts, where he speaks
 almost without pause and cuts the pauses out. Its status is **RESEARCH / NOT SHIPPED**, and the
 paragraph above still holds in full: no profile interface was created, and none should be.
 
@@ -71,10 +71,17 @@ What the research established, because it changes how to read this document:
   but the sentence is now backed by a measurement rather than a preference. A word-level French
   transcript was tried, and the signals a local tool could compute from it reach F1 0.476.
   Only reading what the sentences *mean* reaches 0.800. See D069 and
-  `.agent/reports/phase-11a-continuous-facecam-reset-study.txt`.
+  `.agent/reports/phase-11a-continuous-facecam-reset-study.txt`;
+- Phase 11b then tested that reading **blind**, on a Short whose manual zooms were sealed away
+  until the predictions had been committed. The boundary rubric transferred (blind F1 0.714,
+  every prediction corresponding to a real reset) and the loop rule is now 3/3 — but **36% of
+  that Short's resets are explained by nothing measurable here**, and the verdict is
+  **SEMANTICS HELP BUT GENERALISATION WEAK**. See D070 and
+  `.agent/reports/phase-11b-blind-validation.txt`.
 
-Research tooling for this lives in `tools/research/phase11a/` and is **never imported by the
-package**. WhisperX, torch and CUDA are not dependencies and none were added.
+Research tooling for this lives in `tools/research/phase11a/` and `tools/research/phase11b/`
+and is **never imported by the package**. WhisperX, torch and CUDA are not dependencies and
+none were added.
 
 ## Key design choice: speech activity vs transcription
 

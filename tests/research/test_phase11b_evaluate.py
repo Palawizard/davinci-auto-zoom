@@ -10,6 +10,7 @@ from tools.research.phase11b.evaluate import (
     SEMANTIC_RESET,
     VISUAL_PRESENTATION_RESET,
     frame_deltas,
+    match_pairs,
     recall_by_category,
     subset_evaluation,
 )
@@ -83,3 +84,34 @@ def test_frame_deltas_report_none_rather_than_zero_when_there_is_no_manual_frame
     assert frame_deltas((100,), ()) == (frame_deltas((100,), ())[0],)
     only = frame_deltas((100,), ())[0]
     assert (only.manual, only.delta) == (None, None)
+
+
+def test_match_pairs_never_lets_two_predictions_claim_one_manual_reset() -> None:
+    pairs = match_pairs((100, 104, 500), (100, 300))
+    assert [(p.predicted, p.manual, p.delta) for p in pairs] == [
+        (100, 100, 0),
+        (104, 300, -196),
+        (500, None, None),
+    ]
+
+
+def test_match_pairs_is_symmetric_in_its_tie_break_and_deterministic() -> None:
+    assert match_pairs((90, 110), (100,)) == match_pairs((110, 90), (100,))
+    first = match_pairs((90, 110), (100,))
+    assert [(p.predicted, p.manual) for p in first] == [(90, 100), (110, None)]
+
+
+def test_the_measured_short_3_taxonomy_is_internally_consistent() -> None:
+    from tools.research.phase11b.annotations import BLIND_SHORT_3
+    from tools.research.phase11b.measured import (
+        SHORT_3_OFF_CUT,
+        SHORT_3_ON_CUT,
+        SHORT_3_RESETS,
+    )
+
+    assert set(SHORT_3_ON_CUT) | set(SHORT_3_OFF_CUT) == set(SHORT_3_RESETS)
+    assert not set(SHORT_3_ON_CUT) & set(SHORT_3_OFF_CUT)
+    cuts = {a.frame for a in BLIND_SHORT_3}
+    assert set(SHORT_3_ON_CUT) <= cuts
+    assert not set(SHORT_3_OFF_CUT) & cuts
+    assert sorted(SHORT_3_RESETS)[-1] == SHORT_3_ON_CUT[-1] == max(cuts)
